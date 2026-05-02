@@ -1,26 +1,71 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 210 40% 98%;
+    --foreground: 240 24% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 24% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 24% 10%;
+
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 60% 96%;
+    --secondary-foreground: 240 24% 10%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 243 75% 59%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 243 75% 59%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 240 39% 20%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 243 75% 59%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 100%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 240 30% 28%;
+    --sidebar-ring: 243 75% 59%;
+    --sidebar-active: 243 75% 59%;
+    --sidebar-hover: 240 30% 28%;
+
+    --kpi-green: 152 69% 42%;
+    --kpi-amber: 38 92% 50%;
+    --kpi-red: 0 84% 60%;
+    --kpi-purple: 263 70% 50%;
+
+    --chart-1: 243 75% 59%;
+    --chart-2: 263 70% 50%;
+    --chart-3: 230 70% 65%;
+    --chart-4: 280 60% 65%;
+    --chart-5: 220 60% 75%;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', sans-serif;
+  }
 }
