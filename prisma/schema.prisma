@@ -108,6 +108,7 @@ model Employee {
   manager_id       String?
   date_of_joining  DateTime
   employment_type  String   @default("full_time")
+  ctc_annual      Decimal?  @db.Decimal(12, 2)
   status           String   @default("active")
   personal_info    Json     @default("{}")
   contact_info     Json     @default("{}")
