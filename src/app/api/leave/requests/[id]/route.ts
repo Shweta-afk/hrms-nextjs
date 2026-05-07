@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -27,7 +27,7 @@ export async function PATCH(
     }
 
     const leaveRequest = await prisma.leaveRequest.findFirst({
-      where: { id: params.id, org_id: session.user.org_id },
+      where: { id: id, org_id: session.user.org_id },
       include: {
         employee: {
           select: {
@@ -45,7 +45,7 @@ export async function PATCH(
     }
 
     const updated = await prisma.leaveRequest.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         status,
         ...(status === 'approved' && {

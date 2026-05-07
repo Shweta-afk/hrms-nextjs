@@ -4,9 +4,10 @@ import { prisma } from '@/lib/prisma'
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
@@ -19,7 +20,7 @@ export async function PATCH(
     }
 
     const run = await prisma.payrollRun.findFirst({
-      where: { id: params.id, org_id: session.user.org_id },
+      where: { id: id, org_id: session.user.org_id },
     })
 
     if (!run) {
@@ -27,7 +28,7 @@ export async function PATCH(
     }
 
     const updated = await prisma.payrollRun.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         status,
         ...(status === 'approved' && { approved_by: session.user.id }),
@@ -40,7 +41,7 @@ export async function PATCH(
       await prisma.payslip.updateMany({
         where: {
           org_id: session.user.org_id,
-          payroll_run_id: params.id,
+          payroll_run_id: id,
         },
         data: { is_published: true },
       })

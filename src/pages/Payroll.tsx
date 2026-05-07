@@ -453,10 +453,9 @@ const Payroll = () => {
             <Button variant="outline" size="sm" onClick={handleDownloadPDF} disabled={payslips.length === 0}>
               <FileText className="h-4 w-4 mr-1.5" /> Download Register PDF
             </Button>
-          </div>
+          </div >
           <Button
-            size="lg"
-            className="bg-kpi-green hover:bg-kpi-green/90 text-white font-semibold"
+            variant="outline" size="sm"
             disabled={isApproved || payslips.length === 0}
             onClick={() => setApproveModal(true)}
           >
@@ -480,7 +479,6 @@ const Payroll = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setApproveModal(false)}>Cancel</Button>
             <Button
-              className="bg-kpi-green hover:bg-kpi-green/90 text-white"
               onClick={handleApprove}
               disabled={approving}
             >

@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -14,7 +14,7 @@ export async function GET(
 
     const payslip = await prisma.payslip.findFirst({
       where: {
-        id: params.id,
+        id: id,
         org_id: session.user.org_id,
         // Employees can only see their own published payslips
         ...(session.user.role === 'employee' && { is_published: true }),

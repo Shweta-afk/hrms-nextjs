@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -16,7 +16,7 @@ export async function PATCH(
     const { stage, ai_score, ai_summary, ...rest } = body
 
     const candidate = await prisma.candidate.updateMany({
-      where: { id: params.id, org_id: session.user.org_id },
+      where: { id: id, org_id: session.user.org_id },
       data: {
         ...(stage && { stage }),
         ...(ai_score !== undefined && { ai_score }),

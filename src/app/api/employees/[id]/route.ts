@@ -20,7 +20,7 @@ const UpdateEmployeeSchema = z.object({
 // GET — single employee
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -29,7 +29,7 @@ export async function GET(
     }
 
     const employee = await prisma.employee.findFirst({
-      where: { id: params.id, org_id: session.user.org_id },
+      where: { id: id, org_id: session.user.org_id },
       include: {
         department: true,
         designation: true,
@@ -60,7 +60,7 @@ export async function GET(
 // PATCH — update employee
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -72,7 +72,7 @@ export async function PATCH(
     const data = UpdateEmployeeSchema.parse(body)
 
     const employee = await prisma.employee.updateMany({
-      where: { id: params.id, org_id: session.user.org_id },
+      where: { id: id, org_id: session.user.org_id },
       data,
     })
 
@@ -81,7 +81,7 @@ export async function PATCH(
     }
 
     const updated = await prisma.employee.findFirst({
-      where: { id: params.id },
+      where: { id: id },
       include: { department: true, designation: true },
     })
 
@@ -97,7 +97,7 @@ export async function PATCH(
 // DELETE — soft delete (deactivate)
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -106,7 +106,7 @@ export async function DELETE(
     }
 
     await prisma.employee.updateMany({
-      where: { id: params.id, org_id: session.user.org_id },
+      where: { id: id, org_id: session.user.org_id },
       data: { status: 'terminated' },
     })
 

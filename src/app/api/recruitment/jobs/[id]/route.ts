@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -15,7 +15,7 @@ export async function PATCH(
     const body = await req.json()
 
     const job = await prisma.jobPosting.updateMany({
-      where: { id: params.id, org_id: session.user.org_id },
+      where: { id: id, org_id: session.user.org_id },
       data: body,
     })
 
@@ -27,7 +27,7 @@ export async function PATCH(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -36,7 +36,7 @@ export async function DELETE(
     }
 
     await prisma.jobPosting.updateMany({
-      where: { id: params.id, org_id: session.user.org_id },
+      where: { id: id, org_id: session.user.org_id },
       data: { status: 'closed' },
     })
 
