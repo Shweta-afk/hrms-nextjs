@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-
 const UpdateEmployeeSchema = z.object({
   first_name: z.string().min(1).optional(),
   last_name: z.string().min(1).optional(),
@@ -15,6 +14,8 @@ const UpdateEmployeeSchema = z.object({
   personal_info: z.record(z.string(), z.string()).optional(),
   contact_info: z.record(z.string(), z.string()).optional(),
   essl_device_id: z.string().optional(),
+  salary_structure_id: z.string().optional(),
+  ctc_annual: z.number().optional(),
 })
 
 // GET — single employee
@@ -23,6 +24,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
@@ -63,6 +65,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
@@ -100,6 +103,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })

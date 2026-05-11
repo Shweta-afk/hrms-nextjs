@@ -26,7 +26,18 @@ export async function POST(req: NextRequest) {
 
     const employees = await prisma.employee.findMany({
       where: { org_id: session.user.org_id, status: 'active' },
-      select: { id: true, first_name: true, ctc_annual: true },
+      select: {
+        id: true,
+        first_name: true,
+        ctc_annual: true,
+        salary_structure_id: true,
+        salary_structure: true,
+      },
+    })
+
+    // Get default structure as fallback
+    const defaultStructure = await prisma.salaryStructure.findFirst({
+      where: { org_id: session.user.org_id, is_default: true },
     })
 
     const workingDays = getWorkingDays(run.year, run.month)
@@ -59,12 +70,39 @@ export async function POST(req: NextRequest) {
         : Math.max(0, workingDays - presentDays)
 
       // Salary calculation
-      const ctcAnnual = employee.ctc_annual ? Number(employee.ctc_annual) : 600000
+      const ctcAnnual = employee.ctc_annual ? Number(employee.ctc_annual) : 300000
       const ctcMonthly = ctcAnnual / 12
 
-      const basic = Math.round(ctcMonthly * 0.40)
-      const hra = Math.round(basic * 0.50)
-      const special = Math.round(ctcMonthly - basic - hra)
+      // Use employee's assigned structure, or default, or hardcoded
+      const structure = (employee.salary_structure ?? defaultStructure) as any
+      const components = structure?.components as any[] ?? null
+
+      let basic: number, hra: number, special: number
+
+      if (components && Array.isArray(components)) {
+        // Calculate from structure components
+        basic = 0; hra = 0; let otherEarnings = 0
+        for (const comp of components) {
+          if (comp.type !== 'earning') continue
+          let amount = 0
+          if (comp.calc_type === 'percentage_of_ctc') amount = Math.round(ctcMonthly * comp.value / 100)
+          else if (comp.calc_type === 'percentage_of_basic') amount = Math.round(basic * comp.value / 100)
+          else if (comp.calc_type === 'fixed') amount = comp.value
+          else if (comp.calc_type === 'remainder') amount = Math.round(ctcMonthly - basic - hra - otherEarnings)
+
+          if (comp.name === 'Basic') basic = amount
+          else if (comp.name === 'HRA') hra = amount
+          else otherEarnings += amount
+        }
+        special = Math.round(ctcMonthly - basic - hra)
+      } 
+      else {
+        // Default: 40% basic, 50% of basic HRA, remainder special
+        basic = Math.round(ctcMonthly * 0.40)
+        hra = Math.round(basic * 0.50)
+        special = Math.round(ctcMonthly - basic - hra)
+      }
+
       const grossSalary = basic + hra + special
 
       // LOP

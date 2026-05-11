@@ -28,6 +28,7 @@ model Organisation {
   attendance_records AttendanceRecord[]
   payroll_runs  PayrollRun[]
   payslips      Payslip[]
+  salary_structures SalaryStructure[]
   job_postings  JobPosting[]
   notifications Notification[]
   holidays      Holiday[]
@@ -109,6 +110,8 @@ model Employee {
   date_of_joining  DateTime
   employment_type  String   @default("full_time")
   ctc_annual      Decimal?  @db.Decimal(12, 2)
+  salary_structure_id String?
+  salary_structure SalaryStructure? @relation("EmployeeSalaryStructure", fields: [salary_structure_id], references: [id])
   status           String   @default("active")
   personal_info    Json     @default("{}")
   contact_info     Json     @default("{}")
@@ -326,4 +329,20 @@ model Notification {
   user         User         @relation(fields: [user_id], references: [id])
 
   @@map("notifications")
+}
+
+model SalaryStructure {
+  id          String   @id @default(uuid())
+  org_id      String
+  name        String
+  description String?
+  components  Json
+  is_default  Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [org_id], references: [id])
+  employees    Employee[]   @relation("EmployeeSalaryStructure")
+
+  @@map("salary_structures")
 }

@@ -15,14 +15,21 @@ export async function PATCH(
 
     const body = await req.json()
 
-    const job = await prisma.jobPosting.updateMany({
-      where: { id: id, org_id: session.user.org_id },
+    if (body.is_default) {
+      await prisma.salaryStructure.updateMany({
+        where: { org_id: session.user.org_id, is_default: true },
+        data: { is_default: false },
+      })
+    }
+
+    const structure = await prisma.salaryStructure.update({
+      where: { id, org_id: session.user.org_id } as any,
       data: body,
     })
 
-    return NextResponse.json({ success: true, data: job })
+    return NextResponse.json({ success: true, data: structure })
   } catch (error) {
-    return NextResponse.json({ success: false, error: 'Failed to update job' }, { status: 500 })
+    return NextResponse.json({ success: false, error: 'Failed to update structure' }, { status: 500 })
   }
 }
 
@@ -37,13 +44,12 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
-    await prisma.jobPosting.updateMany({
-      where: { id: id, org_id: session.user.org_id },
-      data: { status: 'closed' },
+    await prisma.salaryStructure.delete({
+      where: { id } as any,
     })
 
-    return NextResponse.json({ success: true, data: { message: 'Job closed' } })
+    return NextResponse.json({ success: true, data: { message: 'Structure deleted' } })
   } catch (error) {
-    return NextResponse.json({ success: false, error: 'Failed to close job' }, { status: 500 })
+    return NextResponse.json({ success: false, error: 'Failed to delete structure' }, { status: 500 })
   }
 }
