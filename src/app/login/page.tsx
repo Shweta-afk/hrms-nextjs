@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -26,7 +27,13 @@ export default function LoginPage() {
       setError('Invalid email or password')
       setLoading(false)
     } else {
-      router.push('/dashboard')
+      const sessionRes = await fetch('/api/auth/session')
+      const sessionData = await sessionRes.json()
+      if (sessionData?.user?.role === 'employee') {
+        router.push('/portal')
+      } else {
+        router.push('/dashboard')
+      }
     }
   }
 
@@ -81,6 +88,14 @@ export default function LoginPage() {
         <p className="text-xs text-gray-400 mt-4 text-center">
           Demo: admin@demo.com / admin123
         </p>
+
+        <p className="text-xs text-center text-gray-400 mt-4">
+          Don't have an account?{' '}
+          <Link href="/signup" className="text-indigo-600 hover:underline font-medium">
+            Create one free
+          </Link>
+        </p>
+
       </div>
     </div>
   )

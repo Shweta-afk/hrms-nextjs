@@ -108,6 +108,24 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // Auto-create user account for the employee
+    const tempPassword = `Hrms@${Math.floor(1000 + Math.random() * 9000)}`
+    const hashedPwd = await import('bcryptjs').then(b => b.hash(tempPassword, 10))
+
+    const empUser = await prisma.user.create({
+      data: {
+        org_id: session.user.org_id,
+        email: data.email,
+        password: hashedPwd,
+        role: 'employee',
+        employee_id: employee.id,
+      },
+    })
+
+    // TODO: Send welcome email via Resend with tempPassword
+    console.log(`Employee login created: ${data.email} / ${tempPassword}`)
+
+
     // Notify HR admins
     const { notifyHRAdmins } = await import('@/lib/notifications')
     await notifyHRAdmins(
@@ -126,3 +144,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to create employee' }, { status: 500 })
   }
 }
+
