@@ -130,6 +130,8 @@ model Employee {
   attendance    AttendanceRecord[]
   leave_requests LeaveRequest[]
   payslips      Payslip[]
+  reset_token        String?
+  reset_token_expiry DateTime?
 
   @@unique([org_id, emp_code])
   @@unique([org_id, email])

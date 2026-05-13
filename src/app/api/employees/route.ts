@@ -124,7 +124,20 @@ export async function POST(req: NextRequest) {
 
     // TODO: Send welcome email via Resend with tempPassword
     console.log(`Employee login created: ${data.email} / ${tempPassword}`)
-
+    // Send welcome email
+    try {
+      const { sendWelcomeEmail } = await import('@/lib/email')
+      const org = await prisma.organisation.findUnique({ where: { id: session.user.org_id } })
+      await sendWelcomeEmail({
+        to: data.email,
+        name: `${data.first_name} ${data.last_name}`,
+        company: org?.name ?? 'Your Company',
+        tempPassword,
+      })
+    } catch (emailErr) {
+      console.error('Failed to send welcome email:', emailErr)
+      // Don't fail the request if email fails
+    }
 
     // Notify HR admins
     const { notifyHRAdmins } = await import('@/lib/notifications')
@@ -144,4 +157,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to create employee' }, { status: 500 })
   }
 }
+
+
+
 

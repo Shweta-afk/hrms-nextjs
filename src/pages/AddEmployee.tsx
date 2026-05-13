@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
   User, Briefcase, Shield, FolderOpen, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { FileUpload } from '@/components/ui/file-upload'
 
 const steps = [
   { label: "Basic Info", icon: User },
@@ -280,7 +281,7 @@ const AddEmployee = () => {
                   />
                 )}
                 {field('gender', 'Gender', true,
-                  <Select value={gender} onValueChange={v => { setGender(v); setErrors(p => ({ ...p, gender: '' })) }}>
+                  <Select value={gender} onValueChange={(v: SetStateAction<string>) => { setGender(v); setErrors(p => ({ ...p, gender: '' })) }}>
                     <SelectTrigger className={errors.gender ? 'border-destructive' : ''}>
                       <SelectValue placeholder="Select gender" />
                     </SelectTrigger>
@@ -348,7 +349,7 @@ const AddEmployee = () => {
                   <Label>Employee Code</Label>
                   <div className="flex items-center gap-2">
                     <Input disabled placeholder="Auto-generated" className="flex-1" />
-                    <Badge variant="secondary" className="whitespace-nowrap text-xs">Auto-assigned</Badge>
+                    <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-md whitespace-nowrap">Auto-assigned</span>
                   </div>
                 </div>
 
@@ -360,7 +361,7 @@ const AddEmployee = () => {
                 )}
 
                 {field('departmentId', 'Department', true,
-                  <Select value={departmentId} onValueChange={v => { setDepartmentId(v); setErrors(p => ({ ...p, departmentId: '' })) }}>
+                  <Select value={departmentId} onValueChange={(v: SetStateAction<string>) => { setDepartmentId(v); setErrors(p => ({ ...p, departmentId: '' })) }}>
                     <SelectTrigger className={errors.departmentId ? 'border-destructive' : ''}>
                       <SelectValue placeholder="Select department" />
                     </SelectTrigger>
@@ -394,7 +395,7 @@ const AddEmployee = () => {
                 </div>
 
                 {field('employmentType', 'Employment Type', true,
-                  <Select value={employmentType} onValueChange={v => { setEmploymentType(v); setErrors(p => ({ ...p, employmentType: '' })) }}>
+                  <Select value={employmentType} onValueChange={(v: SetStateAction<string>) => { setEmploymentType(v); setErrors(p => ({ ...p, employmentType: '' })) }}>
                     <SelectTrigger className={errors.employmentType ? 'border-destructive' : ''}>
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
@@ -511,44 +512,27 @@ const AddEmployee = () => {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {[
-                  { key: 'offer_letter', label: 'Offer Letter', required: true },
-                  { key: 'id_proof', label: 'ID Proof (Aadhaar / Passport)', required: true },
-                  { key: 'address_proof', label: 'Address Proof', required: false },
-                  { key: 'education', label: 'Educational Certificates', required: true },
-                  { key: 'prev_employment', label: 'Previous Employment Docs', required: false },
-                  { key: 'photograph', label: 'Photograph', required: true },
-                ].map(doc => (
-                  <label
-                    key={doc.key}
-                    className="border-2 border-dashed border-border rounded-lg p-5 flex flex-col items-center justify-center gap-2 hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
-                  >
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      className="hidden"
-                      onChange={e => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                          setUploadedDocs(prev => ({ ...prev, [doc.key]: file.name }))
-                          toast.success(`${file.name} selected — will upload when S3 is configured`)
-                        }
-                      }}
-                    />
-                    <Upload className={`h-8 w-8 ${uploadedDocs[doc.key] ? 'text-kpi-green' : 'text-muted-foreground'}`} />
-                    <span className="text-sm font-medium text-foreground text-center">
-                      {doc.label} {doc.required && <span className="text-destructive">*</span>}
-                    </span>
-                    {uploadedDocs[doc.key] ? (
-                      <span className="text-xs text-kpi-green flex items-center gap-1">
-                        <Check className="h-3 w-3" /> {uploadedDocs[doc.key]}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">PDF, JPG, PNG up to 5MB</span>
-                    )}
-                  </label>
-                ))}
-              </div>
+              {[
+                { key: 'offer_letter', label: 'Offer Letter', required: true },
+                { key: 'id_proof', label: 'ID Proof (Aadhaar / Passport)', required: true },
+                { key: 'address_proof', label: 'Address Proof', required: false },
+                { key: 'education', label: 'Educational Certificates', required: true },
+                { key: 'prev_employment', label: 'Previous Employment Docs', required: false },
+                { key: 'photograph', label: 'Photograph', required: true },
+              ].map(doc => (
+                <FileUpload
+                  key={doc.key}
+                  label={doc.label}
+                  category="employees"
+                  sub_id="new-employee"
+                  doc_type={doc.key}
+                  required={doc.required}
+                  onUpload={(key, url, filename) => {
+                    setUploadedDocs(prev => ({ ...prev, [doc.key]: key }))
+                  }}
+                />
+              ))}
+            </div>
 
               <div className="mt-6 p-4 rounded-lg bg-muted/50 border border-border">
                 <p className="text-sm font-medium text-foreground">Ready to add employee</p>
@@ -564,7 +548,7 @@ const AddEmployee = () => {
         {/* Footer */}
         <div className="flex items-center justify-between pt-2">
           <Button
-            variant="outline"
+            variant={"outline" as any}
             onClick={currentStep === 0 ? () => router.push('/employees') : () => setCurrentStep(s => s - 1)}
             className="gap-2"
           >

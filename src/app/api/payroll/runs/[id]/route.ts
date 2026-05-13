@@ -55,6 +55,36 @@ export async function PATCH(
       )
     }
 
+    // Send payslip emails to all employees
+    try {
+      const { sendPayslipEmail } = await import('@/lib/email')
+      const org = await prisma.organisation.findUnique({ where: { id: session.user.org_id } })
+      const payslips = await prisma.payslip.findMany({
+        where: { payroll_run_id: id, org_id: session.user.org_id },
+        include: {
+          employee: {
+            select: { first_name: true, last_name: true, email: true }
+          }
+        }
+      })
+
+      const monthNames = ['January','February','March','April','May','June',
+        'July','August','September','October','November','December']
+
+      for (const payslip of payslips) {
+        await sendPayslipEmail({
+          to: payslip.employee.email,
+          name: `${payslip.employee.first_name} ${payslip.employee.last_name}`,
+          month: monthNames[payslip.month - 1],
+          year: payslip.year,
+          netSalary: Number(payslip.net_salary),
+          company: org?.name ?? 'Your Company',
+        })
+      }
+    } catch (emailErr) {
+      console.error('Failed to send payslip emails:', emailErr)
+    }
+
     return NextResponse.json({ success: true, data: updated })
   } catch (error) {
     return NextResponse.json({ success: false, error: 'Failed to update payroll run' }, { status: 500 })

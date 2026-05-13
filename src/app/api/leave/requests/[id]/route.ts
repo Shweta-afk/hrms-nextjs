@@ -6,6 +6,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const id = (await params).id;
   try {
     const session = await auth()
     if (!session) {
@@ -72,6 +73,34 @@ export async function PATCH(
         link: '/leave',
       })
     }
+
+    // Send email to employee
+    try {
+      const { sendLeaveStatusEmail } = await import('@/lib/email')
+      const org = await prisma.organisation.findUnique({ where: { id: session.user.org_id } })
+      if (leaveRequest.employee.user?.id) {
+        const empUser = await prisma.user.findUnique({
+          where: { id: leaveRequest.employee.user.id },
+          select: { email: true }
+        })
+        if (empUser) {
+          await sendLeaveStatusEmail({
+            to: empUser.email,
+            name: `${leaveRequest.employee.first_name} ${leaveRequest.employee.last_name}`,
+            status: status as 'approved' | 'rejected',
+            leaveType: leaveRequest.leave_type.name,
+            fromDate: new Date(leaveRequest.from_date).toLocaleDateString('en-IN'),
+            toDate: new Date(leaveRequest.to_date).toLocaleDateString('en-IN'),
+            days: Number(leaveRequest.total_days),
+            reason: rejection_reason,
+            company: org?.name ?? 'Your Company',
+          })
+        }
+      }
+    } catch (emailErr) {
+      console.error('Failed to send leave email:', emailErr)
+    }
+
 
     return NextResponse.json({ success: true, data: updated })
   } catch (error) {
