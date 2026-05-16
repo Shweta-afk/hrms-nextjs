@@ -12,8 +12,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  ChevronLeft, ChevronRight, AlertTriangle, CircleAlert, FileSpreadsheet,
-  FileText, CheckCircle2, Loader2, Play,
+  ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, CircleAlert,
+  FileSpreadsheet, FileText, CheckCircle2, Loader2, Play,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -64,6 +64,7 @@ const Payroll = () => {
   const [approveModal, setApproveModal] = useState(false)
   const [approving, setApproving] = useState(false)
   const [showAnomalies, setShowAnomalies] = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const currentMonth = ((now.getMonth() + monthOffset) % 12) + 1
   const currentYear = now.getFullYear() + Math.floor((now.getMonth() + monthOffset) / 12)
@@ -162,9 +163,12 @@ const Payroll = () => {
       .map(([l, a]) => `<tr><td>${l}</td><td style="text-align:right">${f(a)}</td></tr>`).join('')
     const deductionRows = Object.entries(payslip.deductions)
       .map(([l, a]) => `<tr><td>${l}</td><td style="text-align:right">${f(a)}</td></tr>`).join('')
+    const draftBanner = !isApproved
+      ? `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:8px 16px;margin-bottom:16px;text-align:center;font-size:12px;font-weight:bold;color:#92400e">DRAFT — This payslip has not been approved yet and is subject to change</div>`
+      : ''
     const html = `<!DOCTYPE html><html><head><title>Payslip</title>
     <style>body{font-family:Arial,sans-serif;font-size:13px;margin:32px}h1{text-align:center;font-size:20px;margin:0}.sub{text-align:center;color:#555;margin:4px 0 16px}hr{border:none;border-top:1px solid #ddd;margin:16px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin:16px 0}.row{display:flex;justify-content:space-between;padding:4px 0}.label{color:#555}table{width:100%;border-collapse:collapse}table td{padding:7px 8px;border-bottom:1px solid #eee;font-size:12px}table td:last-child{text-align:right}.total td{font-weight:bold;background:#f5f5ff;border-top:2px solid #1e1b4b}.two-col{display:grid;grid-template-columns:1fr 1fr;border:1px solid #ddd;border-radius:6px;overflow:hidden}.col:first-child{border-right:1px solid #ddd}.col-hdr{background:#f5f5f5;padding:8px 12px;font-size:11px;font-weight:bold;text-transform:uppercase;color:#555}.net{text-align:center;border:2px solid #16a34a;border-radius:8px;padding:16px;margin:16px 0;background:#f0fdf4}.net-amt{font-size:28px;font-weight:bold;color:#16a34a}.footer{text-align:center;font-size:11px;color:#888;margin-top:24px}@media print{button{display:none}}</style>
-    </head><body>
+    </head><body>${draftBanner}
     <button onclick="window.print()" style="float:right;padding:8px 16px;background:#4f46e5;color:white;border:none;border-radius:6px;cursor:pointer">🖨 Print / Save PDF</button>
     <h1>Demo Company Pvt. Ltd.</h1>
     <p class="sub">Payslip for ${monthLabel}</p><hr>
@@ -405,37 +409,189 @@ const Payroll = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {payslips.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-medium whitespace-nowrap">
-                        {p.employee.first_name} {p.employee.last_name}
-                        <p className="text-xs text-muted-foreground">{p.employee.emp_code}</p>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(p.earnings['Basic'] ?? 0)}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(p.earnings['HRA'] ?? 0)}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(p.earnings['Special Allowance'] ?? 0)}</TableCell>
-                      <TableCell className="text-right tabular-nums font-medium">{fmt(p.gross_salary)}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['PF Employee'] ? fmt(p.deductions['PF Employee']) : '—'}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['ESI Employee'] ? fmt(p.deductions['ESI Employee']) : '—'}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['Professional Tax'] ? fmt(p.deductions['Professional Tax']) : '—'}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['TDS'] ? fmt(p.deductions['TDS']) : '—'}</TableCell>
-                      <TableCell className="text-right tabular-nums font-semibold text-kpi-green">{fmt(p.net_salary)}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant={isApproved ? 'active' : 'secondary'} className="text-[10px]">
-                          {isApproved ? 'Approved' : 'Draft'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <button
-                          onClick={() => handleViewPayslip(p.id)}
-                          disabled={!isApproved}
-                          className="text-xs font-medium text-primary hover:underline disabled:opacity-30 disabled:cursor-not-allowed"
+                  {payslips.map((p) => {
+                    const isExpanded = expandedId === p.id
+                    const basic = p.earnings['Basic'] ?? 0
+                    const hra = p.earnings['HRA'] ?? 0
+                    const special = p.earnings['Special Allowance'] ?? 0
+                    const otherEarnings = Object.entries(p.earnings)
+                      .filter(([k]) => !['Basic','HRA','Special Allowance'].includes(k))
+                    const lopDays = Math.max(0, p.working_days - Number(p.present_days))
+                    const lopAmt = p.deductions['Loss of Pay'] ?? 0
+                    const dayRate = p.working_days > 0 ? Math.round(p.gross_salary / p.working_days) : 0
+                    const ctcMonthly = basic + hra + special
+                    return (
+                      <>
+                        <TableRow
+                          key={p.id}
+                          className="cursor-pointer hover:bg-muted/40 transition-colors"
+                          onClick={() => setExpandedId(isExpanded ? null : p.id)}
                         >
-                          {isApproved ? 'View / Print' : '—'}
-                        </button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                          <TableCell className="font-medium whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              {isExpanded
+                                ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              }
+                              <div>
+                                {p.employee.first_name} {p.employee.last_name}
+                                <p className="text-xs text-muted-foreground">{p.employee.emp_code}</p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(basic)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(hra)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(special)}</TableCell>
+                          <TableCell className="text-right tabular-nums font-medium">{fmt(p.gross_salary)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['PF Employee'] ? fmt(p.deductions['PF Employee']) : '—'}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['ESI Employee'] ? fmt(p.deductions['ESI Employee']) : '—'}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['Professional Tax'] ? fmt(p.deductions['Professional Tax']) : '—'}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['TDS'] ? fmt(p.deductions['TDS']) : '—'}</TableCell>
+                          <TableCell className="text-right tabular-nums font-semibold text-kpi-green">{fmt(p.net_salary)}</TableCell>
+                          <TableCell className="text-center" onClick={e => e.stopPropagation()}>
+                            <Badge variant={isApproved ? 'active' : 'secondary'} className="text-[10px]">
+                              {isApproved ? 'Approved' : 'Draft'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => handleViewPayslip(p.id)}
+                              className="text-xs font-medium text-primary hover:underline"
+                            >
+                              View / Print
+                            </button>
+                          </TableCell>
+                        </TableRow>
+
+                        {/* Expanded breakdown row */}
+                        {isExpanded && (
+                          <TableRow key={`${p.id}-detail`} className="bg-muted/20 hover:bg-muted/20">
+                            <TableCell colSpan={12} className="p-0">
+                              <div className="px-6 py-4 border-t border-border">
+                                {/* Attendance strip */}
+                                <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-4 pb-3 border-b border-border">
+                                  <span>Monthly CTC: <strong className="text-foreground">{fmt(ctcMonthly)}</strong></span>
+                                  <span>Working days: <strong className="text-foreground">{p.working_days}</strong></span>
+                                  <span>Days present: <strong className="text-foreground">{Number(p.present_days)}</strong></span>
+                                  {lopDays > 0 && (
+                                    <span className="text-destructive font-medium">LOP: {lopDays} day{lopDays !== 1 ? 's' : ''} × {fmt(dayRate)}/day = −{fmt(lopAmt)}</span>
+                                  )}
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                  {/* Earnings */}
+                                  <div>
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Earnings</p>
+                                    <div className="space-y-1.5">
+                                      <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">
+                                          Basic
+                                          <span className="text-xs ml-1 text-muted-foreground/70">
+                                            ({ctcMonthly > 0 ? Math.round(basic / ctcMonthly * 100) : 0}% of {fmt(ctcMonthly)})
+                                          </span>
+                                        </span>
+                                        <span className="tabular-nums font-medium">{fmt(basic)}</span>
+                                      </div>
+                                      <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">
+                                          HRA
+                                          <span className="text-xs ml-1 text-muted-foreground/70">
+                                            ({basic > 0 ? Math.round(hra / basic * 100) : 0}% of basic)
+                                          </span>
+                                        </span>
+                                        <span className="tabular-nums font-medium">{fmt(hra)}</span>
+                                      </div>
+                                      <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">Special Allowance <span className="text-xs text-muted-foreground/70">(remainder)</span></span>
+                                        <span className="tabular-nums font-medium">{fmt(special)}</span>
+                                      </div>
+                                      {otherEarnings.map(([k, v]) => (
+                                        <div key={k} className="flex justify-between text-sm">
+                                          <span className="text-muted-foreground">{k}</span>
+                                          <span className="tabular-nums font-medium">{fmt(v)}</span>
+                                        </div>
+                                      ))}
+                                      {lopAmt > 0 && (
+                                        <div className="flex justify-between text-sm text-destructive">
+                                          <span>Loss of Pay <span className="text-xs">({lopDays}d × {fmt(dayRate)}/day)</span></span>
+                                          <span className="tabular-nums font-medium">−{fmt(lopAmt)}</span>
+                                        </div>
+                                      )}
+                                      <div className="flex justify-between text-sm font-semibold border-t border-border pt-1.5 mt-1">
+                                        <span>Gross Salary</span>
+                                        <span className="tabular-nums">{fmt(p.gross_salary)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Deductions */}
+                                  <div>
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Deductions</p>
+                                    <div className="space-y-1.5">
+                                      {p.deductions['PF Employee'] > 0 && (
+                                        <div className="flex justify-between text-sm">
+                                          <span className="text-muted-foreground">
+                                            PF (Employee)
+                                            <span className="text-xs ml-1 text-muted-foreground/70">(12% of basic {fmt(basic)})</span>
+                                          </span>
+                                          <span className="tabular-nums font-medium text-destructive">{fmt(p.deductions['PF Employee'])}</span>
+                                        </div>
+                                      )}
+                                      {p.deductions['ESI Employee'] > 0 && (
+                                        <div className="flex justify-between text-sm">
+                                          <span className="text-muted-foreground">
+                                            ESI (Employee)
+                                            <span className="text-xs ml-1 text-muted-foreground/70">(0.75% of gross)</span>
+                                          </span>
+                                          <span className="tabular-nums font-medium text-destructive">{fmt(p.deductions['ESI Employee'])}</span>
+                                        </div>
+                                      )}
+                                      {p.deductions['Professional Tax'] > 0 && (
+                                        <div className="flex justify-between text-sm">
+                                          <span className="text-muted-foreground">Professional Tax <span className="text-xs text-muted-foreground/70">(state slab)</span></span>
+                                          <span className="tabular-nums font-medium text-destructive">{fmt(p.deductions['Professional Tax'])}</span>
+                                        </div>
+                                      )}
+                                      {p.deductions['TDS'] > 0 && (
+                                        <div className="flex justify-between text-sm">
+                                          <span className="text-muted-foreground">TDS <span className="text-xs text-muted-foreground/70">(annual est. ÷ 12)</span></span>
+                                          <span className="tabular-nums font-medium text-destructive">{fmt(p.deductions['TDS'])}</span>
+                                        </div>
+                                      )}
+                                      {Object.entries(p.deductions)
+                                        .filter(([k]) => !['PF Employee','ESI Employee','Professional Tax','TDS','Loss of Pay'].includes(k))
+                                        .map(([k, v]) => (
+                                          <div key={k} className="flex justify-between text-sm">
+                                            <span className="text-muted-foreground">{k}</span>
+                                            <span className="tabular-nums font-medium text-destructive">{fmt(v)}</span>
+                                          </div>
+                                        ))
+                                      }
+                                      {Object.keys(p.deductions).length === 0 && (
+                                        <p className="text-sm text-muted-foreground">No deductions applicable</p>
+                                      )}
+                                      <div className="flex justify-between text-sm font-semibold border-t border-border pt-1.5 mt-1 text-destructive">
+                                        <span>Total Deductions</span>
+                                        <span className="tabular-nums">{fmt(p.total_deductions)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Net salary callout */}
+                                <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+                                  <span className="text-sm text-muted-foreground">
+                                    Net Salary = Gross {fmt(p.gross_salary)} − Deductions {fmt(p.total_deductions)}
+                                  </span>
+                                  <span className="text-lg font-bold text-kpi-green tabular-nums">{fmt(p.net_salary)}</span>
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
