@@ -64,8 +64,8 @@ export default function SignupPage() {
       const json = await res.json()
       if (json.success) {
         setSuccess(true)
-        toast.success('Account created! Redirecting to login...')
-        setTimeout(() => router.push('/login'), 2000)
+        toast.success('Account created! Setting up your workspace...')
+        setTimeout(() => router.push('/login?redirect=/onboarding'), 2000)
       } else {
         toast.error(json.error)
       }

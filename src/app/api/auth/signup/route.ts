@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 
 const SignupSchema = z.object({
   company_name: z.string().min(2),
@@ -14,6 +15,15 @@ const SignupSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req)
+    const rl = checkRateLimit(`signup:${ip}`, { max: 5, windowMs: 15 * 60 * 1000 })
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many signup attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      )
+    }
+
     const body = await req.json()
     const data = SignupSchema.parse(body)
 
@@ -46,17 +56,19 @@ export async function POST(req: NextRequest) {
     // Create org + admin user + default data in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Create organisation
+      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
       const org = await tx.organisation.create({
         data: {
           name: data.company_name,
           subdomain: data.subdomain,
-          plan: 'starter',
+          plan: 'trial',
           settings: {
             pt_state: 'maharashtra',
             tds_regime: 'new',
             payroll_day: 28,
             pf_applicable: true,
             esi_applicable: true,
+            trial_ends_at: trialEndsAt,
           },
         },
       })

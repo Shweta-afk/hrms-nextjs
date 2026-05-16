@@ -2,11 +2,13 @@
 
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams?.get('redirect')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -28,12 +30,16 @@ export default function LoginPage() {
       setError('Invalid email or password')
       setLoading(false)
     } else {
-      const sessionRes = await fetch('/api/auth/session')
-      const sessionData = await sessionRes.json()
-      if (sessionData?.user?.role === 'employee') {
-        router.push('/portal')
+      if (redirectTo) {
+        router.push(redirectTo)
       } else {
-        router.push('/dashboard')
+        const sessionRes = await fetch('/api/auth/session')
+        const sessionData = await sessionRes.json()
+        if (sessionData?.user?.role === 'employee') {
+          router.push('/portal')
+        } else {
+          router.push('/dashboard')
+        }
       }
     }
   }
