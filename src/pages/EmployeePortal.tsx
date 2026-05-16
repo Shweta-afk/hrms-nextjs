@@ -98,6 +98,7 @@ const EmployeePortal = () => {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [latestPayslip, setLatestPayslip] = useState<Payslip | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profileIncomplete, setProfileIncomplete] = useState<string[]>([])
   const [notifOpen, setNotifOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [requestModal, setRequestModal] = useState(false)
@@ -120,6 +121,20 @@ const EmployeePortal = () => {
         fetch('/api/notifications'),
         fetch('/api/payroll/payslips?limit=1'),
       ])
+      // Profile completeness check
+      if (session?.user?.employee_id) {
+        try {
+          const empRes = await fetch(`/api/employees/${session.user.employee_id}`)
+          const empJson = await empRes.json()
+          if (empJson.success) {
+            const missing: string[] = []
+            if (!empJson.data.bank_details?.account_number) missing.push('Bank details')
+            if (!empJson.data.statutory_info?.pan) missing.push('PAN / Statutory info')
+            if (!empJson.data.phone) missing.push('Phone number')
+            setProfileIncomplete(missing)
+          }
+        } catch { /* non-critical */ }
+      }
       const holidayRes = await fetch('/api/holidays')
       const holidayJson = await holidayRes.json()
       if (holidayJson.success) setHolidays(holidayJson.data.slice(0, 3))
@@ -359,6 +374,22 @@ const EmployeePortal = () => {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Profile completeness banner */}
+            {profileIncomplete.length > 0 && (
+              <Link href="/portal/profile">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-kpi-amber/40 bg-kpi-amber/8 px-4 py-3 cursor-pointer hover:bg-kpi-amber/15 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <User className="h-4 w-4 text-kpi-amber shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Complete your profile</p>
+                      <p className="text-xs text-muted-foreground">Missing: {profileIncomplete.join(', ')} — required for salary processing</p>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </div>
+              </Link>
+            )}
 
             {/* Quick Actions */}
             <section>
