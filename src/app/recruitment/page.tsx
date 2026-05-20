@@ -1,5 +1,5 @@
 'use client'
-import Recruitment from '@/pages/Recruitment'
+import Recruitment from '@/views/Recruitment'
 export default function RecruitmentPage() {
   return <Recruitment />
 }

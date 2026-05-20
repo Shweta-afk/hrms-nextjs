@@ -13,6 +13,9 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 
 interface AttendanceRecord {
@@ -76,6 +79,13 @@ const Attendance = () => {
   const [importResult, setImportResult] = useState<any>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // Correction modal state
+  const [correctionRecord, setCorrectionRecord] = useState<AttendanceRecord | null>(null)
+  const [corrFirstIn, setCorrFirstIn] = useState('')
+  const [corrLastOut, setCorrLastOut] = useState('')
+  const [corrReason, setCorrReason] = useState('')
+  const [correcting, setCorrecting] = useState(false)
+
   const current = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
   //const monthLabel = current.toLocaleDateString("en-IN", { month: "long", year: "numeric" })
   const daysInMonth = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate()
@@ -132,6 +142,49 @@ const Attendance = () => {
     URL.revokeObjectURL(url)
 
     toast.success(`Attendance report downloaded — ${records.length} records`)
+  }
+
+  function openCorrection(r: AttendanceRecord) {
+    setCorrectionRecord(r)
+    setCorrFirstIn(r.first_in ? formatTime(r.first_in) : '')
+    setCorrLastOut(r.last_out ? formatTime(r.last_out) : '')
+    setCorrReason('')
+  }
+
+  async function submitCorrection() {
+    if (!correctionRecord) return
+    if (!corrReason.trim()) { toast.error('Correction reason is required'); return }
+    setCorrecting(true)
+    try {
+      const date = new Date(correctionRecord.date)
+      const toDateTime = (timeStr: string) => {
+        const [h, m] = timeStr.split(':').map(Number)
+        const d = new Date(date)
+        d.setHours(h, m, 0, 0)
+        return d.toISOString()
+      }
+      const res = await fetch(`/api/attendance/${correctionRecord.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_in: corrFirstIn ? toDateTime(corrFirstIn) : undefined,
+          last_out: corrLastOut ? toDateTime(corrLastOut) : undefined,
+          correction_reason: corrReason.trim(),
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setRecords(prev => prev.map(r => r.id === correctionRecord.id ? { ...r, ...json.data, is_corrected: true } : r))
+        toast.success('Attendance corrected successfully')
+        setCorrectionRecord(null)
+      } else {
+        toast.error(json.error || 'Failed to correct attendance')
+      }
+    } catch {
+      toast.error('Failed to correct attendance')
+    } finally {
+      setCorrecting(false)
+    }
   }
 
   async function fetchAttendance() {
@@ -310,9 +363,17 @@ const Attendance = () => {
                           {r.total_hours ? `${parseFloat(r.total_hours).toFixed(1)}h` : '—'}
                         </TableCell>
                         <TableCell>
-                          <button className="text-xs font-medium text-primary hover:underline">
-                            Correct
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {r.is_corrected && (
+                              <Badge variant="notice" className="text-[10px]">Corrected</Badge>
+                            )}
+                            <button
+                              className="text-xs font-medium text-primary hover:underline"
+                              onClick={() => openCorrection(r)}
+                            >
+                              Correct
+                            </button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -515,6 +576,57 @@ const Attendance = () => {
               setImportResult(null)
             }}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Correction Modal */}
+      <Dialog open={!!correctionRecord} onOpenChange={open => !open && setCorrectionRecord(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Correct Attendance</DialogTitle>
+            <DialogDescription>
+              {correctionRecord && (
+                <>Correcting record for {correctionRecord.employee.first_name} {correctionRecord.employee.last_name} on {new Date(correctionRecord.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>First In (HH:MM)</Label>
+                <Input
+                  type="time"
+                  value={corrFirstIn}
+                  onChange={e => setCorrFirstIn(e.target.value)}
+                  placeholder="09:00"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Last Out (HH:MM)</Label>
+                <Input
+                  type="time"
+                  value={corrLastOut}
+                  onChange={e => setCorrLastOut(e.target.value)}
+                  placeholder="18:00"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Correction Reason *</Label>
+              <Textarea
+                value={corrReason}
+                onChange={e => setCorrReason(e.target.value)}
+                placeholder="e.g. Forgot to punch in, On-site visit, System error..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCorrectionRecord(null)}>Cancel</Button>
+            <Button onClick={submitCorrection} disabled={correcting}>
+              {correcting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : 'Save Correction'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -15,14 +15,17 @@ export async function GET(req: NextRequest) {
     const employee_id = searchParams.get('employee_id')
     const payroll_run_id = searchParams.get('payroll_run_id')
 
+    const isEmployee = session.user.role === 'employee'
+
     const where: any = {
       org_id: session.user.org_id,
       ...(month && { month: parseInt(month) }),
       ...(year && { year: parseInt(year) }),
-      ...(employee_id && { employee_id }),
+      // Employees can only see their own payslips
+      ...(isEmployee
+        ? { employee_id: session.user.employee_id, is_published: true }
+        : employee_id && { employee_id }),
       ...(payroll_run_id && { payroll_run_id }),
-      // Employees only see published payslips
-      ...(session.user.role === 'employee' && { is_published: true }),
     }
 
     const payslips = await prisma.payslip.findMany({

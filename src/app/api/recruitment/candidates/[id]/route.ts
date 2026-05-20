@@ -16,14 +16,22 @@ export async function PATCH(
     const body = await req.json()
     const { stage, ai_score, ai_summary, ...rest } = body
 
-    const candidate = await prisma.candidate.updateMany({
-      where: { id: id, org_id: session.user.org_id },
+    const existing = await prisma.candidate.findFirst({
+      where: { id, org_id: session.user.org_id },
+    })
+    if (!existing) {
+      return NextResponse.json({ success: false, error: 'Candidate not found' }, { status: 404 })
+    }
+
+    const candidate = await prisma.candidate.update({
+      where: { id },
       data: {
         ...(stage && { stage }),
         ...(ai_score !== undefined && { ai_score }),
         ...(ai_summary && { ai_summary }),
         ...rest,
       },
+      include: { job_posting: { select: { title: true } } },
     })
 
     return NextResponse.json({ success: true, data: candidate })

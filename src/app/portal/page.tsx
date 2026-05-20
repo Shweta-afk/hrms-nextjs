@@ -1,5 +1,5 @@
 'use client'
-import EmployeePortal from '@/pages/EmployeePortal'
+import EmployeePortal from '@/views/EmployeePortal'
 export default function PortalPage() {
   return <EmployeePortal />
 }

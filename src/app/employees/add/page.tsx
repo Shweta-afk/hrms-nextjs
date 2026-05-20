@@ -1,5 +1,5 @@
 'use client'
-import AddEmployee from '@/pages/AddEmployee'
+import AddEmployee from '@/views/AddEmployee'
 export default function AddEmployeePage() {
   return <AddEmployee />
 }

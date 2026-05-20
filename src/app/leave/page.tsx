@@ -1,5 +1,5 @@
 'use client'
-import Leave from '@/pages/Leave'
+import Leave from '@/views/Leave'
 export default function LeavePage() {
   return <Leave />
 }

@@ -23,7 +23,7 @@ import {
 import {
   Building2, FileText, DollarSign, Clock, LayoutGrid, CalendarDays,
   Users, Plug, CreditCard, Save, CheckCircle2, Circle, Plus, Trash2,
-  Loader2, Star,
+  Loader2, Star, Cpu, Wifi, WifiOff, RefreshCw, Copy, AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -36,6 +36,7 @@ const sidebarItems = [
   { key: "departments", label: "Departments", icon: LayoutGrid },
   { key: "holidays", label: "Holiday Calendar", icon: CalendarDays },
   { key: "users", label: "User Management", icon: Users },
+  { key: "devices", label: "Biometric Devices", icon: Cpu },
   { key: "integrations", label: "Integrations", icon: Plug },
   { key: "billing", label: "Billing", icon: CreditCard },
 ]
@@ -57,6 +58,13 @@ interface SalaryStructure {
 
 interface Department { id: string; name: string; code: string }
 interface Holiday { id: string; name: string; date: string; type: string }
+interface Device {
+  id: string; name: string; ip_address: string; port: number
+  location: string | null; serial_no: string | null; push_token: string
+  status: string; is_active: boolean; last_heartbeat: string | null
+  last_sync: string | null; total_punches: number; punches_today: number
+  push_url: string
+}
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState("profile")
@@ -111,6 +119,19 @@ const Settings = () => {
   const [newHolidayDate, setNewHolidayDate] = useState("")
   const [newHolidayType, setNewHolidayType] = useState("national")
 
+  // Biometric Devices
+  const [devices, setDevices] = useState<Device[]>([])
+  const [devicesLoading, setDevicesLoading] = useState(false)
+  const [deviceModal, setDeviceModal] = useState(false)
+  const [deviceSyncing, setDeviceSyncing] = useState<string | null>(null)
+  const [deviceDeleting, setDeviceDeleting] = useState<string | null>(null)
+  const [newDeviceName, setNewDeviceName] = useState("")
+  const [newDeviceIp, setNewDeviceIp] = useState("")
+  const [newDevicePort, setNewDevicePort] = useState("4370")
+  const [newDeviceLocation, setNewDeviceLocation] = useState("")
+  const [addingDevice, setAddingDevice] = useState(false)
+  const [copiedToken, setCopiedToken] = useState<string | null>(null)
+
   // Integrations
   const [integrations] = useState([
     { name: "ESSL Biometric", desc: "Attendance hardware integration", connected: true },
@@ -118,11 +139,74 @@ const Settings = () => {
     { name: "Slack", desc: "Notifications & approvals", connected: false },
   ])
 
+  // Device people panel
+  interface DevicePerson {
+    employee_id: string; emp_code: string; name: string
+    department: string | null; designation: string | null
+    hrms_status: string; synced_at: string | null; enrolled_at: string | null
+    on_device: boolean | null
+  }
+  const [peoplePanelDevice, setPeoplePanelDevice] = useState<Device | null>(null)
+  const [devicePeople, setDevicePeople] = useState<DevicePerson[]>([])
+  const [devicePeopleLoading, setDevicePeopleLoading] = useState(false)
+
+  // API Keys
+  interface ApiKey { id: string; name: string; last_used: string | null; is_active: boolean; created_at: string }
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
+  const [apiKeysLoading, setApiKeysLoading] = useState(false)
+  const [newKeyName, setNewKeyName] = useState("")
+  const [generatingKey, setGeneratingKey] = useState(false)
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null)
+  const [keyModal, setKeyModal] = useState(false)
+  const [revokingKey, setRevokingKey] = useState<string | null>(null)
+
   useEffect(() => {
     if (activeTab === 'salary') fetchStructures()
     if (activeTab === 'departments') fetchDepartments()
     if (activeTab === 'holidays') fetchHolidays()
+    if (activeTab === 'devices') fetchDevices()
+    if (activeTab === 'integrations') fetchApiKeys()
   }, [activeTab])
+
+  async function fetchApiKeys() {
+    setApiKeysLoading(true)
+    try {
+      const res = await fetch('/api/org/api-keys')
+      const json = await res.json()
+      if (json.success) setApiKeys(json.data)
+    } catch { toast.error('Failed to load API keys') }
+    finally { setApiKeysLoading(false) }
+  }
+
+  async function generateApiKey() {
+    if (!newKeyName.trim()) { toast.error('Key name is required'); return }
+    setGeneratingKey(true)
+    try {
+      const res = await fetch('/api/org/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newKeyName.trim() }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setGeneratedKey(json.data.raw_key)
+        setNewKeyName('')
+        fetchApiKeys()
+      } else { toast.error(json.error || 'Failed to generate key') }
+    } catch { toast.error('Failed to generate key') }
+    finally { setGeneratingKey(false) }
+  }
+
+  async function revokeApiKey(id: string) {
+    setRevokingKey(id)
+    try {
+      const res = await fetch(`/api/org/api-keys/${id}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (json.success) { toast.success('API key revoked'); fetchApiKeys() }
+      else toast.error(json.error || 'Failed to revoke')
+    } catch { toast.error('Failed to revoke key') }
+    finally { setRevokingKey(null) }
+  }
 
   async function fetchStructures() {
     setStructuresLoading(true)
@@ -249,6 +333,93 @@ const Settings = () => {
         fetchHolidays()
       }
     } catch { toast.error('Failed to add holiday') }
+  }
+
+  async function fetchDevices() {
+    setDevicesLoading(true)
+    try {
+      const res = await fetch('/api/devices')
+      const json = await res.json()
+      if (json.success) setDevices(json.data)
+    } catch { toast.error('Failed to load devices') }
+    finally { setDevicesLoading(false) }
+  }
+
+  async function handleAddDevice() {
+    if (!newDeviceName || !newDeviceIp) { toast.error('Name and IP address are required'); return }
+    setAddingDevice(true)
+    try {
+      const res = await fetch('/api/devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newDeviceName,
+          ip_address: newDeviceIp,
+          port: parseInt(newDevicePort) || 4370,
+          location: newDeviceLocation || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(`Device "${newDeviceName}" added`)
+        setDeviceModal(false)
+        setNewDeviceName(''); setNewDeviceIp(''); setNewDevicePort('4370'); setNewDeviceLocation('')
+        fetchDevices()
+      } else {
+        toast.error(json.error || 'Failed to add device')
+      }
+    } catch { toast.error('Failed to add device') }
+    finally { setAddingDevice(false) }
+  }
+
+  async function handleSyncDevice(id: string) {
+    setDeviceSyncing(id)
+    try {
+      const res = await fetch(`/api/devices/${id}/sync`, { method: 'POST' })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(`Synced — ${json.data.processed} punches processed`)
+        fetchDevices()
+      } else {
+        toast.error(json.error || 'Sync failed')
+      }
+    } catch { toast.error('Sync failed') }
+    finally { setDeviceSyncing(null) }
+  }
+
+  async function handleDeleteDevice(id: string, name: string) {
+    if (!confirm(`Delete device "${name}"? All punch logs for this device will also be removed.`)) return
+    setDeviceDeleting(id)
+    try {
+      const res = await fetch(`/api/devices/${id}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Device removed')
+        fetchDevices()
+      } else {
+        toast.error(json.error || 'Delete failed')
+      }
+    } catch { toast.error('Delete failed') }
+    finally { setDeviceDeleting(null) }
+  }
+
+  function copyToClipboard(text: string, key: string) {
+    navigator.clipboard.writeText(text)
+    setCopiedToken(key)
+    setTimeout(() => setCopiedToken(null), 2000)
+  }
+
+  async function openDevicePeople(device: Device) {
+    setPeoplePanelDevice(device)
+    setDevicePeople([])
+    setDevicePeopleLoading(true)
+    try {
+      const res = await fetch(`/api/devices/${device.id}/employees`)
+      const json = await res.json()
+      if (json.success) setDevicePeople(json.data.employees)
+      else toast.error(json.error ?? 'Failed to load device users')
+    } catch { toast.error('Failed to load device users') }
+    finally { setDevicePeopleLoading(false) }
   }
 
   const markDirty = (section: string) => setDirtySection(section)
@@ -647,46 +818,331 @@ const Settings = () => {
       </div>
     )
 
+    // ── BIOMETRIC DEVICES ──
+    if (activeTab === 'devices') return (
+      <div className="space-y-6">
+        {/* Header row */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Biometric Devices</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Manage ZKTeco / ESSL attendance devices</p>
+          </div>
+          <Button size="sm" className="gap-2" onClick={() => setDeviceModal(true)}>
+            <Plus className="h-4 w-4" /> Add Device
+          </Button>
+        </div>
+
+        {devicesLoading ? (
+          <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : devices.length === 0 ? (
+          <Card className="shadow-sm">
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+              <Cpu className="h-10 w-10 text-muted-foreground/40 mb-3" />
+              <p className="text-sm font-medium text-foreground">No devices added yet</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                Add your ZKTeco or ESSL biometric device to start syncing attendance automatically.
+              </p>
+              <Button size="sm" className="mt-4 gap-2" onClick={() => setDeviceModal(true)}>
+                <Plus className="h-4 w-4" /> Add First Device
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {devices.map(device => {
+              const statusColor =
+                device.status === 'online' ? 'text-emerald-600 bg-emerald-50' :
+                device.status === 'idle'   ? 'text-amber-600 bg-amber-50' :
+                device.status === 'never_connected' ? 'text-gray-500 bg-gray-100' :
+                'text-red-500 bg-red-50'
+              const StatusIcon = device.status === 'online' ? Wifi : WifiOff
+              return (
+                <Card key={device.id} className="shadow-sm">
+                  <CardContent className="pt-5 pb-4">
+                    <div className="flex flex-col md:flex-row md:items-start gap-4">
+                      {/* Left: device info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="font-semibold text-sm text-foreground">{device.name}</span>
+                          <Badge className={cn("text-[10px] gap-1 px-1.5 py-0.5 rounded-full font-medium border-0", statusColor)}>
+                            <StatusIcon className="h-2.5 w-2.5" />
+                            {device.status === 'never_connected' ? 'Never connected' : device.status.charAt(0).toUpperCase() + device.status.slice(1)}
+                          </Badge>
+                          {!device.is_active && <Badge variant="secondary" className="text-[10px]">Disabled</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {device.ip_address}:{device.port}
+                          {device.location && <span className="ml-2">• {device.location}</span>}
+                          {device.serial_no && <span className="ml-2">• S/N: {device.serial_no}</span>}
+                        </p>
+
+                        {/* Stats row */}
+                        <div className="flex gap-4 mt-3 text-xs text-muted-foreground flex-wrap">
+                          <span>Total punches: <strong className="text-foreground">{device.total_punches.toLocaleString()}</strong></span>
+                          <span>Today: <strong className="text-foreground">{device.punches_today}</strong></span>
+                          {device.last_sync && (
+                            <span>Last sync: <strong className="text-foreground">
+                              {new Date(device.last_sync).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </strong></span>
+                          )}
+                          {device.last_heartbeat && (
+                            <span>Last seen: <strong className="text-foreground">
+                              {new Date(device.last_heartbeat).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </strong></span>
+                          )}
+                        </div>
+
+                        {/* Push URL */}
+                        <div className="mt-3 flex items-center gap-2 bg-muted/60 rounded-md px-3 py-2">
+                          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">Push URL</span>
+                          <code className="text-[10px] text-foreground truncate flex-1">{device.push_url}</code>
+                          <button
+                            onClick={() => copyToClipboard(device.push_url, device.id)}
+                            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                            title="Copy push URL"
+                          >
+                            {copiedToken === device.id
+                              ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                              : <Copy className="h-3.5 w-3.5" />
+                            }
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-1.5 flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          Configure this URL in the device's server address settings (PUSH mode)
+                        </p>
+                      </div>
+
+                      {/* Right: actions */}
+                      <div className="flex md:flex-col gap-2 shrink-0">
+                        <Button
+                          size="sm" variant="outline" className="gap-1.5 text-xs"
+                          onClick={() => openDevicePeople(device)}
+                        >
+                          <Users className="h-3.5 w-3.5" />
+                          View People
+                        </Button>
+                        <Button
+                          size="sm" variant="outline" className="gap-1.5 text-xs"
+                          onClick={() => handleSyncDevice(device.id)}
+                          disabled={deviceSyncing === device.id}
+                        >
+                          {deviceSyncing === device.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <RefreshCw className="h-3.5 w-3.5" />
+                          }
+                          Sync Now
+                        </Button>
+                        <Button
+                          size="sm" variant="ghost"
+                          className="gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteDevice(device.id, device.name)}
+                          disabled={deviceDeleting === device.id}
+                        >
+                          {deviceDeleting === device.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Trash2 className="h-3.5 w-3.5" />
+                          }
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Add Device Modal */}
+        <Dialog open={deviceModal} onOpenChange={setDeviceModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Biometric Device</DialogTitle>
+              <DialogDescription>
+                Connect a ZKTeco or ESSL device. After adding, configure the Push URL in the device settings.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label>Device Name *</Label>
+                <Input value={newDeviceName} onChange={e => setNewDeviceName(e.target.value)}
+                  placeholder="e.g. Main Gate, Office Entry" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2 space-y-1.5">
+                  <Label>IP Address *</Label>
+                  <Input value={newDeviceIp} onChange={e => setNewDeviceIp(e.target.value)}
+                    placeholder="192.168.1.201" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Port</Label>
+                  <Input value={newDevicePort} onChange={e => setNewDevicePort(e.target.value)}
+                    placeholder="4370" type="number" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Location <span className="text-muted-foreground">(optional)</span></Label>
+                <Input value={newDeviceLocation} onChange={e => setNewDeviceLocation(e.target.value)}
+                  placeholder="e.g. Ground Floor, Building A" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeviceModal(false)}>Cancel</Button>
+              <Button onClick={handleAddDevice} disabled={addingDevice} className="gap-2">
+                {addingDevice && <Loader2 className="h-4 w-4 animate-spin" />}
+                Add Device
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    )
+
     // ── INTEGRATIONS ──
     if (activeTab === 'integrations') return (
-      <Card className="shadow-sm">
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Plug className="h-4 w-4 text-primary" /> Integrations
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {integrations.map(integration => (
-              <div key={integration.name} className="rounded-lg border border-border p-4 flex flex-col gap-3">
-                <div className="flex items-center gap-3">
-                  <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center text-sm font-bold",
-                    integration.connected ? "bg-kpi-green/10 text-kpi-green" : "bg-muted text-muted-foreground")}>
-                    {integration.name.charAt(0)}
+      <div className="space-y-6">
+        {/* Integration cards */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Plug className="h-4 w-4 text-primary" /> Integrations
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {integrations.map(integration => (
+                <div key={integration.name} className="rounded-lg border border-border p-4 flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center text-sm font-bold",
+                      integration.connected ? "bg-kpi-green/10 text-kpi-green" : "bg-muted text-muted-foreground")}>
+                      {integration.name.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{integration.name}</p>
+                      <p className="text-xs text-muted-foreground">{integration.desc}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{integration.name}</p>
-                    <p className="text-xs text-muted-foreground">{integration.desc}</p>
+                  <div className="flex items-center justify-between">
+                    <Badge variant="secondary" className={cn("text-[10px]",
+                      integration.connected ? "bg-kpi-green/10 text-kpi-green" : "")}>
+                      {integration.connected
+                        ? <span className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Connected</span>
+                        : <span className="flex items-center gap-1"><Circle className="h-3 w-3" /> Not connected</span>
+                      }
+                    </Badge>
+                    <Button variant={integration.connected ? "outline" : "default"} size="sm" className="text-xs"
+                      onClick={() => toast.info(`${integration.name} integration coming soon`)}>
+                      {integration.connected ? "Configure" : "Connect"}
+                    </Button>
                   </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <Badge variant="secondary" className={cn("text-[10px]",
-                    integration.connected ? "bg-kpi-green/10 text-kpi-green" : "")}>
-                    {integration.connected
-                      ? <span className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Connected</span>
-                      : <span className="flex items-center gap-1"><Circle className="h-3 w-3" /> Not connected</span>
-                    }
-                  </Badge>
-                  <Button variant={integration.connected ? "outline" : "default"} size="sm" className="text-xs"
-                    onClick={() => toast.info(`${integration.name} integration coming soon`)}>
-                    {integration.connected ? "Configure" : "Connect"}
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* API Keys */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-primary" /> API Keys
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">Used by sync agents to push attendance data.</p>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Generate new key */}
+            <div className="flex gap-2">
+              <Input
+                placeholder="Key name, e.g. Office Sync Agent"
+                value={newKeyName}
+                onChange={e => setNewKeyName(e.target.value)}
+                className="max-w-xs"
+                onKeyDown={e => e.key === 'Enter' && generateApiKey()}
+              />
+              <Button onClick={generateApiKey} disabled={generatingKey} className="gap-2" size="sm">
+                {generatingKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                Generate New API Key
+              </Button>
+            </div>
+
+            {/* Generated key — shown once */}
+            {generatedKey && (
+              <div className="rounded-md border border-kpi-green/40 bg-kpi-green/5 p-3 space-y-1.5">
+                <p className="text-xs font-semibold text-kpi-green">✓ Key generated — copy it now, it will not be shown again</p>
+                <div className="flex items-center gap-2">
+                  <code className="text-xs font-mono bg-muted px-2 py-1 rounded break-all flex-1">{generatedKey}</code>
+                  <Button size="sm" variant="outline" className="h-7 text-xs shrink-0"
+                    onClick={() => { navigator.clipboard.writeText(generatedKey); toast.success('Copied!') }}>
+                    <Copy className="h-3 w-3 mr-1" /> Copy
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs shrink-0"
+                    onClick={() => setGeneratedKey(null)}>
+                    Dismiss
                   </Button>
                 </div>
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+            )}
+
+            {/* Key list */}
+            {apiKeysLoading ? (
+              <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : apiKeys.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No API keys yet.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Last Used</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {apiKeys.map(key => (
+                    <TableRow key={key.id}>
+                      <TableCell className="font-medium text-sm">{key.name}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {key.last_used
+                          ? new Date(key.last_used).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+                          : 'Never'}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {new Date(key.created_at).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="h-7 text-xs"
+                          disabled={revokingKey === key.id}
+                          onClick={() => revokeApiKey(key.id)}
+                        >
+                          {revokingKey === key.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                          Revoke
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            <div className="rounded-md bg-muted/50 border border-border p-3 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">Using the API key in your sync agent:</p>
+              <code className="block bg-muted px-2 py-1 rounded font-mono">
+                curl -X POST https://your-domain.com/api/attendance/sync \
+                <br />{'  '}-H &quot;Authorization: Bearer sk_live_...&quot; \
+                <br />{'  '}-H &quot;Content-Type: application/json&quot; \
+                <br />{'  '}-d &apos;&#123;&quot;device_serial&quot;:&quot;ABC123&quot;,&quot;punches&quot;:[...]&#125;&apos;
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     )
 
     // ── DEFAULT — Under Development ──
@@ -825,6 +1281,86 @@ const Settings = () => {
               {creatingStructure ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</> : 'Create Structure'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Device People Dialog */}
+      <Dialog open={!!peoplePanelDevice} onOpenChange={(open) => { if (!open) setPeoplePanelDevice(null) }}>
+        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Cpu className="h-4 w-4" />
+              {peoplePanelDevice?.name} — Enrolled People
+            </DialogTitle>
+            <DialogDescription>
+              HRMS enrollment status cross-referenced with physical device users
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto mt-2">
+            {devicePeopleLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : devicePeople.length === 0 ? (
+              <div className="text-center py-12 text-sm text-muted-foreground">No employees found</div>
+            ) : (
+              <>
+                <div className="flex gap-2 flex-wrap mb-4">
+                  <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full font-medium">
+                    {devicePeople.filter((p) => p.hrms_status === 'enrolled' && p.on_device === true).length} Fully enrolled
+                  </span>
+                  <span className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full font-medium">
+                    {devicePeople.filter((p) => p.hrms_status === 'enrolled' && p.on_device === false).length} HRMS only
+                  </span>
+                  <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full font-medium">
+                    {devicePeople.filter((p) => p.hrms_status !== 'enrolled' && p.on_device === true).length} Device only
+                  </span>
+                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-medium">
+                    {devicePeople.filter((p) => p.hrms_status === 'not_enrolled' && !p.on_device).length} Not enrolled
+                  </span>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="text-[11px] font-semibold">Code</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Employee</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Department</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Status</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Enrolled At</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {devicePeople.map((person) => {
+                      const enrolled = person.hrms_status === 'enrolled' && person.on_device === true
+                      const hrmsOnly = person.hrms_status === 'enrolled' && person.on_device === false
+                      const deviceOnly = person.hrms_status !== 'enrolled' && person.on_device === true
+                      return (
+                        <TableRow key={person.employee_id} className="text-xs hover:bg-muted/30">
+                          <TableCell className="font-mono text-[11px]">{person.emp_code}</TableCell>
+                          <TableCell className="font-medium">{person.name}</TableCell>
+                          <TableCell className="text-muted-foreground">{person.department ?? '—'}</TableCell>
+                          <TableCell>
+                            {enrolled   && <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1 w-fit"><CheckCircle2 className="h-3 w-3" />Enrolled</span>}
+                            {hrmsOnly   && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1 w-fit"><AlertCircle className="h-3 w-3" />HRMS only</span>}
+                            {deviceOnly && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium w-fit">Device only</span>}
+                            {!enrolled && !hrmsOnly && !deviceOnly && (
+                              <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium w-fit">Not enrolled</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-[11px]">
+                            {person.enrolled_at
+                              ? new Date(person.enrolled_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : '—'}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </AppLayout>

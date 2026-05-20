@@ -19,19 +19,23 @@ model Organisation {
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  users         User[]
-  employees     Employee[]
-  departments   Department[]
-  designations  Designation[]
-  leave_types   LeaveType[]
-  leave_requests LeaveRequest[]
+  users              User[]
+  employees          Employee[]
+  departments        Department[]
+  designations       Designation[]
+  leave_types        LeaveType[]
+  leave_requests     LeaveRequest[]
   attendance_records AttendanceRecord[]
-  payroll_runs  PayrollRun[]
-  payslips      Payslip[]
-  salary_structures SalaryStructure[]
-  job_postings  JobPosting[]
-  notifications Notification[]
-  holidays      Holiday[]
+  payroll_runs       PayrollRun[]
+  payslips           Payslip[]
+  salary_structures  SalaryStructure[]
+  job_postings       JobPosting[]
+  notifications      Notification[]
+  holidays           Holiday[]
+  devices            Device[]
+  punch_logs         PunchLog[]
+  device_enrollments DeviceEnrollment[]
+  api_keys           OrgApiKey[]
 
   @@map("organisations")
 }
@@ -49,21 +53,24 @@ model User {
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  organisation  Organisation @relation(fields: [org_id], references: [id])
-  employee      Employee?    @relation(fields: [employee_id], references: [id])
-  notifications Notification[]
+  reset_token          String?
+  reset_token_expiry   DateTime?
+
+  organisation    Organisation   @relation(fields: [org_id], references: [id])
+  employee        Employee?      @relation(fields: [employee_id], references: [id])
+  notifications   Notification[]
   approved_leaves LeaveRequest[] @relation("ApprovedBy")
-  sessions      Session[]
+  sessions        Session[]
 
   @@map("users")
 }
 
 model Session {
-  id           String   @id @default(uuid())
-  user_id      String
-  session_token String  @unique
-  expires      DateTime
-  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id            String   @id @default(uuid())
+  user_id       String
+  session_token String   @unique
+  expires       DateTime
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("sessions")
 }
@@ -97,41 +104,48 @@ model Designation {
 }
 
 model Employee {
-  id               String   @id @default(uuid())
-  org_id           String
-  emp_code         String
-  first_name       String
-  last_name        String
-  email            String
-  phone            String?
-  department_id    String?
-  designation_id   String?
-  manager_id       String?
-  date_of_joining  DateTime
-  employment_type  String   @default("full_time")
-  ctc_annual      Decimal?  @db.Decimal(12, 2)
+  id                  String   @id @default(uuid())
+  org_id              String
+  emp_code            String
+  first_name          String
+  last_name           String
+  email               String
+  phone               String?
+  department_id       String?
+  designation_id      String?
+  manager_id          String?
+  date_of_joining     DateTime
+  employment_type     String   @default("full_time")
+  ctc_annual          Decimal? @db.Decimal(12, 2)
   salary_structure_id String?
-  salary_structure SalaryStructure? @relation("EmployeeSalaryStructure", fields: [salary_structure_id], references: [id])
-  status           String   @default("active")
-  personal_info    Json     @default("{}")
-  contact_info     Json     @default("{}")
-  bank_details     String?  // encrypted
-  statutory_info   String?  // encrypted
-  essl_device_id   String?
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
+  salary_structure    SalaryStructure? @relation("EmployeeSalaryStructure", fields: [salary_structure_id], references: [id])
+  status              String   @default("active")
+  personal_info       Json     @default("{}")
+  contact_info        Json     @default("{}")
+  bank_details        String?  // encrypted
+  statutory_info      String?  // encrypted
+  essl_device_id      String?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
 
-  organisation  Organisation  @relation(fields: [org_id], references: [id])
-  department    Department?   @relation(fields: [department_id], references: [id])
-  designation   Designation?  @relation(fields: [designation_id], references: [id])
-  manager       Employee?     @relation("ManagerReports", fields: [manager_id], references: [id])
-  reports       Employee[]    @relation("ManagerReports")
-  user          User?
-  attendance    AttendanceRecord[]
-  leave_requests LeaveRequest[]
-  payslips      Payslip[]
-  reset_token        String?
-  reset_token_expiry DateTime?
+  plan                     String  @default("starter")
+  plan_employee_limit      Int     @default(25)
+  razorpay_customer_id     String?
+  razorpay_subscription_id String?
+  subscription_status      String  @default("active")
+  trial_ends_at            DateTime?
+  billing_email            String?
+
+  organisation       Organisation       @relation(fields: [org_id], references: [id])
+  department         Department?        @relation(fields: [department_id], references: [id])
+  designation        Designation?       @relation(fields: [designation_id], references: [id])
+  manager            Employee?          @relation("ManagerReports", fields: [manager_id], references: [id])
+  reports            Employee[]         @relation("ManagerReports")
+  user               User?
+  attendance         AttendanceRecord[]
+  leave_requests     LeaveRequest[]
+  payslips           Payslip[]
+  device_enrollments DeviceEnrollment[]
 
   @@unique([org_id, emp_code])
   @@unique([org_id, email])
@@ -141,22 +155,24 @@ model Employee {
 // ─── ATTENDANCE ─────────────────────────────────────────
 
 model AttendanceRecord {
-  id               String    @id @default(uuid())
-  org_id           String
-  employee_id      String
-  date             DateTime  @db.Date
-  first_in         DateTime?
-  last_out         DateTime?
-  total_hours      Decimal?  @db.Decimal(4, 2)
-  status           String    @default("absent")
-  is_late          Boolean   @default(false)
-  late_by_minutes  Int       @default(0)
-  overtime_hours   Decimal?  @db.Decimal(4, 2)
-  is_corrected     Boolean   @default(false)
+  id                String    @id @default(uuid())
+  org_id            String
+  employee_id       String
+  date              DateTime  @db.Date
+  first_in          DateTime?
+  last_out          DateTime?
+  total_hours       Decimal?  @db.Decimal(4, 2)
+  status            String    @default("absent")
+  is_late           Boolean   @default(false)
+  late_by_minutes   Int       @default(0)
+  overtime_hours    Decimal?  @db.Decimal(4, 2)
+  is_corrected      Boolean   @default(false)
   correction_reason String?
-  source           String    @default("essl")
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
+  source            String    @default("essl")
+  device_id         String?
+  device_name       String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
 
   organisation Organisation @relation(fields: [org_id], references: [id])
   employee     Employee     @relation(fields: [employee_id], references: [id])
@@ -165,18 +181,80 @@ model AttendanceRecord {
   @@map("attendance_records")
 }
 
+// ─── DEVICE INTEGRATION ─────────────────────────────────
+
+model Device {
+  id             String    @id @default(uuid())
+  org_id         String
+  name           String
+  ip_address     String
+  port           Int       @default(4370)
+  serial_no      String?
+  location       String?
+  push_token     String    @unique @default(uuid())
+  is_active      Boolean   @default(true)
+  last_heartbeat DateTime?
+  last_sync      DateTime?
+  total_punches  Int       @default(0)
+  status         String    @default("offline")
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  organisation       Organisation       @relation(fields: [org_id], references: [id])
+  punch_logs         PunchLog[]
+  device_enrollments DeviceEnrollment[]
+
+  @@map("devices")
+}
+
+model PunchLog {
+  id         String   @id @default(uuid())
+  org_id     String
+  device_id  String
+  emp_code   String
+  punch_time DateTime
+  direction  String   // IN or OUT
+  raw_data   String?
+  processed  Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  organisation Organisation @relation(fields: [org_id], references: [id])
+  device       Device       @relation(fields: [device_id], references: [id])
+
+  @@map("punch_logs")
+}
+
+model DeviceEnrollment {
+  id          String    @id @default(uuid())
+  org_id      String
+  device_id   String
+  employee_id String
+  status      String    @default("pending") // pending, enrolled, failed
+  synced_at   DateTime?
+  enrolled_at DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  organisation Organisation @relation(fields: [org_id], references: [id])
+  device       Device       @relation(fields: [device_id], references: [id])
+  employee     Employee     @relation(fields: [employee_id], references: [id])
+
+  @@unique([device_id, employee_id])
+  @@map("device_enrollments")
+}
+
 // ─── LEAVE ──────────────────────────────────────────────
 
 model LeaveType {
-  id                  String  @id @default(uuid())
+  id                  String   @id @default(uuid())
   org_id              String
   name                String
   code                String
-  days_per_year       Decimal @db.Decimal(5, 1)
-  carry_forward_limit Int     @default(0)
-  is_paid             Boolean @default(true)
-  applicable_gender   String  @default("all")
-  min_notice_days     Int     @default(0)
+  days_per_year       Decimal  @db.Decimal(5, 1)
+  carry_forward_limit Int      @default(0)
+  is_paid             Boolean  @default(true)
+  applicable_gender   String   @default("all")
+  min_notice_days     Int      @default(0)
   created_at          DateTime @default(now())
 
   organisation   Organisation   @relation(fields: [org_id], references: [id])
@@ -186,20 +264,20 @@ model LeaveType {
 }
 
 model LeaveRequest {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   org_id           String
   employee_id      String
   leave_type_id    String
-  from_date        DateTime @db.Date
-  to_date          DateTime @db.Date
-  total_days       Decimal  @db.Decimal(4, 1)
-  status           String   @default("pending")
+  from_date        DateTime  @db.Date
+  to_date          DateTime  @db.Date
+  total_days       Decimal   @db.Decimal(4, 1)
+  status           String    @default("pending")
   reason           String
   approved_by      String?
   approved_at      DateTime?
   rejection_reason String?
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
 
   organisation Organisation @relation(fields: [org_id], references: [id])
   employee     Employee     @relation(fields: [employee_id], references: [id])
@@ -225,19 +303,19 @@ model Holiday {
 // ─── PAYROLL ────────────────────────────────────────────
 
 model PayrollRun {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   org_id           String
   month            Int
   year             Int
-  status           String   @default("draft")
-  total_gross      Decimal  @db.Decimal(12, 2) @default(0)
-  total_deductions Decimal  @db.Decimal(12, 2) @default(0)
-  total_net        Decimal  @db.Decimal(12, 2) @default(0)
+  status           String    @default("draft")
+  total_gross      Decimal   @db.Decimal(12, 2) @default(0)
+  total_deductions Decimal   @db.Decimal(12, 2) @default(0)
+  total_net        Decimal   @db.Decimal(12, 2) @default(0)
   run_by           String?
   approved_by      String?
   paid_at          DateTime?
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
 
   organisation Organisation @relation(fields: [org_id], references: [id])
   payslips     Payslip[]
@@ -247,22 +325,22 @@ model PayrollRun {
 }
 
 model Payslip {
-  id              String   @id @default(uuid())
-  org_id          String
-  employee_id     String
-  payroll_run_id  String
-  month           Int
-  year            Int
-  working_days    Int
-  present_days    Decimal  @db.Decimal(4, 1)
-  earnings        Json
-  deductions      Json
-  gross_salary    Decimal  @db.Decimal(10, 2)
-  total_deductions Decimal @db.Decimal(10, 2)
-  net_salary      Decimal  @db.Decimal(10, 2)
-  pdf_s3_key      String?
-  is_published    Boolean  @default(false)
-  created_at      DateTime @default(now())
+  id               String   @id @default(uuid())
+  org_id           String
+  employee_id      String
+  payroll_run_id   String
+  month            Int
+  year             Int
+  working_days     Int
+  present_days     Decimal  @db.Decimal(4, 1)
+  earnings         Json
+  deductions       Json
+  gross_salary     Decimal  @db.Decimal(10, 2)
+  total_deductions Decimal  @db.Decimal(10, 2)
+  net_salary       Decimal  @db.Decimal(10, 2)
+  pdf_s3_key       String?
+  is_published     Boolean  @default(false)
+  created_at       DateTime @default(now())
 
   organisation Organisation @relation(fields: [org_id], references: [id])
   employee     Employee     @relation(fields: [employee_id], references: [id])
@@ -275,16 +353,16 @@ model Payslip {
 // ─── RECRUITMENT ────────────────────────────────────────
 
 model JobPosting {
-  id           String   @id @default(uuid())
-  org_id       String
-  title        String
-  department   String
-  location     String
-  openings     Int      @default(1)
-  description  String
-  status       String   @default("open")
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  id          String   @id @default(uuid())
+  org_id      String
+  title       String
+  department  String
+  location    String
+  openings    Int      @default(1)
+  description String
+  status      String   @default("open")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 
   organisation Organisation @relation(fields: [org_id], references: [id])
   candidates   Candidate[]
@@ -293,21 +371,21 @@ model JobPosting {
 }
 
 model Candidate {
-  id             String   @id @default(uuid())
-  org_id         String
-  job_posting_id String
-  name           String
-  email          String
-  phone          String?
-  resume_url     String?
-  current_company String?
+  id               String   @id @default(uuid())
+  org_id           String
+  job_posting_id   String
+  name             String
+  email            String
+  phone            String?
+  resume_url       String?
+  current_company  String?
   experience_years Int?
-  stage          String   @default("applied")
-  ai_score       Int?
-  ai_summary     String?
-  source         String   @default("website")
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  stage            String   @default("applied")
+  ai_score         Int?
+  ai_summary       String?
+  source           String   @default("website")
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
 
   job_posting JobPosting @relation(fields: [job_posting_id], references: [id])
 
@@ -347,4 +425,20 @@ model SalaryStructure {
   employees    Employee[]   @relation("EmployeeSalaryStructure")
 
   @@map("salary_structures")
+}
+
+// ─── API KEYS ────────────────────────────────────────────
+
+model OrgApiKey {
+  id         String    @id @default(uuid())
+  org_id     String
+  name       String
+  key_hash   String    @unique  // SHA-256 of the raw key — never store plaintext
+  last_used  DateTime?
+  is_active  Boolean   @default(true)
+  created_at DateTime  @default(now())
+
+  organisation Organisation @relation(fields: [org_id], references: [id])
+
+  @@map("org_api_keys")
 }

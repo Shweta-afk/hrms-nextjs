@@ -1,20 +1,24 @@
 import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
+import { getServerSession } from 'next-auth/next'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
+import { checkRateLimit } from '@/lib/rateLimit'
+import type { NextAuthOptions } from 'next-auth'
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const authOptions: NextAuthOptions = {
   providers: [
     Credentials({
       credentials: {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials, request) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null
 
-        const ip = getClientIp(request as unknown as Request)
+        // Rate limit by IP
+        const forwarded = req.headers?.['x-forwarded-for'] as string | undefined
+        const ip = forwarded ? forwarded.split(',')[0].trim() : 'unknown'
         const rl = checkRateLimit(`login:${ip}`, { max: 5, windowMs: 15 * 60 * 1000 })
         if (!rl.allowed) return null
 
@@ -29,7 +33,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           credentials.password as string,
           user.password
         )
-
         if (!isValid) return null
 
         const settings = (user.organisation.settings as Record<string, unknown>) ?? {}
@@ -45,6 +48,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
+  session: { strategy: 'jwt' },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
@@ -71,6 +75,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: '/login',
   },
   secret: process.env.NEXTAUTH_SECRET,
-})
+}
 
-export const { GET, POST } = handlers
+// Compatibility shim: all API routes call auth() as if it were NextAuth v5
+export const auth = () => getServerSession(authOptions)
+
+const handler = NextAuth(authOptions)
+export { handler as GET, handler as POST }

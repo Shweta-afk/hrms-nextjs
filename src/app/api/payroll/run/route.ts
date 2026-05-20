@@ -60,9 +60,9 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      const presentDays = attendance.filter(a =>
-        a.status === 'present' || a.status === 'late'
-      ).length
+      const presentDays = attendance.length === 0
+        ? workingDays  // no records = assume full attendance
+        : attendance.filter(a => a.status === 'present' || a.status === 'late').length
 
       // No attendance records = assume full attendance (benefit of doubt)
       const lopDays = attendance.length === 0
@@ -94,7 +94,8 @@ export async function POST(req: NextRequest) {
           else if (comp.name === 'HRA') hra = amount
           else otherEarnings += amount
         }
-        special = Math.round(ctcMonthly - basic - hra)
+        // Special allowance = CTC minus all named components
+        special = Math.round(ctcMonthly - basic - hra - otherEarnings)
       } 
       else {
         // Default: 40% basic, 50% of basic HRA, remainder special

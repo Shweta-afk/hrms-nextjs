@@ -92,7 +92,15 @@ const Analytics = () => {
     )
   }
 
-  if (!data) return null
+  if (!data) return (
+    <AppLayout title="HR Analytics">
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <AlertTriangle className="h-8 w-8 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Failed to load analytics data.</p>
+        <Button onClick={fetchAnalytics} variant="outline" size="sm">Retry</Button>
+      </div>
+    </AppLayout>
+  )
 
   return (
     <AppLayout title="HR Analytics">

@@ -1,5 +1,5 @@
 'use client'
-import Payslip from '@/pages/Payslip'
+import Payslip from '@/views/Payslip'
 export default function PayslipPage() {
   return <Payslip />
 }

@@ -55,7 +55,11 @@ export async function PATCH(
       )
     }
 
-    // Send payslip emails to all employees
+    // Send payslip emails only when approving — not on paid/locked transitions
+    if (status !== 'approved') {
+      return NextResponse.json({ success: true, data: updated })
+    }
+
     try {
       const { sendPayslipEmail } = await import('@/lib/email')
       const org = await prisma.organisation.findUnique({ where: { id: session.user.org_id } })
@@ -86,6 +90,7 @@ export async function PATCH(
     }
 
     return NextResponse.json({ success: true, data: updated })
+
   } catch (error) {
     return NextResponse.json({ success: false, error: 'Failed to update payroll run' }, { status: 500 })
   }

@@ -86,6 +86,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Enforce plan employee limit
+    const org = await prisma.organisation.findUnique({
+      where: { id: session.user.org_id },
+      select: { plan: true },
+    })
+    const { canAddEmployee } = await import('@/lib/plans')
+    const activeCount = await prisma.employee.count({
+      where: { org_id: session.user.org_id, status: 'active' },
+    })
+    if (!canAddEmployee(activeCount, org?.plan ?? 'starter')) {
+      return NextResponse.json({
+        success: false,
+        error: `Employee limit reached for your ${org?.plan} plan. Upgrade at /billing to add more employees.`,
+      }, { status: 403 })
+    }
+
     const body = await req.json()
     const data = CreateEmployeeSchema.parse(body)
 
@@ -122,8 +138,6 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // TODO: Send welcome email via Resend with tempPassword
-    console.log(`Employee login created: ${data.email} / ${tempPassword}`)
     // Send welcome email
     try {
       const { sendWelcomeEmail } = await import('@/lib/email')
