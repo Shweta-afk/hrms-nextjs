@@ -67,6 +67,7 @@ interface Device {
   timezone: string; status: string; is_active: boolean; last_heartbeat: string | null
   last_sync: string | null; total_punches: number; punches_today: number
   push_url: string
+  adms_url: string
 }
 
 const ESSL_MODELS = [
@@ -145,6 +146,9 @@ const Settings = () => {
   const [deviceModal, setDeviceModal] = useState(false)
   const [deviceSyncing, setDeviceSyncing] = useState<string | null>(null)
   const [deviceDeleting, setDeviceDeleting] = useState<string | null>(null)
+  const [editingSerial, setEditingSerial] = useState<string | null>(null)   // device id being edited
+  const [serialInputVal, setSerialInputVal] = useState("")
+  const [savingSerial, setSavingSerial] = useState<string | null>(null)
   const [newDeviceName, setNewDeviceName] = useState("")
   const [newDeviceModel, setNewDeviceModel] = useState("AIFACE Magnum")
   const [newDeviceIp, setNewDeviceIp] = useState("")
@@ -153,6 +157,7 @@ const Settings = () => {
   const [newDeviceTimezone, setNewDeviceTimezone] = useState("Asia/Kolkata")
   const [addingDevice, setAddingDevice] = useState(false)
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
+  const [setupGuideDevice, setSetupGuideDevice] = useState<Device | null>(null)
 
   // Integrations
   const [integrations] = useState([
@@ -485,6 +490,27 @@ const Settings = () => {
       }
     } catch { toast.error('Delete failed') }
     finally { setDeviceDeleting(null) }
+  }
+
+  async function saveSerialNo(deviceId: string) {
+    if (!serialInputVal.trim()) return
+    setSavingSerial(deviceId)
+    try {
+      const res = await fetch(`/api/devices/${deviceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serial_no: serialInputVal.trim() }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Serial number saved')
+        setEditingSerial(null)
+        fetchDevices()
+      } else {
+        toast.error(json.error || 'Failed to save')
+      }
+    } catch { toast.error('Failed to save') }
+    finally { setSavingSerial(null) }
   }
 
   function copyToClipboard(text: string, key: string) {
@@ -1061,25 +1087,68 @@ const Settings = () => {
                           )}
                         </div>
 
-                        {/* Push URL */}
-                        <div className="mt-3 flex items-center gap-2 bg-muted/60 rounded-md px-3 py-2">
-                          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">Push URL</span>
-                          <code className="text-[10px] text-foreground truncate flex-1">{device.push_url}</code>
-                          <button
-                            onClick={() => copyToClipboard(device.push_url, device.id)}
-                            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                            title="Copy push URL"
-                          >
-                            {copiedToken === device.id
-                              ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                              : <Copy className="h-3.5 w-3.5" />
-                            }
-                          </button>
+                        {/* ADMS Server Address — what to type on the physical device */}
+                        <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold text-foreground">
+                              ADMS Server Address
+                            </p>
+                            <button
+                              onClick={() => setSetupGuideDevice(device)}
+                              className="text-[10px] text-primary hover:underline font-medium"
+                            >
+                              Setup guide →
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            Enter this in the device: <strong>Menu → Communication → ADMS → Server Address</strong>
+                          </p>
+                          <div className="flex items-center gap-2 bg-background border rounded-md px-3 py-2">
+                            <code className="text-xs text-foreground flex-1 select-all break-all">
+                              {device.adms_url ?? device.push_url.split('/api/')[0]}
+                            </code>
+                            <button
+                              onClick={() => copyToClipboard(device.adms_url ?? device.push_url.split('/api/')[0], device.id)}
+                              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                              title="Copy server address"
+                            >
+                              {copiedToken === device.id
+                                ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                : <Copy className="h-4 w-4" />
+                              }
+                            </button>
+                          </div>
+                          {/* Serial number — required for ADMS matching */}
+                          {editingSerial === device.id ? (
+                            <div className="flex items-center gap-2 mt-1">
+                              <Input
+                                className="h-7 text-xs flex-1"
+                                placeholder="e.g. AZBF234100123"
+                                value={serialInputVal}
+                                onChange={e => setSerialInputVal(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') saveSerialNo(device.id); if (e.key === 'Escape') setEditingSerial(null) }}
+                                autoFocus
+                              />
+                              <Button size="sm" className="h-7 text-xs px-3" onClick={() => saveSerialNo(device.id)} disabled={!!savingSerial}>
+                                {savingSerial === device.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingSerial(null)}>Cancel</Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 mt-1">
+                              {device.serial_no
+                                ? <p className="text-[10px] text-muted-foreground">S/N: <strong className="text-foreground">{device.serial_no}</strong></p>
+                                : <p className="text-[10px] text-amber-600 flex items-center gap-1"><AlertCircle className="h-3 w-3 shrink-0" /> Serial number not set</p>
+                              }
+                              <button
+                                onClick={() => { setEditingSerial(device.id); setSerialInputVal(device.serial_no ?? '') }}
+                                className="text-[10px] text-primary hover:underline"
+                              >
+                                {device.serial_no ? 'Edit' : 'Add serial number'}
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-[10px] text-muted-foreground mt-1.5 flex items-center gap-1">
-                          <AlertCircle className="h-3 w-3" />
-                          Configure this URL in the device's server address settings (PUSH mode)
-                        </p>
                       </div>
 
                       {/* Right: actions */}
@@ -1212,6 +1281,99 @@ const Settings = () => {
                 {addingDevice && <Loader2 className="h-4 w-4 animate-spin" />}
                 Add Device
               </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── ESSL Setup Guide Dialog ──────────────────────────────── */}
+        <Dialog open={!!setupGuideDevice} onOpenChange={v => !v && setSetupGuideDevice(null)}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Cpu className="h-4 w-4 text-primary" /> ESSL Device Setup Guide
+              </DialogTitle>
+              <DialogDescription>
+                How to connect <strong>{setupGuideDevice?.name}</strong> to HRMS using ADMS Push
+              </DialogDescription>
+            </DialogHeader>
+
+            {setupGuideDevice && (
+              <div className="space-y-5 py-2">
+                {/* ADMS Server Address box */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">ADMS Server Address</Label>
+                  <p className="text-[10px] text-muted-foreground">Copy and paste this exactly into the device's Server Address field.</p>
+                  <div className="flex items-center gap-2 border-2 border-primary/30 rounded-md bg-primary/5 px-3 py-2.5">
+                    <code className="text-sm font-semibold text-foreground break-all flex-1 select-all">
+                      {setupGuideDevice.adms_url ?? setupGuideDevice.push_url.split('/api/')[0]}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(setupGuideDevice.adms_url ?? setupGuideDevice.push_url.split('/api/')[0], `guide-${setupGuideDevice.id}`)}
+                      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {copiedToken === `guide-${setupGuideDevice.id}`
+                        ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        : <Copy className="h-4 w-4" />
+                      }
+                    </button>
+                  </div>
+                </div>
+
+                {/* Steps */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Steps on the device</p>
+
+                  {[
+                    {
+                      step: '1',
+                      title: 'Open device menu',
+                      detail: 'On the ESSL AIFACE Magnum, tap the menu icon (☰) or press the dedicated menu button on the device.',
+                    },
+                    {
+                      step: '2',
+                      title: 'Go to Communication settings',
+                      detail: 'Navigate to: Menu → Communication → ADMS  (may also be labelled "Cloud Server" or "Push Settings")',
+                    },
+                    {
+                      step: '3',
+                      title: 'Enable ADMS / Cloud Push',
+                      detail: 'Toggle "Enable ADMS" or "Enable Push" to ON.',
+                    },
+                    {
+                      step: '4',
+                      title: 'Set the server address',
+                      detail: 'Paste the Push URL above into the "Server Address" or "ADMS Server" field. Make sure there is no trailing slash.',
+                    },
+                    {
+                      step: '5',
+                      title: 'Save and reboot',
+                      detail: 'Save the settings and reboot the device. Within 1–2 minutes the status badge here should change to Online and punches will start flowing in automatically.',
+                    },
+                  ].map(({ step, title, detail }) => (
+                    <div key={step} className="flex gap-3">
+                      <div className="h-6 w-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+                        {step}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{title}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{detail}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tip */}
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 space-y-1">
+                  <p className="font-semibold">💡 Tip: ESSL AIFACE Magnum menu path</p>
+                  <p>Some firmware versions use: <strong>Menu → Advanced → Server Settings → ADMS</strong></p>
+                  <p>Others use: <strong>Menu → Comm → Cloud Server</strong></p>
+                  <p className="mt-1">If you can't find ADMS, update the device firmware from the ESSL support portal.</p>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSetupGuideDevice(null)}>Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

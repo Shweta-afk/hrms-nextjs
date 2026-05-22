@@ -49,10 +49,12 @@ export async function GET(req: NextRequest) {
 
     const countMap = Object.fromEntries(todayCounts.map((r) => [r.device_id, r._count.id]))
 
+    const appUrl = getAppUrl(req)
     const data = devices.map((d) => ({
       ...d,
       status: computeStatus(d.last_heartbeat, d.status),
-      push_url: `${getAppUrl(req)}/api/attendance/device-push/${d.push_token}`,
+      push_url:  `${appUrl}/api/attendance/device-push/${d.push_token}`,
+      adms_url:  appUrl,   // base URL only — enter this in device ADMS settings
       punches_today: countMap[d.id] ?? 0,
     }))
 
@@ -102,7 +104,8 @@ export async function POST(req: NextRequest) {
         success: true,
         data: {
           ...device,
-          push_url: `${getAppUrl(req)}/api/attendance/device-push/${device.push_token}`,
+          push_url:  `${getAppUrl(req)}/api/attendance/device-push/${device.push_token}`,
+          adms_url:  getAppUrl(req),
           punches_today: 0,
         },
       },
