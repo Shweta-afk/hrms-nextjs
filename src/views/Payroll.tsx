@@ -11,9 +11,11 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, CircleAlert,
-  FileSpreadsheet, FileText, CheckCircle2, Loader2, Play,
+  FileSpreadsheet, FileText, CheckCircle2, Loader2, Play, Settings2, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -65,6 +67,8 @@ const Payroll = () => {
   const [approving, setApproving] = useState(false)
   const [showAnomalies, setShowAnomalies] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [otRate, setOtRate] = useState(0)
+  const [showOtSettings, setShowOtSettings] = useState(false)
 
   const currentMonth = ((now.getMonth() + monthOffset) % 12) + 1
   const currentYear = now.getFullYear() + Math.floor((now.getMonth() + monthOffset) / 12)
@@ -115,7 +119,7 @@ const Payroll = () => {
       const res = await fetch('/api/payroll/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payroll_run_id: runId }),
+        body: JSON.stringify({ payroll_run_id: runId, ot_rate_per_hour: otRate }),
       })
       const json = await res.json()
       if (json.success) {
@@ -208,22 +212,26 @@ const Payroll = () => {
 
   function handleExportExcel() {
     if (payslips.length === 0) { toast.error('No payslips to export'); return }
-    const headers = ['Employee','Code','Department','Basic','HRA','Special Allowance','Gross','PF','ESI','PT','TDS','LOP','Net Pay']
-    const rows = payslips.map(p => [
-      `${p.employee.first_name} ${p.employee.last_name}`,
-      p.employee.emp_code,
-      p.employee.department?.name ?? '',
-      p.earnings['Basic'] ?? 0,
-      p.earnings['HRA'] ?? 0,
-      p.earnings['Special Allowance'] ?? 0,
-      p.gross_salary,
-      p.deductions['PF Employee'] ?? 0,
-      p.deductions['ESI Employee'] ?? 0,
-      p.deductions['Professional Tax'] ?? 0,
-      p.deductions['TDS'] ?? 0,
-      p.deductions['Loss of Pay'] ?? 0,
-      p.net_salary,
-    ])
+    const headers = ['Employee','Code','Department','Basic','HRA','Special Allowance','OT Pay','Gross','PF','ESI','PT','TDS','LOP','Net Pay']
+    const rows = payslips.map(p => {
+      const otK = Object.keys(p.earnings).find(k => k.startsWith('Overtime Pay'))
+      return [
+        `${p.employee.first_name} ${p.employee.last_name}`,
+        p.employee.emp_code,
+        p.employee.department?.name ?? '',
+        p.earnings['Basic'] ?? 0,
+        p.earnings['HRA'] ?? 0,
+        p.earnings['Special Allowance'] ?? 0,
+        otK ? (p.earnings[otK] ?? 0) : 0,
+        p.gross_salary,
+        p.deductions['PF Employee'] ?? 0,
+        p.deductions['ESI Employee'] ?? 0,
+        p.deductions['Professional Tax'] ?? 0,
+        p.deductions['TDS'] ?? 0,
+        p.deductions['Loss of Pay'] ?? 0,
+        p.net_salary,
+      ]
+    })
     const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -291,6 +299,16 @@ const Payroll = () => {
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9"
+            onClick={() => setShowOtSettings(v => !v)}
+            title="Overtime Settings"
+          >
+            <Settings2 className="h-4 w-4 mr-1.5" />
+            OT {otRate > 0 ? `₹${otRate}/hr` : 'Settings'}
+          </Button>
           <Button className="h-9 font-semibold" onClick={handleRunPayroll} disabled={running || isApproved}>
             {running
               ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</>
@@ -326,6 +344,37 @@ const Payroll = () => {
             <Badge variant="active" className="mx-1 text-[10px]">APPROVED</Badge>. Payslips are visible to employees.
           </span>
         </div>
+      )}
+
+      {/* OT Settings */}
+      {showOtSettings && (
+        <Card className="mb-5 border-kpi-amber/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Clock className="h-4 w-4 text-kpi-amber" /> Overtime Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">OT Rate (₹ per hour)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={10}
+                  value={otRate}
+                  onChange={e => setOtRate(Math.max(0, Number(e.target.value)))}
+                  className="h-8 w-36 text-sm"
+                  placeholder="0"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground pb-1 max-w-sm">
+                OT hours are pulled from attendance records (imported via Smart Office Monthly Details).
+                Set to <strong>0</strong> to skip OT pay. Applied on next "Run Payroll".
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* KPI Cards */}
@@ -398,6 +447,7 @@ const Payroll = () => {
                     <TableHead className="text-right">Basic</TableHead>
                     <TableHead className="text-right">HRA</TableHead>
                     <TableHead className="text-right">Special</TableHead>
+                    <TableHead className="text-right text-kpi-amber">OT Pay</TableHead>
                     <TableHead className="text-right font-semibold">Gross</TableHead>
                     <TableHead className="text-right">PF</TableHead>
                     <TableHead className="text-right">ESI</TableHead>
@@ -414,8 +464,10 @@ const Payroll = () => {
                     const basic = p.earnings['Basic'] ?? 0
                     const hra = p.earnings['HRA'] ?? 0
                     const special = p.earnings['Special Allowance'] ?? 0
+                    const otKey = Object.keys(p.earnings).find(k => k.startsWith('Overtime Pay'))
+                    const otPay = otKey ? (p.earnings[otKey] ?? 0) : 0
                     const otherEarnings = Object.entries(p.earnings)
-                      .filter(([k]) => !['Basic','HRA','Special Allowance'].includes(k))
+                      .filter(([k]) => !['Basic','HRA','Special Allowance'].includes(k) && !k.startsWith('Overtime Pay'))
                     const lopDays = Math.max(0, p.working_days - Number(p.present_days))
                     const lopAmt = p.deductions['Loss of Pay'] ?? 0
                     const dayRate = p.working_days > 0 ? Math.round(p.gross_salary / p.working_days) : 0
@@ -442,6 +494,9 @@ const Payroll = () => {
                           <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(basic)}</TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(hra)}</TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(special)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-kpi-amber font-medium">
+                            {otPay > 0 ? fmt(otPay) : '—'}
+                          </TableCell>
                           <TableCell className="text-right tabular-nums font-medium">{fmt(p.gross_salary)}</TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['PF Employee'] ? fmt(p.deductions['PF Employee']) : '—'}</TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['ESI Employee'] ? fmt(p.deductions['ESI Employee']) : '—'}</TableCell>
@@ -466,7 +521,7 @@ const Payroll = () => {
                         {/* Expanded breakdown row */}
                         {isExpanded && (
                           <TableRow key={`${p.id}-detail`} className="bg-muted/20 hover:bg-muted/20">
-                            <TableCell colSpan={12} className="p-0">
+                            <TableCell colSpan={13} className="p-0">
                               <div className="px-6 py-4 border-t border-border">
                                 {/* Attendance strip */}
                                 <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-4 pb-3 border-b border-border">
@@ -505,6 +560,12 @@ const Payroll = () => {
                                         <span className="text-muted-foreground">Special Allowance <span className="text-xs text-muted-foreground/70">(remainder)</span></span>
                                         <span className="tabular-nums font-medium">{fmt(special)}</span>
                                       </div>
+                                      {otPay > 0 && (
+                                        <div className="flex justify-between text-sm text-kpi-amber">
+                                          <span>{otKey}</span>
+                                          <span className="tabular-nums font-medium">{fmt(otPay)}</span>
+                                        </div>
+                                      )}
                                       {otherEarnings.map(([k, v]) => (
                                         <div key={k} className="flex justify-between text-sm">
                                           <span className="text-muted-foreground">{k}</span>

@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
 import { prisma } from '@/lib/prisma'
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+/** Derive the public base URL from env var, or fall back to the incoming request origin. */
+function getAppUrl(req: NextRequest): string {
+  const envUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (envUrl && !envUrl.includes('localhost')) return envUrl.replace(/\/$/, '')
+  // Derive from request host — works on Vercel even without NEXT_PUBLIC_APP_URL set
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? 'localhost:3000'
+  const proto = req.headers.get('x-forwarded-proto') ?? 'https'
+  return `${proto}://${host}`
+}
 
 /** Derive online/offline status from last_heartbeat timestamp. */
 function computeStatus(lastHeartbeat: Date | null, storedStatus: string): string {
@@ -44,7 +52,7 @@ export async function GET(req: NextRequest) {
     const data = devices.map((d) => ({
       ...d,
       status: computeStatus(d.last_heartbeat, d.status),
-      push_url: `${APP_URL}/api/attendance/device-push/${d.push_token}`,
+      push_url: `${getAppUrl(req)}/api/attendance/device-push/${d.push_token}`,
       punches_today: countMap[d.id] ?? 0,
     }))
 
@@ -92,7 +100,7 @@ export async function POST(req: NextRequest) {
         success: true,
         data: {
           ...device,
-          push_url: `${APP_URL}/api/attendance/device-push/${device.push_token}`,
+          push_url: `${getAppUrl(req)}/api/attendance/device-push/${device.push_token}`,
           punches_today: 0,
         },
       },

@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { payroll_run_id } = await req.json()
+    const { payroll_run_id, ot_rate_per_hour = 0 } = await req.json()
 
     const run = await prisma.payrollRun.findFirst({
       where: { id: payroll_run_id, org_id: session.user.org_id },
@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
           employee_id: employee.id,
           date: { gte: fromDate, lte: toDate },
         },
+        select: { status: true, overtime_hours: true },
       })
 
       const presentDays = attendance.length === 0
@@ -68,6 +69,13 @@ export async function POST(req: NextRequest) {
       const lopDays = attendance.length === 0
         ? 0
         : Math.max(0, workingDays - presentDays)
+
+      // Sum overtime hours from attendance records
+      const totalOtHours = attendance.reduce(
+        (sum, a) => sum + (a.overtime_hours ? Number(a.overtime_hours) : 0),
+        0
+      )
+      const otPay = ot_rate_per_hour > 0 ? Math.round(totalOtHours * ot_rate_per_hour) : 0
 
       // Salary calculation
       const ctcAnnual = employee.ctc_annual ? Number(employee.ctc_annual) : 300000
@@ -104,11 +112,12 @@ export async function POST(req: NextRequest) {
         special = Math.round(ctcMonthly - basic - hra)
       }
 
-      const grossSalary = basic + hra + special
+      const grossSalary = basic + hra + special + otPay
 
-      // LOP
+      // LOP (calculated on base salary before OT)
+      const baseSalary = basic + hra + special
       const lopAmount = lopDays > 0
-        ? Math.round((grossSalary / workingDays) * lopDays)
+        ? Math.round((baseSalary / workingDays) * lopDays)
         : 0
 
       // Statutory
@@ -117,10 +126,11 @@ export async function POST(req: NextRequest) {
       const pt = calculatePT(grossSalary, 'maharashtra', run.month - 1)
       const tds = calculateTDS(grossSalary * 12, 'new')
 
-      const earnings = {
+      const earnings: Record<string, number> = {
         Basic: basic,
         HRA: hra,
         'Special Allowance': special,
+        ...(otPay > 0 ? { [`Overtime Pay (${totalOtHours.toFixed(1)}h)`]: otPay } : {}),
       }
 
       const empDeductions: Record<string, number> = {}

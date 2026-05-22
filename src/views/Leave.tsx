@@ -18,9 +18,6 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Tooltip, TooltipContent, TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   FileText, CalendarDays, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -48,15 +45,34 @@ interface LeaveRequest {
   };
 }
 
+interface CalLeave {
+  type: string;
+  name: string;
+  empCode: string;
+  from_date: string;
+  to_date: string;
+  total_days: number;
+  reason: string;
+  department: string;
+}
+
 const typeColor: Record<string, string> = {
   CL: "bg-primary/80", SL: "bg-kpi-green",
   EL: "bg-kpi-amber", ML: "bg-kpi-purple", LOP: "bg-destructive/60",
+};
+
+const typeTextColor: Record<string, string> = {
+  CL: "text-primary", SL: "text-kpi-green",
+  EL: "text-kpi-amber", ML: "text-kpi-purple", LOP: "text-destructive",
 };
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const formatDate = (dateStr: string) =>
   new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const monthNamesFull = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 const Leave = () => {
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
@@ -68,16 +84,20 @@ const Leave = () => {
   const [holidayModal, setHolidayModal] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // Calendar state
   const now = new Date();
   const [calMonth, setCalMonth] = useState(now.getMonth());
   const [calYear, setCalYear] = useState(now.getFullYear());
+
+  // Day detail modal state
+  const [dayModal, setDayModal] = useState<{ day: number; leaves: CalLeave[] } | null>(null);
 
   async function fetchRequests() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter.toLowerCase());
-      const res = await fetch(`/api/leave/requests?${params}&limit=50`);
+      const res = await fetch(`/api/leave/requests?${params}&limit=100`);
       const json = await res.json();
       if (json.success) setRequests(json.data.requests);
       else toast.error('Failed to load leave requests');
@@ -103,11 +123,8 @@ const Leave = () => {
         toast.success('Leave approved — employee notified');
         fetchRequests();
       } else toast.error('Failed to approve leave');
-    } catch {
-      toast.error('Failed to approve leave');
-    } finally {
-      setActionLoading(null);
-    }
+    } catch { toast.error('Failed to approve leave'); }
+    finally { setActionLoading(null); }
   }
 
   async function confirmReject() {
@@ -124,13 +141,8 @@ const Leave = () => {
         toast.success('Leave rejected');
         fetchRequests();
       } else toast.error('Failed to reject leave');
-    } catch {
-      toast.error('Failed to reject leave');
-    } finally {
-      setActionLoading(null);
-      setRejectModal(null);
-      setRejectReason('');
-    }
+    } catch { toast.error('Failed to reject leave'); }
+    finally { setActionLoading(null); setRejectModal(null); setRejectReason(''); }
   }
 
   async function approveAll() {
@@ -139,7 +151,7 @@ const Leave = () => {
     toast.success('All pending leaves approved');
   }
 
-  const pending = requests.filter(r => r.status === 'pending');
+  const pending  = requests.filter(r => r.status === 'pending');
   const approved = requests.filter(r => r.status === 'approved');
   const rejected = requests.filter(r => r.status === 'rejected');
 
@@ -149,29 +161,39 @@ const Leave = () => {
     return true;
   });
 
-  // Calendar
+  // Build calendar leaves map — include all fields for the day detail modal
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const firstDay    = new Date(calYear, calMonth, 1).getDay();
 
-  const calendarLeaves: Record<number, { type: string; name: string }[]> = {};
+  const calendarLeaves: Record<number, CalLeave[]> = {};
   requests.filter(r => r.status === 'approved').forEach(r => {
     const from = new Date(r.from_date);
-    const to = new Date(r.to_date);
-    const cur = new Date(from);
+    const to   = new Date(r.to_date);
+    const cur  = new Date(from);
     while (cur <= to) {
       if (cur.getMonth() === calMonth && cur.getFullYear() === calYear) {
         const day = cur.getDate();
         if (!calendarLeaves[day]) calendarLeaves[day] = [];
         calendarLeaves[day].push({
-          type: r.leave_type.code,
-          name: `${r.employee.first_name} ${r.employee.last_name[0]}.`,
+          type:       r.leave_type.code,
+          name:       `${r.employee.first_name} ${r.employee.last_name}`,
+          empCode:    r.employee.emp_code,
+          from_date:  r.from_date,
+          to_date:    r.to_date,
+          total_days: Number(r.total_days),
+          reason:     r.reason,
+          department: r.employee.department?.name ?? '—',
         });
       }
       cur.setDate(cur.getDate() + 1);
     }
   });
 
-  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function openDayModal(day: number) {
+    const leaves = calendarLeaves[day];
+    if (!leaves || leaves.length === 0) return;
+    setDayModal({ day, leaves });
+  }
 
   return (
     <AppLayout title="Leave Management">
@@ -188,10 +210,10 @@ const Leave = () => {
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {[
-          { label: "Total Requests", value: String(requests.length), color: "text-foreground" },
-          { label: "Pending Approval", value: String(pending.length), color: "text-kpi-amber", pulse: true },
-          { label: "Approved", value: String(approved.length), color: "text-kpi-green" },
-          { label: "Rejected", value: String(rejected.length), color: "text-destructive" },
+          { label: "Total Requests",   value: String(requests.length), color: "text-foreground" },
+          { label: "Pending Approval", value: String(pending.length),  color: "text-kpi-amber", pulse: true },
+          { label: "Approved",         value: String(approved.length), color: "text-kpi-green" },
+          { label: "Rejected",         value: String(rejected.length), color: "text-destructive" },
         ].map((k) => (
           <Card key={k.label}>
             <CardContent className="p-5">
@@ -212,6 +234,7 @@ const Leave = () => {
 
       {/* Main panels */}
       <div className="grid lg:grid-cols-5 gap-6 mb-6">
+
         {/* Pending Approvals */}
         <Card className="lg:col-span-3 border-l-4 border-l-kpi-amber">
           <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
@@ -226,13 +249,9 @@ const Leave = () => {
           </CardHeader>
           <CardContent className="space-y-3 pt-0">
             {loading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
+              <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
             ) : pending.length === 0 ? (
-              <div className="text-center py-8 text-sm text-muted-foreground">
-                No pending leave requests
-              </div>
+              <div className="text-center py-8 text-sm text-muted-foreground">No pending leave requests</div>
             ) : (
               pending.map((r) => (
                 <div key={r.id} className="flex items-center gap-3 rounded-lg border p-3 bg-card hover:shadow-sm transition-shadow">
@@ -281,10 +300,13 @@ const Leave = () => {
           </CardContent>
         </Card>
 
-        {/* Leave Calendar */}
+        {/* Leave Calendar — clickable dates */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-base font-semibold">Leave Calendar</CardTitle>
+            <div>
+              <CardTitle className="text-base font-semibold">Leave Calendar</CardTitle>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Click a date to see who's on leave</p>
+            </div>
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
                 if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1); }
@@ -305,7 +327,7 @@ const Leave = () => {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="grid grid-cols-7 mb-1">
-              {weekdays.map((d) => (
+              {weekdays.map(d => (
                 <div key={d} className="text-center text-[10px] font-medium text-muted-foreground py-1">{d}</div>
               ))}
             </div>
@@ -314,28 +336,29 @@ const Leave = () => {
               {Array.from({ length: daysInMonth }, (_, i) => {
                 const day = i + 1;
                 const leaves = calendarLeaves[day] || [];
-                const isWeekend = new Date(calYear, calMonth, day).getDay() === 0 || new Date(calYear, calMonth, day).getDay() === 6;
+                const isWeekend = [0, 6].includes(new Date(calYear, calMonth, day).getDay());
+                const hasLeaves = leaves.length > 0;
                 return (
-                  <Tooltip key={day}>
-                    <TooltipTrigger asChild>
-                      <div className={`aspect-square rounded-md flex flex-col items-center justify-center text-xs cursor-default transition-colors ${isWeekend ? "bg-muted/60 text-muted-foreground" : "hover:bg-secondary"}`}>
-                        <span className={`font-medium leading-none ${leaves.length > 0 ? "mb-0.5" : ""}`}>{day}</span>
-                        {leaves.length > 0 && (
-                          <div className="flex gap-0.5 mt-0.5">
-                            {leaves.slice(0, 2).map((l, li) => (
-                              <span key={li} className={`h-1.5 w-1.5 rounded-full ${typeColor[l.type] || "bg-muted-foreground"}`} />
-                            ))}
-                            {leaves.length > 2 && <span className="text-[8px] text-muted-foreground leading-none">+{leaves.length - 2}</span>}
-                          </div>
+                  <button
+                    key={day}
+                    onClick={() => openDayModal(day)}
+                    className={`aspect-square rounded-md flex flex-col items-center justify-center text-xs transition-colors
+                      ${isWeekend ? "bg-muted/60 text-muted-foreground" : "hover:bg-secondary"}
+                      ${hasLeaves ? "ring-1 ring-inset ring-primary/20 cursor-pointer" : "cursor-default"}
+                    `}
+                  >
+                    <span className={`font-medium leading-none ${hasLeaves ? "mb-0.5" : ""}`}>{day}</span>
+                    {hasLeaves && (
+                      <div className="flex gap-0.5 mt-0.5">
+                        {leaves.slice(0, 3).map((l, li) => (
+                          <span key={li} className={`h-1.5 w-1.5 rounded-full ${typeColor[l.type] || "bg-muted-foreground"}`} />
+                        ))}
+                        {leaves.length > 3 && (
+                          <span className="text-[8px] text-muted-foreground leading-none">+{leaves.length - 3}</span>
                         )}
                       </div>
-                    </TooltipTrigger>
-                    {leaves.length > 0 && (
-                      <TooltipContent side="top" className="text-xs">
-                        {leaves.map((l, li) => <div key={li}>{l.name} — {l.type}</div>)}
-                      </TooltipContent>
                     )}
-                  </Tooltip>
+                  </button>
                 );
               })}
             </div>
@@ -345,7 +368,7 @@ const Leave = () => {
                 { label: "SL", cls: "bg-kpi-green" },
                 { label: "EL", cls: "bg-kpi-amber" },
                 { label: "ML", cls: "bg-kpi-purple" },
-              ].map((l) => (
+              ].map(l => (
                 <div key={l.label} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                   <span className={`h-2.5 w-2.5 rounded-full ${l.cls}`} />{l.label}
                 </div>
@@ -385,13 +408,9 @@ const Leave = () => {
         </CardHeader>
         <CardContent className="pt-0">
           {loading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
+            <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-10 text-sm text-muted-foreground">
-              No leave requests found
-            </div>
+            <div className="text-center py-10 text-sm text-muted-foreground">No leave requests found</div>
           ) : (
             <Table>
               <TableHeader>
@@ -435,18 +454,14 @@ const Leave = () => {
                             className="h-6 px-2 text-[10px] bg-kpi-green hover:bg-kpi-green/90 text-white"
                             onClick={() => handleApprove(r.id)}
                             disabled={actionLoading === r.id}
-                          >
-                            Approve
-                          </Button>
+                          >Approve</Button>
                           <Button
                             size="sm"
                             variant="outline"
                             className="h-6 px-2 text-[10px] text-destructive border-destructive/30"
                             onClick={() => { setRejectModal(r.id); setRejectReason(''); }}
                             disabled={actionLoading === r.id}
-                          >
-                            Reject
-                          </Button>
+                          >Reject</Button>
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
@@ -460,7 +475,52 @@ const Leave = () => {
         </CardContent>
       </Card>
 
-      {/* Reject Modal */}
+      {/* ── Day Detail Modal ── */}
+      <Dialog open={dayModal !== null} onOpenChange={open => !open && setDayModal(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {dayModal && `${monthNamesFull[calMonth]} ${dayModal.day}, ${calYear}`}
+            </DialogTitle>
+            <DialogDescription>
+              {dayModal && `${dayModal.leaves.length} employee${dayModal.leaves.length !== 1 ? 's' : ''} on approved leave`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+            {dayModal?.leaves.map((l, i) => (
+              <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card">
+                <Avatar className="h-9 w-9 shrink-0 mt-0.5">
+                  <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
+                    {l.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-medium">{l.name}</span>
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold text-white ${typeColor[l.type] || 'bg-muted-foreground'}`}>
+                      {l.type}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {l.empCode} · {l.department}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {formatDate(l.from_date)} – {formatDate(l.to_date)} ({l.total_days}d)
+                  </p>
+                  {l.reason && (
+                    <p className="text-xs text-muted-foreground/80 mt-1 italic">&ldquo;{l.reason}&rdquo;</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDayModal(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reject Modal ── */}
       <Dialog open={rejectModal !== null} onOpenChange={(o) => !o && setRejectModal(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -488,7 +548,7 @@ const Leave = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Holiday Calendar Modal */}
+      {/* ── Holiday Calendar Modal ── */}
       <Dialog open={holidayModal} onOpenChange={setHolidayModal}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -505,12 +565,12 @@ const Leave = () => {
             </TableHeader>
             <TableBody>
               {[
-                { date: "26 Jan", name: "Republic Day", type: "National" },
-                { date: "14 Apr", name: "Dr. Ambedkar Jayanti", type: "National" },
-                { date: "01 May", name: "May Day", type: "National" },
-                { date: "15 Aug", name: "Independence Day", type: "National" },
-                { date: "02 Oct", name: "Gandhi Jayanti", type: "National" },
-                { date: "25 Dec", name: "Christmas", type: "Optional" },
+                { date: "26 Jan", name: "Republic Day",           type: "National" },
+                { date: "14 Apr", name: "Dr. Ambedkar Jayanti",   type: "National" },
+                { date: "01 May", name: "May Day",                type: "National" },
+                { date: "15 Aug", name: "Independence Day",       type: "National" },
+                { date: "02 Oct", name: "Gandhi Jayanti",         type: "National" },
+                { date: "25 Dec", name: "Christmas",              type: "Optional" },
               ].map((h) => (
                 <TableRow key={h.date}>
                   <TableCell className="font-medium">{h.date}</TableCell>
