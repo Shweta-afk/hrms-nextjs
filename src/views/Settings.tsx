@@ -21,6 +21,9 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Building2, FileText, DollarSign, Clock, LayoutGrid, CalendarDays,
   Users, Plug, CreditCard, Save, CheckCircle2, Circle, Plus, Trash2,
   Loader2, Star, Cpu, Wifi, WifiOff, RefreshCw, Copy, AlertCircle,
@@ -456,6 +459,11 @@ const Settings = () => {
       if (json.success) {
         toast.success(`Synced — ${json.data.processed} punches processed`)
         fetchDevices()
+      } else if (json.error === 'pull_sync_unavailable') {
+        toast.error(
+          'Pull sync not available on cloud. Configure the device to push to its Push URL instead.',
+          { duration: 6000 }
+        )
       } else {
         toast.error(json.error || 'Sync failed')
       }
@@ -1090,17 +1098,27 @@ const Settings = () => {
                           <Users className="h-3.5 w-3.5" />
                           View People
                         </Button>
-                        <Button
-                          size="sm" variant="outline" className="gap-1.5 text-xs"
-                          onClick={() => handleSyncDevice(device.id)}
-                          disabled={deviceSyncing === device.id}
-                        >
-                          {deviceSyncing === device.id
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <RefreshCw className="h-3.5 w-3.5" />
-                          }
-                          Sync Now
-                        </Button>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm" variant="outline" className="gap-1.5 text-xs"
+                                onClick={() => handleSyncDevice(device.id)}
+                                disabled={deviceSyncing === device.id}
+                              >
+                                {deviceSyncing === device.id
+                                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  : <RefreshCw className="h-3.5 w-3.5" />
+                                }
+                                Sync Now
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs text-xs">
+                              Pull sync requires the server to be on the same network as the device.
+                              On cloud deployments, configure the device to use the Push URL instead.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                         <Button
                           size="sm" variant="ghost"
                           className="gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"

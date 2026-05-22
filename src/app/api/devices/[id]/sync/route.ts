@@ -4,6 +4,17 @@ import { prisma } from '@/lib/prisma'
 import { connectToDevice, getAttendanceLogs, getDeviceInfo, disconnect } from '@/lib/zkdevice'
 import { processPunches } from '@/lib/punch-processor'
 
+/** Returns true for RFC-1918 / loopback / link-local addresses. */
+function isPrivateIp(ip: string): boolean {
+  return (
+    /^10\./.test(ip) ||
+    /^192\.168\./.test(ip) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    /^127\./.test(ip) ||
+    /^169\.254\./.test(ip)
+  )
+}
+
 // POST /api/devices/[id]/sync — pull attendance logs from device via ZKTeco SDK
 export async function POST(
   req: NextRequest,
@@ -26,6 +37,19 @@ export async function POST(
 
     if (!device) {
       return NextResponse.json({ success: false, error: 'Device not found' }, { status: 404 })
+    }
+
+    // Pull sync requires a direct TCP connection — impossible from cloud to a LAN device.
+    // Guide the user to use ADMS push instead.
+    if (isPrivateIp(device.ip_address)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:   'pull_sync_unavailable',
+          message: 'This device is on a private network. Pull sync only works when the server is on the same LAN. Use the ADMS push URL on the device instead — it sends punches automatically.',
+        },
+        { status: 400 }
+      )
     }
 
     // Mark device as syncing
