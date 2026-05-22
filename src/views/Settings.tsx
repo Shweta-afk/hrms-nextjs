@@ -59,12 +59,26 @@ interface SalaryStructure {
 interface Department { id: string; name: string; code: string }
 interface Holiday { id: string; name: string; date: string; type: string }
 interface Device {
-  id: string; name: string; ip_address: string; port: number
+  id: string; name: string; model: string | null; ip_address: string; port: number
   location: string | null; serial_no: string | null; push_token: string
-  status: string; is_active: boolean; last_heartbeat: string | null
+  timezone: string; status: string; is_active: boolean; last_heartbeat: string | null
   last_sync: string | null; total_punches: number; punches_today: number
   push_url: string
 }
+
+const ESSL_MODELS = [
+  'AIFACE Magnum',
+  'AIFACE Ultra',
+  'AIFACE Pro',
+  'iFace 302',
+  'iFace 800',
+  'eSSL MB20',
+  'eSSL X990',
+  'ZKTeco F18',
+  'ZKTeco K40 Pro',
+  'ZKTeco SpeedFace V5L',
+  'Other / Unknown',
+]
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState("profile")
@@ -126,9 +140,11 @@ const Settings = () => {
   const [deviceSyncing, setDeviceSyncing] = useState<string | null>(null)
   const [deviceDeleting, setDeviceDeleting] = useState<string | null>(null)
   const [newDeviceName, setNewDeviceName] = useState("")
+  const [newDeviceModel, setNewDeviceModel] = useState("AIFACE Magnum")
   const [newDeviceIp, setNewDeviceIp] = useState("")
   const [newDevicePort, setNewDevicePort] = useState("4370")
   const [newDeviceLocation, setNewDeviceLocation] = useState("")
+  const [newDeviceTimezone, setNewDeviceTimezone] = useState("Asia/Kolkata")
   const [addingDevice, setAddingDevice] = useState(false)
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
@@ -149,6 +165,18 @@ const Settings = () => {
   const [peoplePanelDevice, setPeoplePanelDevice] = useState<Device | null>(null)
   const [devicePeople, setDevicePeople] = useState<DevicePerson[]>([])
   const [devicePeopleLoading, setDevicePeopleLoading] = useState(false)
+
+  // Import from device
+  interface DeviceUser {
+    uid: number; userId: string; name: string; role: number; exists_in_hrms: boolean
+    emp_code: string  // editable before import
+    department_id: string | null
+    date_of_joining: string
+  }
+  const [importDevice, setImportDevice] = useState<Device | null>(null)
+  const [importUsers, setImportUsers] = useState<DeviceUser[]>([])
+  const [importLoading, setImportLoading] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   // API Keys
   interface ApiKey { id: string; name: string; last_used: string | null; is_active: boolean; created_at: string }
@@ -354,16 +382,19 @@ const Settings = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newDeviceName,
+          model: newDeviceModel || undefined,
           ip_address: newDeviceIp,
           port: parseInt(newDevicePort) || 4370,
           location: newDeviceLocation || undefined,
+          timezone: newDeviceTimezone || 'Asia/Kolkata',
         }),
       })
       const json = await res.json()
       if (json.success) {
         toast.success(`Device "${newDeviceName}" added`)
         setDeviceModal(false)
-        setNewDeviceName(''); setNewDeviceIp(''); setNewDevicePort('4370'); setNewDeviceLocation('')
+        setNewDeviceName(''); setNewDeviceModel('AIFACE Magnum'); setNewDeviceIp('')
+        setNewDevicePort('4370'); setNewDeviceLocation(''); setNewDeviceTimezone('Asia/Kolkata')
         fetchDevices()
       } else {
         toast.error(json.error || 'Failed to add device')
@@ -407,6 +438,53 @@ const Settings = () => {
     navigator.clipboard.writeText(text)
     setCopiedToken(key)
     setTimeout(() => setCopiedToken(null), 2000)
+  }
+
+  async function openImportDialog(device: Device) {
+    setImportDevice(device)
+    setImportUsers([])
+    setImportLoading(true)
+    try {
+      const res = await fetch(`/api/devices/${device.id}/import-employees`)
+      const json = await res.json()
+      if (json.success) {
+        // Pre-populate emp_code from userId, today as default joining date
+        const today = new Date().toISOString().split('T')[0]
+        setImportUsers(
+          json.data.users.map((u: { uid: number; userId: string; name: string; role: number; exists_in_hrms: boolean }) => ({
+            ...u,
+            emp_code:       u.userId,
+            department_id:  null,
+            date_of_joining: today,
+          }))
+        )
+      } else {
+        toast.error(json.error ?? 'Failed to read device users')
+        setImportDevice(null)
+      }
+    } catch { toast.error('Could not connect to device') ; setImportDevice(null) }
+    finally { setImportLoading(false) }
+  }
+
+  async function runImport() {
+    const toImport = importUsers.filter((u) => !u.exists_in_hrms)
+    if (!toImport.length) { toast.error('Nothing to import'); return }
+    setImporting(true)
+    try {
+      const res = await fetch(`/api/devices/${importDevice!.id}/import-employees`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employees: toImport }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(`Imported ${json.data.created} employee${json.data.created !== 1 ? 's' : ''}${json.data.skipped ? ` (${json.data.skipped} skipped)` : ''}`)
+        setImportDevice(null)
+      } else {
+        toast.error(json.error ?? 'Import failed')
+      }
+    } catch { toast.error('Import failed') }
+    finally { setImporting(false) }
   }
 
   async function openDevicePeople(device: Device) {
@@ -864,6 +942,9 @@ const Settings = () => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2.5 flex-wrap">
                           <span className="font-semibold text-sm text-foreground">{device.name}</span>
+                          {device.model && (
+                            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-medium">{device.model}</span>
+                          )}
                           <Badge className={cn("text-[10px] gap-1 px-1.5 py-0.5 rounded-full font-medium border-0", statusColor)}>
                             <StatusIcon className="h-2.5 w-2.5" />
                             {device.status === 'never_connected' ? 'Never connected' : device.status.charAt(0).toUpperCase() + device.status.slice(1)}
@@ -917,6 +998,13 @@ const Settings = () => {
                       <div className="flex md:flex-col gap-2 shrink-0">
                         <Button
                           size="sm" variant="outline" className="gap-1.5 text-xs"
+                          onClick={() => openImportDialog(device)}
+                        >
+                          <Users className="h-3.5 w-3.5" />
+                          Import People
+                        </Button>
+                        <Button
+                          size="sm" variant="outline" className="gap-1.5 text-xs"
                           onClick={() => openDevicePeople(device)}
                         >
                           <Users className="h-3.5 w-3.5" />
@@ -964,11 +1052,25 @@ const Settings = () => {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
+              {/* Model */}
+              <div className="space-y-1.5">
+                <Label>Device Model</Label>
+                <Select value={newDeviceModel} onValueChange={setNewDeviceModel}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {ESSL_MODELS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Name */}
               <div className="space-y-1.5">
                 <Label>Device Name *</Label>
                 <Input value={newDeviceName} onChange={e => setNewDeviceName(e.target.value)}
                   placeholder="e.g. Main Gate, Office Entry" />
               </div>
+
+              {/* IP + Port */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2 space-y-1.5">
                   <Label>IP Address *</Label>
@@ -981,10 +1083,29 @@ const Settings = () => {
                     placeholder="4370" type="number" />
                 </div>
               </div>
+
+              {/* Location */}
               <div className="space-y-1.5">
                 <Label>Location <span className="text-muted-foreground">(optional)</span></Label>
                 <Input value={newDeviceLocation} onChange={e => setNewDeviceLocation(e.target.value)}
                   placeholder="e.g. Ground Floor, Building A" />
+              </div>
+
+              {/* Timezone */}
+              <div className="space-y-1.5">
+                <Label>Device Timezone</Label>
+                <Select value={newDeviceTimezone} onValueChange={setNewDeviceTimezone}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Asia/Kolkata">India (IST, UTC+5:30)</SelectItem>
+                    <SelectItem value="Asia/Dubai">UAE (GST, UTC+4)</SelectItem>
+                    <SelectItem value="Asia/Singapore">Singapore (SGT, UTC+8)</SelectItem>
+                    <SelectItem value="UTC">UTC</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  Must match the time configured on the device. Wrong timezone = wrong attendance times.
+                </p>
               </div>
             </div>
             <DialogFooter>
@@ -1361,6 +1482,113 @@ const Settings = () => {
               </>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+      {/* Import from Device Dialog */}
+      <Dialog open={!!importDevice} onOpenChange={(open) => { if (!open) setImportDevice(null) }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Users className="h-4 w-4" />
+              Import Employees from {importDevice?.name}
+            </DialogTitle>
+            <DialogDescription>
+              These users were read from the device. Review each row — edit the Employee Code if needed — then click Import.
+              Employees already in HRMS are greyed out and will be skipped.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto mt-2">
+            {importLoading ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Connecting to device and reading users…</p>
+              </div>
+            ) : importUsers.length === 0 ? (
+              <div className="text-center py-12 text-sm text-muted-foreground">No users found on device</div>
+            ) : (
+              <>
+                {/* Summary */}
+                <div className="flex gap-3 mb-4 flex-wrap">
+                  <span className="text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-medium">
+                    {importUsers.filter(u => !u.exists_in_hrms).length} to import
+                  </span>
+                  {importUsers.filter(u => u.exists_in_hrms).length > 0 && (
+                    <span className="text-xs bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full font-medium">
+                      {importUsers.filter(u => u.exists_in_hrms).length} already in HRMS (will skip)
+                    </span>
+                  )}
+                </div>
+
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="text-[11px] font-semibold w-10">#</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Device ID</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Name (from device)</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Employee Code</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Joining Date</TableHead>
+                      <TableHead className="text-[11px] font-semibold w-24">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importUsers.map((u, i) => (
+                      <TableRow key={u.uid} className={u.exists_in_hrms ? 'opacity-40' : ''}>
+                        <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
+                        <TableCell className="font-mono text-xs">{u.userId}</TableCell>
+                        <TableCell className="text-sm font-medium">{u.name}</TableCell>
+                        <TableCell>
+                          <Input
+                            value={u.emp_code}
+                            disabled={u.exists_in_hrms}
+                            onChange={(e) => setImportUsers(prev =>
+                              prev.map((p, idx) => idx === i ? { ...p, emp_code: e.target.value } : p)
+                            )}
+                            className="h-7 text-xs font-mono w-28"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <input
+                            type="date"
+                            value={u.date_of_joining}
+                            disabled={u.exists_in_hrms}
+                            onChange={(e) => setImportUsers(prev =>
+                              prev.map((p, idx) => idx === i ? { ...p, date_of_joining: e.target.value } : p)
+                            )}
+                            className="text-xs border border-border rounded px-2 py-1 bg-background disabled:opacity-50 w-32"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {u.exists_in_hrms
+                            ? <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Already exists</span>
+                            : <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full">Will import</span>
+                          }
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+
+                <p className="text-xs text-muted-foreground mt-3">
+                  ⓘ A placeholder email (<code>empcode@company.com</code>) will be created. Update each employee&apos;s real email after import.
+                </p>
+              </>
+            )}
+          </div>
+
+          {!importLoading && importUsers.length > 0 && (
+            <div className="flex justify-end gap-2 pt-3 border-t border-border mt-2">
+              <Button variant="outline" onClick={() => setImportDevice(null)}>Cancel</Button>
+              <Button
+                onClick={runImport}
+                disabled={importing || importUsers.filter(u => !u.exists_in_hrms).length === 0}
+                className="gap-2"
+              >
+                {importing && <Loader2 className="h-4 w-4 animate-spin" />}
+                Import {importUsers.filter(u => !u.exists_in_hrms).length} Employee{importUsers.filter(u => !u.exists_in_hrms).length !== 1 ? 's' : ''}
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </AppLayout>

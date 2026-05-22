@@ -187,10 +187,12 @@ model Device {
   id             String    @id @default(uuid())
   org_id         String
   name           String
+  model          String?                      // e.g. "AIFACE Magnum", "ZK400", etc.
   ip_address     String
   port           Int       @default(4370)
   serial_no      String?
   location       String?
+  timezone       String    @default("Asia/Kolkata")  // IANA tz — used to parse device push times
   push_token     String    @unique @default(uuid())
   is_active      Boolean   @default(true)
   last_heartbeat DateTime?

@@ -27,6 +27,44 @@ async function resolveDevice(token: string) {
   return prisma.device.findUnique({ where: { push_token: token } })
 }
 
+/**
+ * Parse device local datetime string → UTC Date.
+ * ESSL/ZKTeco devices send time in their configured local timezone (usually IST).
+ * Without correction every punch is stored 5h30m off.
+ *
+ * Uses Intl.DateTimeFormat to detect the UTC offset for the given timezone
+ * at the time of the punch (handles DST correctly).
+ */
+function parseDeviceTime(datetimeStr: string, timezone: string): Date {
+  // datetimeStr format: "2026-05-22 09:05:00"
+  const normalized = datetimeStr.trim().replace(' ', 'T')
+
+  try {
+    // Create a formatter that tells us what the clock shows in the target timezone
+    // when our reference UTC time equals the naive datetime
+    // Strategy: interpret the string as UTC first, then adjust by the offset
+    const naiveUtc = new Date(normalized + 'Z')  // treat as UTC temporarily
+
+    // Find the UTC offset of the timezone at that approximate moment
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    })
+    const parts = formatter.formatToParts(naiveUtc)
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '0'
+    const localStr = `${get('year')}-${get('month')}-${get('day')}T${get('hour').padStart(2,'0')}:${get('minute')}:${get('second')}Z`
+    const offsetMs = new Date(localStr).getTime() - naiveUtc.getTime()
+
+    // Correct: device_local_time - offset = UTC
+    return new Date(naiveUtc.getTime() - offsetMs)
+  } catch {
+    // Fallback: return as-is (avoids crashing)
+    return new Date(normalized)
+  }
+}
+
 // GET — heartbeat (device checking server is alive)
 export async function GET(
   req: NextRequest,
@@ -95,8 +133,8 @@ export async function POST(
       const [empCode, datetimeStr, stateStr] = fields
       const state = parseInt(stateStr ?? '0', 10)
 
-      // Parse datetime — device sends local time, we treat as-is
-      const punchTime = new Date(datetimeStr.replace(' ', 'T'))
+      // Parse datetime — device sends local time; convert to UTC using device timezone
+      const punchTime = parseDeviceTime(datetimeStr, device.timezone ?? 'Asia/Kolkata')
       if (isNaN(punchTime.getTime())) { skipped++; continue }
 
       const direction: 'IN' | 'OUT' = [0, 4].includes(state) ? 'IN' : 'OUT'

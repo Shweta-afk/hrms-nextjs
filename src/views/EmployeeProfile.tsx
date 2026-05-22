@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +26,7 @@ import {
 import {
   Pencil, MoreHorizontal, ArrowRightLeft, UserX, Copy, Loader2,
   ShieldCheck, AlertTriangle, Fingerprint, CheckCircle2, XCircle,
-  AlertCircle, RefreshCw, Wifi, WifiOff,
+  AlertCircle, RefreshCw, Wifi, WifiOff, Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -58,7 +59,7 @@ interface Payslip {
 }
 
 interface Employee {
-  id: string; emp_code: string
+  id: string; emp_code: string; essl_device_id: string | null
   first_name: string; last_name: string; email: string; phone: string | null
   department_id: string | null; department: Department | null
   designation_id: string | null; designation: Designation | null
@@ -120,6 +121,8 @@ const EmployeeProfile = ({ employeeId }: Props) => {
 
   const [enrollments, setEnrollments] = useState<DeviceEnrollmentData[]>([])
   const [enrollmentsLoading, setEnrollmentsLoading] = useState(false)
+  const [esslDeviceId, setEsslDeviceId] = useState('')
+  const [savingEssl, setSavingEssl] = useState(false)
   const [syncingDevice, setSyncingDevice] = useState<string | null>(null)
   const [syncAllLoading, setSyncAllLoading] = useState(false)
 
@@ -128,7 +131,11 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   const [editEmployment, setEditEmployment] = useState(false)
   const [transferModal, setTransferModal] = useState(false)
   const [deactivateModal, setDeactivateModal] = useState(false)
+  const [terminationReason, setTerminationReason] = useState('')
+  const [lastWorkingDay, setLastWorkingDay] = useState('')
   const [copiedId, setCopiedId] = useState(false)
+  const [sendingInvite, setSendingInvite] = useState(false)
+  const router = useRouter()
 
   // Draft state for edit forms
   const [personalDraft, setPersonalDraft] = useState<Partial<Employee>>({})
@@ -151,8 +158,10 @@ const EmployeeProfile = ({ employeeId }: Props) => {
       const [empJson, deptJson, structJson, balJson] = await Promise.all([
         empRes.json(), deptRes.json(), structRes.json(), balRes.json(),
       ])
-      if (empJson.success) setEmployee(empJson.data)
-      else setError(empJson.error || 'Employee not found')
+      if (empJson.success) {
+        setEmployee(empJson.data)
+        setEsslDeviceId(empJson.data.essl_device_id ?? '')
+      } else setError(empJson.error || 'Employee not found')
       if (deptJson.success) setDepartments(deptJson.data)
       if (structJson.success) setSalaryStructures(structJson.data)
       if (balJson.success) setLeaveBalances(balJson.data)
@@ -222,6 +231,45 @@ const EmployeeProfile = ({ employeeId }: Props) => {
     fetchEnrollments()
   }
 
+  const sendPortalInvite = async () => {
+    setSendingInvite(true)
+    try {
+      const res = await fetch(`/api/employees/${employeeId}/invite`, { method: 'POST' })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(json.warning ?? `Portal invite sent to ${employee?.email}`)
+      } else {
+        toast.error(json.error ?? 'Failed to send invite')
+      }
+    } catch {
+      toast.error('Failed to send invite')
+    } finally {
+      setSendingInvite(false)
+    }
+  }
+
+  const saveEsslDeviceId = async () => {
+    setSavingEssl(true)
+    try {
+      const res = await fetch(`/api/employees/${employeeId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ essl_device_id: esslDeviceId.trim() || null }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Device User ID saved')
+        setEmployee((prev) => prev ? { ...prev, essl_device_id: esslDeviceId.trim() || null } : prev)
+      } else {
+        toast.error(json.error ?? 'Failed to save')
+      }
+    } catch {
+      toast.error('Failed to save')
+    } finally {
+      setSavingEssl(false)
+    }
+  }
+
   useEffect(() => { fetchEmployee(); fetchEnrollments() }, [fetchEmployee, fetchEnrollments])
 
   // ── end fetch ──
@@ -252,12 +300,23 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   }
 
   const savePersonal = async () => {
+    const wasPlaceholder = employee?.email?.endsWith('@company.com')
+    const newEmailIsReal = personalDraft.email && !personalDraft.email.endsWith('@company.com')
+
     const ok = await patch({
       first_name: personalDraft.first_name,
-      last_name: personalDraft.last_name,
-      phone: personalDraft.phone,
+      last_name:  personalDraft.last_name,
+      phone:      personalDraft.phone,
+      email:      personalDraft.email,
     })
-    if (ok) setEditPersonal(false)
+    if (!ok) return
+    setEditPersonal(false)
+
+    // Auto-send portal invite when a real email is set for the first time
+    if (wasPlaceholder && newEmailIsReal) {
+      // Small delay so the employee record is committed first
+      setTimeout(() => sendPortalInvite(), 500)
+    }
   }
 
   const saveEmployment = async () => {
@@ -276,8 +335,29 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   }
 
   const handleDeactivate = async () => {
-    const ok = await patch({ status: 'terminated' })
-    if (ok) setDeactivateModal(false)
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/employees/${employeeId}/terminate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: terminationReason.trim() || undefined,
+          last_working_day: lastWorkingDay || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Employee terminated and moved to archive')
+        setDeactivateModal(false)
+        router.push('/employees')
+      } else {
+        toast.error(json.error ?? 'Failed to terminate employee')
+      }
+    } catch {
+      toast.error('Failed to terminate employee')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleCopyId = () => {
@@ -339,7 +419,27 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                 <Badge variant="secondary">{employee.employment_type.replace('_', '-')}</Badge>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {/* Portal invite button — shown when email looks real */}
+              {employee.status === 'active' && employee.email && !employee.email.endsWith('@company.com') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs border-primary/40 text-primary hover:bg-primary/5"
+                  onClick={sendPortalInvite}
+                  disabled={sendingInvite}
+                >
+                  {sendingInvite
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Send className="h-3.5 w-3.5" />}
+                  Send Portal Invite
+                </Button>
+              )}
+              {employee.email?.endsWith('@company.com') && (
+                <span className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-1 rounded-md flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" /> Update real email to send invite
+                </span>
+              )}
               <Button variant="outline" size="sm" onClick={() => { setEditPersonal(true); setPersonalDraft(employee) }}>
                 <Pencil className="h-4 w-4 mr-1.5" /> Edit
               </Button>
@@ -351,8 +451,11 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                   <DropdownMenuItem onClick={() => { setTransferModal(true); setTransferDept(employee.department_id || '') }}>
                     <ArrowRightLeft className="h-4 w-4 mr-2" /> Transfer Department
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={sendPortalInvite} disabled={sendingInvite || employee.email?.endsWith('@company.com')}>
+                    <Send className="h-4 w-4 mr-2" /> {sendingInvite ? 'Sending…' : 'Resend Portal Invite'}
+                  </DropdownMenuItem>
                   <DropdownMenuItem className="text-destructive" onClick={() => setDeactivateModal(true)}>
-                    <UserX className="h-4 w-4 mr-2" /> Deactivate
+                    <UserX className="h-4 w-4 mr-2" /> Terminate
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -403,10 +506,33 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                         <Input value={personalDraft.last_name || ''} onChange={e => setPersonalDraft(p => ({ ...p, last_name: e.target.value }))} />
                       </div>
                       <div className="space-y-1.5 col-span-2">
+                        <Label className="flex items-center gap-1.5">
+                          Work Email
+                          {personalDraft.email?.endsWith('@company.com') && (
+                            <span className="text-[10px] text-amber-600 font-normal">(placeholder — update to real email)</span>
+                          )}
+                        </Label>
+                        <Input
+                          type="email"
+                          value={personalDraft.email || ''}
+                          onChange={e => setPersonalDraft(p => ({ ...p, email: e.target.value }))}
+                          placeholder="employee@example.com"
+                          className={personalDraft.email?.endsWith('@company.com') ? 'border-amber-300 bg-amber-50/40' : ''}
+                        />
+                      </div>
+                      <div className="space-y-1.5 col-span-2">
                         <Label>Phone</Label>
                         <Input value={(personalDraft.phone as string) || ''} onChange={e => setPersonalDraft(p => ({ ...p, phone: e.target.value }))} />
                       </div>
                     </div>
+                    {/* Send invite hint when real email is being entered */}
+                    {personalDraft.email && !personalDraft.email.endsWith('@company.com') &&
+                      employee.email?.endsWith('@company.com') && (
+                      <div className="rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-xs text-primary flex items-center gap-2">
+                        <Send className="h-3.5 w-3.5 shrink-0" />
+                        A portal invite will be sent automatically after saving.
+                      </div>
+                    )}
                     <div className="flex gap-2 justify-end">
                       <Button variant="outline" onClick={() => setEditPersonal(false)}>Cancel</Button>
                       <Button onClick={savePersonal} disabled={saving}>
@@ -725,6 +851,34 @@ const EmployeeProfile = ({ employeeId }: Props) => {
               </div>
             </CardHeader>
             <CardContent className="pt-0">
+              {/* Device User ID mapping */}
+              <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <p className="text-xs font-semibold text-amber-800 mb-0.5">ESSL / ZKTeco Device User ID</p>
+                <p className="text-xs text-amber-700 mb-3">
+                  The numeric ID this employee is enrolled with on the physical device.
+                  If blank, punches are matched by Employee Code (<code className="bg-amber-100 px-1 rounded">{employee?.emp_code}</code>).
+                  Set this if the device user ID differs from the employee code.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={esslDeviceId}
+                    onChange={(e) => setEsslDeviceId(e.target.value)}
+                    placeholder={`Leave blank to use emp code (${employee?.emp_code})`}
+                    className="flex-1 text-sm border border-amber-300 bg-white rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                  />
+                  <Button
+                    size="sm"
+                    className="gap-1.5 text-xs bg-amber-600 hover:bg-amber-700"
+                    onClick={saveEsslDeviceId}
+                    disabled={savingEssl}
+                  >
+                    {savingEssl ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    Save
+                  </Button>
+                </div>
+              </div>
+
               {enrollmentsLoading && enrollments.length === 0 ? (
                 <div className="flex justify-center py-10">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -877,19 +1031,54 @@ const EmployeeProfile = ({ employeeId }: Props) => {
         </DialogContent>
       </Dialog>
 
-      {/* Deactivate Modal */}
-      <Dialog open={deactivateModal} onOpenChange={setDeactivateModal}>
-        <DialogContent>
+      {/* Terminate Modal */}
+      <Dialog open={deactivateModal} onOpenChange={(o) => { setDeactivateModal(o); if (!o) { setTerminationReason(''); setLastWorkingDay('') } }}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Deactivate Employee</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <UserX className="h-4 w-4" /> Terminate Employee
+            </DialogTitle>
             <DialogDescription>
-              Are you sure you want to deactivate {fullName}? This will revoke their system access.
+              <strong>{fullName}</strong> will be moved to the Archive. Their attendance, payroll, and leave history is preserved but they will be removed from all active views.
             </DialogDescription>
           </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Last Working Day</Label>
+              <input
+                type="date"
+                value={lastWorkingDay}
+                onChange={(e) => setLastWorkingDay(e.target.value)}
+                className="w-full text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Reason for Termination <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <textarea
+                value={terminationReason}
+                onChange={(e) => setTerminationReason(e.target.value)}
+                placeholder="e.g. Resigned, Contract ended, Performance…"
+                rows={3}
+                className="w-full text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+              />
+            </div>
+            <div className="rounded-md bg-destructive/5 border border-destructive/20 p-3 text-xs text-destructive space-y-1">
+              <p className="font-medium">This will also:</p>
+              <ul className="list-disc list-inside space-y-0.5 text-destructive/80">
+                <li>Remove from employee list, dashboard &amp; attendance</li>
+                <li>Deactivate all biometric device enrollments</li>
+                <li>Cancel any pending leave requests</li>
+                <li>All historical data is preserved in Archive</li>
+              </ul>
+            </div>
+          </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeactivateModal(false)}>Cancel</Button>
             <Button variant="destructive" onClick={handleDeactivate} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} Confirm Deactivate
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Terminate &amp; Archive
             </Button>
           </DialogFooter>
         </DialogContent>

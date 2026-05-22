@@ -84,6 +84,10 @@ const Employees = () => {
   // Selection state
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
 
+  // Archive tab
+  const [activeView, setActiveView] = useState<'active' | 'archive'>('active')
+  const [reactivating, setReactivating] = useState<string | null>(null)
+
   // Modal state
   const [transferModal, setTransferModal] = useState<Employee | null>(null)
   const [deactivateModal, setDeactivateModal] = useState<Employee | null>(null)
@@ -99,7 +103,13 @@ const Employees = () => {
         limit: String(perPage),
         ...(search && { search }),
         ...(selectedDept !== 'all' && { department_id: selectedDept }),
-        ...(selectedStatus !== 'all' && { status: selectedStatus }),
+        // Archive view: always fetch terminated; Active view: apply user filter or default (non-terminated)
+        ...(activeView === 'archive'
+          ? { status: 'terminated' }
+          : selectedStatus !== 'all'
+            ? { status: selectedStatus }
+            : {}
+        ),
       })
 
       const res = await fetch(`/api/employees?${params}`)
@@ -111,10 +121,28 @@ const Employees = () => {
       } else {
         toast.error('Failed to load employees')
       }
-    } catch (err) {
+    } catch {
       toast.error('Failed to load employees')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleReactivate(emp: Employee) {
+    setReactivating(emp.id)
+    try {
+      const res = await fetch(`/api/employees/${emp.id}/terminate`, { method: 'DELETE' })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(`${emp.first_name} ${emp.last_name} re-activated`)
+        fetchEmployees()
+      } else {
+        toast.error(json.error ?? 'Failed to re-activate')
+      }
+    } catch {
+      toast.error('Failed to re-activate')
+    } finally {
+      setReactivating(null)
     }
   }
 
@@ -135,7 +163,10 @@ const Employees = () => {
 
   useEffect(() => {
     fetchEmployees()
-  }, [page, perPage, search, selectedDept, selectedStatus])
+  }, [page, perPage, search, selectedDept, selectedStatus, activeView])
+
+  // Reset to page 1 when switching views
+  useEffect(() => { setPage(1) }, [activeView])
 
   const totalPages = Math.max(1, Math.ceil(total / perPage))
 
@@ -190,22 +221,24 @@ const Employees = () => {
   const formatStatus = (status: string) =>
     status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())
 
-  // Deactivate employee
+  // Terminate employee
   async function handleDeactivate() {
     if (!deactivateModal) return
     try {
-      const res = await fetch(`/api/employees/${deactivateModal.id}`, {
-        method: 'DELETE',
+      const res = await fetch(`/api/employees/${deactivateModal.id}/terminate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       })
       const json = await res.json()
       if (json.success) {
-        toast.success('Employee deactivated')
+        toast.success(`${deactivateModal.first_name} ${deactivateModal.last_name} terminated and archived`)
         fetchEmployees()
       } else {
-        toast.error('Failed to deactivate employee')
+        toast.error(json.error ?? 'Failed to terminate employee')
       }
     } catch {
-      toast.error('Failed to deactivate employee')
+      toast.error('Failed to terminate employee')
     }
     setDeactivateModal(null)
   }
@@ -243,15 +276,34 @@ const Employees = () => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-foreground">Employees</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">{total} total employees</p>
+            <p className="text-sm text-muted-foreground mt-0.5">{total} {activeView === 'archive' ? 'archived' : 'active'} employee{total !== 1 ? 's' : ''}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" className="gap-2">
-              <Upload className="h-4 w-4" /> Import
-            </Button>
-            <Button className="gap-2" onClick={() => router.push('/employees/add')}>
-              <Plus className="h-4 w-4" /> Add Employee
-            </Button>
+            {/* Active / Archive switcher */}
+            <div className="flex rounded-lg border border-border overflow-hidden text-sm font-medium">
+              <button
+                onClick={() => setActiveView('active')}
+                className={`px-3 py-1.5 transition-colors ${activeView === 'active' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted'}`}
+              >
+                Active
+              </button>
+              <button
+                onClick={() => setActiveView('archive')}
+                className={`px-3 py-1.5 transition-colors ${activeView === 'archive' ? 'bg-destructive text-destructive-foreground' : 'bg-background text-muted-foreground hover:bg-muted'}`}
+              >
+                Archive
+              </button>
+            </div>
+            {activeView === 'active' && (
+              <>
+                <Button variant="outline" className="gap-2">
+                  <Upload className="h-4 w-4" /> Import
+                </Button>
+                <Button className="gap-2" onClick={() => router.push('/employees/add')}>
+                  <Plus className="h-4 w-4" /> Add Employee
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -276,15 +328,16 @@ const Employees = () => {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={selectedStatus} onValueChange={(v) => { setSelectedStatus(v); setPage(1) }}>
-              <SelectTrigger className="w-full sm:w-[150px]"><SelectValue placeholder="Status" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="on_notice">On Notice</SelectItem>
-                <SelectItem value="terminated">Terminated</SelectItem>
-              </SelectContent>
-            </Select>
+            {activeView === 'active' && (
+              <Select value={selectedStatus} onValueChange={(v) => { setSelectedStatus(v); setPage(1) }}>
+                <SelectTrigger className="w-full sm:w-[150px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="on_notice">On Notice</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </div>
 
@@ -395,15 +448,30 @@ const Employees = () => {
                             <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => router.push(`/employees/${emp.id}`)}>
                               <Eye className="h-4 w-4" /> View Profile
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => router.push(`/employees/${emp.id}`)}>
-                              <Pencil className="h-4 w-4" /> Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => { setTransferModal(emp); setTransferDept(''); setTransferReason('') }}>
-                              <ArrowRightLeft className="h-4 w-4" /> Transfer
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="gap-2 cursor-pointer text-destructive" onClick={() => setDeactivateModal(emp)}>
-                              <UserX className="h-4 w-4" /> Deactivate
-                            </DropdownMenuItem>
+                            {activeView === 'active' ? (
+                              <>
+                                <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => router.push(`/employees/${emp.id}`)}>
+                                  <Pencil className="h-4 w-4" /> Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => { setTransferModal(emp); setTransferDept(''); setTransferReason('') }}>
+                                  <ArrowRightLeft className="h-4 w-4" /> Transfer
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="gap-2 cursor-pointer text-destructive" onClick={() => setDeactivateModal(emp)}>
+                                  <UserX className="h-4 w-4" /> Terminate
+                                </DropdownMenuItem>
+                              </>
+                            ) : (
+                              <DropdownMenuItem
+                                className="gap-2 cursor-pointer text-emerald-600"
+                                disabled={reactivating === emp.id}
+                                onClick={() => handleReactivate(emp)}
+                              >
+                                {reactivating === emp.id
+                                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                                  : <UserX className="h-4 w-4" />}
+                                Re-activate
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -490,18 +558,21 @@ const Employees = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Deactivate Modal */}
+      {/* Terminate Modal */}
       <Dialog open={!!deactivateModal} onOpenChange={(o) => !o && setDeactivateModal(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Deactivate Employee</DialogTitle>
+            <DialogTitle className="text-destructive flex items-center gap-2">
+              <UserX className="h-4 w-4" /> Terminate Employee
+            </DialogTitle>
             <DialogDescription>
-              Are you sure you want to deactivate {deactivateModal?.first_name} {deactivateModal?.last_name}? This will revoke their access.
+              <strong>{deactivateModal?.first_name} {deactivateModal?.last_name}</strong> will be moved to Archive.
+              All history is preserved — attendance, payroll, leaves. Their biometric enrollments and pending leaves will be deactivated.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeactivateModal(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeactivate}>Confirm Deactivate</Button>
+            <Button variant="destructive" onClick={handleDeactivate}>Terminate &amp; Archive</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

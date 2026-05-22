@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     const dataLines = lines[0].toLowerCase().includes('emp') ? lines.slice(1) : lines
 
     const employees = await prisma.employee.findMany({
-      where: { org_id: session.user.org_id },
+      where: { org_id: session.user.org_id, status: { not: 'terminated' } },
       select: { id: true, emp_code: true, essl_device_id: true },
     })
 

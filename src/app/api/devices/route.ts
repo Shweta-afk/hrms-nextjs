@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
     }
 
-    const { name, ip_address, port = 4370, location } = await req.json()
+    const { name, model, ip_address, port = 4370, location, timezone } = await req.json()
 
     if (!name || !ip_address) {
       return NextResponse.json(
@@ -88,9 +88,11 @@ export async function POST(req: NextRequest) {
       data: {
         org_id:     session.user.org_id,
         name,
+        model:      model ?? null,
         ip_address,
         port:       Number(port),
         location:   location ?? null,
+        timezone:   timezone ?? 'Asia/Kolkata',
         status:     'offline',
       },
     })

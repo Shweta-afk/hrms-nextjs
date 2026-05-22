@@ -34,7 +34,8 @@ export async function GET(req: NextRequest) {
 
     const where: any = {
       org_id: session.user.org_id,
-      ...(status && { status }),
+      // Default: hide terminated. Pass ?status=terminated explicitly for archive view.
+      ...(status ? { status } : { status: { not: 'terminated' } }),
       ...(department_id && { department_id }),
       ...(search && {
         OR: [

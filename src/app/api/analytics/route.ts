@@ -142,7 +142,7 @@ export async function GET(req: NextRequest) {
 
     const riskEmployeeIds = lateEmployees.map(e => e.employee_id)
     const riskEmployees = await prisma.employee.findMany({
-      where: { id: { in: riskEmployeeIds }, org_id },
+      where: { id: { in: riskEmployeeIds }, org_id, status: 'active' },
       select: {
         id: true,
         emp_code: true,

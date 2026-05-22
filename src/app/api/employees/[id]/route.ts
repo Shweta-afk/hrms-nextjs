@@ -6,6 +6,7 @@ import { z } from 'zod'
 const UpdateEmployeeSchema = z.object({
   first_name: z.string().min(1).optional(),
   last_name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
   phone: z.string().optional(),
   department_id: z.string().optional(),
   designation_id: z.string().optional(),
@@ -120,6 +121,14 @@ export async function PATCH(
 
     if (result.count === 0) {
       return NextResponse.json({ success: false, error: 'Employee not found' }, { status: 404 })
+    }
+
+    // If email changed, keep the linked User account in sync
+    if (updatePayload.email) {
+      await prisma.user.updateMany({
+        where: { employee_id: id, org_id: session.user.org_id },
+        data: { email: updatePayload.email as string },
+      }).catch(() => {}) // ignore if no linked user yet
     }
 
     const updated = await prisma.employee.findFirst({
