@@ -8,9 +8,50 @@
 import { prisma } from '@/lib/prisma'
 import { notifyLateArrival } from '@/lib/notifications'
 
-const SHIFT_START_HOUR = parseInt(process.env.SHIFT_START_TIME?.split(':')[0] ?? '9')
-const SHIFT_START_MIN  = parseInt(process.env.SHIFT_START_TIME?.split(':')[1] ?? '0')
-const LATE_THRESHOLD   = parseInt(process.env.LATE_THRESHOLD_MINUTES ?? '15')
+// ── Org-level shift settings cache (1 min TTL per org) ───────────────────────
+interface ShiftSettings {
+  shiftStartHour: number
+  shiftStartMin:  number
+  shiftEndHour:   number
+  shiftEndMin:    number
+  lateThreshold:  number
+  fetchedAt:      number
+}
+const shiftCache = new Map<string, ShiftSettings>()
+const CACHE_TTL_MS = 60_000
+
+async function getShiftSettings(org_id: string): Promise<ShiftSettings> {
+  const cached = shiftCache.get(org_id)
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached
+
+  const org = await prisma.organisation.findUnique({
+    where: { id: org_id },
+    select: { settings: true },
+  })
+  const s = (org?.settings ?? {}) as Record<string, unknown>
+  const attendance = (s.attendance ?? {}) as Record<string, unknown>
+
+  // Parse "HH:MM" strings stored in org settings, fall back to env vars
+  const parseTime = (val: unknown, envKey: string, defaultH: number, defaultM: number) => {
+    const str = (val as string | undefined) ?? process.env[envKey] ?? `${defaultH}:${String(defaultM).padStart(2,'0')}`
+    const [h, m] = str.split(':').map(Number)
+    return { h: isNaN(h) ? defaultH : h, m: isNaN(m) ? defaultM : m }
+  }
+
+  const start = parseTime(attendance.shift_start, 'SHIFT_START_TIME', 9, 0)
+  const end   = parseTime(attendance.shift_end,   'SHIFT_END_TIME',   18, 0)
+
+  const settings: ShiftSettings = {
+    shiftStartHour: start.h,
+    shiftStartMin:  start.m,
+    shiftEndHour:   end.h,
+    shiftEndMin:    end.m,
+    lateThreshold:  Number(attendance.late_threshold ?? process.env.LATE_THRESHOLD_MINUTES ?? 15),
+    fetchedAt:      Date.now(),
+  }
+  shiftCache.set(org_id, settings)
+  return settings
+}
 
 export interface PunchInput {
   org_id:     string
@@ -36,15 +77,26 @@ function dateOnly(dt: Date): Date {
 }
 
 /** Calculate whether a first-in time is late and by how many minutes. */
-function lateCalc(firstIn: Date): { isLate: boolean; lateByMinutes: number } {
+function lateCalc(firstIn: Date, s: ShiftSettings): { isLate: boolean; lateByMinutes: number } {
   const graceLimit = new Date(firstIn)
-  graceLimit.setHours(SHIFT_START_HOUR, SHIFT_START_MIN + LATE_THRESHOLD, 0, 0)
+  graceLimit.setUTCHours(
+    // shift times are in device local (IST), but firstIn is UTC — convert
+    // We use a simple approach: compare HH:MM in UTC+5:30
+    s.shiftStartHour - 5,   // approximate; full IST → UTC conversion below
+    s.shiftStartMin  + s.lateThreshold - 30,
+    0, 0
+  )
 
-  if (firstIn <= graceLimit) return { isLate: false, lateByMinutes: 0 }
+  // Proper IST comparison: add 5:30 to UTC time to get IST hours
+  const istOffsetMs = 5.5 * 60 * 60_000
+  const firstInIST = new Date(firstIn.getTime() + istOffsetMs)
+  const shiftStartMinutes = s.shiftStartHour * 60 + s.shiftStartMin
+  const firstInMinutes    = firstInIST.getUTCHours() * 60 + firstInIST.getUTCMinutes()
+  const graceMinutes      = shiftStartMinutes + s.lateThreshold
 
-  const shiftStart = new Date(firstIn)
-  shiftStart.setHours(SHIFT_START_HOUR, SHIFT_START_MIN, 0, 0)
-  const lateByMinutes = Math.floor((firstIn.getTime() - shiftStart.getTime()) / 60_000)
+  if (firstInMinutes <= graceMinutes) return { isLate: false, lateByMinutes: 0 }
+
+  const lateByMinutes = firstInMinutes - shiftStartMinutes
   return { isLate: true, lateByMinutes }
 }
 
@@ -54,6 +106,9 @@ function lateCalc(firstIn: Date): { isLate: boolean; lateByMinutes: number } {
  */
 export async function processPunch(input: PunchInput): Promise<PunchResult> {
   const { org_id, device_id, device_name, emp_code, punch_time, direction, raw_data } = input
+
+  // Load org shift settings (cached 1 min)
+  const shiftSettings = await getShiftSettings(org_id)
 
   // Resolve employee by emp_code OR legacy essl_device_id
   const employee = await prisma.employee.findFirst({
@@ -109,7 +164,7 @@ export async function processPunch(input: PunchInput): Promise<PunchResult> {
     totalHours = (lastOut.getTime() - firstIn.getTime()) / 3_600_000
   }
 
-  const { isLate, lateByMinutes } = firstIn ? lateCalc(firstIn) : { isLate: false, lateByMinutes: 0 }
+  const { isLate, lateByMinutes } = firstIn ? lateCalc(firstIn, shiftSettings) : { isLate: false, lateByMinutes: 0 }
 
   const record = await prisma.attendanceRecord.upsert({
     where: {

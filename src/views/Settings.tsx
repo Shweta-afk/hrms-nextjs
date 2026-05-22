@@ -104,7 +104,10 @@ const Settings = () => {
   const [workDays, setWorkDays] = useState(["mon","tue","wed","thu","fri"])
   const [gracePeriod, setGracePeriod] = useState("15")
   const [standardHours, setStandardHours] = useState("9")
+  const [shiftStart, setShiftStart] = useState("09:00")
+  const [shiftEnd, setShiftEnd] = useState("18:00")
   const [syncMethod, setSyncMethod] = useState("csv")
+  const [savingAttendance, setSavingAttendance] = useState(false)
 
   // Salary structures
   const [structures, setStructures] = useState<SalaryStructure[]>([])
@@ -189,12 +192,54 @@ const Settings = () => {
   const [revokingKey, setRevokingKey] = useState<string | null>(null)
 
   useEffect(() => {
+    loadOrgSettings()
+  }, [])
+
+  useEffect(() => {
     if (activeTab === 'salary') fetchStructures()
     if (activeTab === 'departments') fetchDepartments()
     if (activeTab === 'holidays') fetchHolidays()
     if (activeTab === 'devices') fetchDevices()
     if (activeTab === 'integrations') fetchApiKeys()
   }, [activeTab])
+
+  async function loadOrgSettings() {
+    try {
+      const res = await fetch('/api/org/settings')
+      const json = await res.json()
+      if (!json.success) return
+      const s = json.data as Record<string, unknown>
+      const att = (s.attendance ?? {}) as Record<string, unknown>
+      if (att.shift_start)    setShiftStart(att.shift_start as string)
+      if (att.shift_end)      setShiftEnd(att.shift_end as string)
+      if (att.late_threshold) setGracePeriod(String(att.late_threshold))
+      if (att.standard_hours) setStandardHours(String(att.standard_hours))
+      if (att.work_days && Array.isArray(att.work_days)) setWorkDays(att.work_days as string[])
+    } catch { /* silent */ }
+  }
+
+  async function saveAttendancePolicy() {
+    setSavingAttendance(true)
+    try {
+      const res = await fetch('/api/org/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attendance: {
+            shift_start:    shiftStart,
+            shift_end:      shiftEnd,
+            late_threshold: parseInt(gracePeriod) || 15,
+            standard_hours: parseInt(standardHours) || 9,
+            work_days:      workDays,
+          },
+        }),
+      })
+      const json = await res.json()
+      if (json.success) { toast.success('Attendance policy saved'); setDirtySection(null) }
+      else toast.error(json.error ?? 'Failed to save')
+    } catch { toast.error('Failed to save') }
+    finally { setSavingAttendance(false) }
+  }
 
   async function fetchApiKeys() {
     setApiKeysLoading(true)
@@ -641,6 +686,38 @@ const Settings = () => {
                 ))}
               </div>
             </div>
+            {/* Office Hours */}
+            <div className="rounded-lg border p-4 bg-muted/30 space-y-4">
+              <div>
+                <p className="text-sm font-medium">Office Hours</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Used for late-arrival detection on biometric punch data
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="shift-start">Shift In Time</Label>
+                  <Input
+                    id="shift-start"
+                    type="time"
+                    value={shiftStart}
+                    className="w-36"
+                    onChange={e => { setShiftStart(e.target.value); markDirty('attendance') }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shift-end">Shift Out Time</Label>
+                  <Input
+                    id="shift-end"
+                    type="time"
+                    value={shiftEnd}
+                    className="w-36"
+                    onChange={e => { setShiftEnd(e.target.value); markDirty('attendance') }}
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Standard Hours Per Day</Label>
@@ -673,8 +750,11 @@ const Settings = () => {
               </RadioGroup>
             </div>
             <div className="flex justify-end">
-              <Button onClick={() => handleSave('Attendance policy')} className="gap-2">
-                <Save className="h-4 w-4" /> Save
+              <Button onClick={saveAttendancePolicy} disabled={savingAttendance} className="gap-2">
+                {savingAttendance
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Save className="h-4 w-4" />}
+                Save
               </Button>
             </div>
           </CardContent>
