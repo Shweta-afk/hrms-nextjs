@@ -12,12 +12,17 @@ function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [errorKind, setErrorKind] = useState<'generic' | 'unverified' | 'rate_limited'>('generic')
   const [loading, setLoading] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [resendMsg, setResendMsg] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setResendMsg('')
+    setErrorKind('generic')
 
     const result = await signIn('credentials', {
       email,
@@ -26,7 +31,17 @@ function LoginForm() {
     })
 
     if (result?.error) {
-      setError('Invalid email or password')
+      // NextAuth surfaces the error message we threw from authorize() in result.error
+      if (result.error === 'EMAIL_NOT_VERIFIED') {
+        setErrorKind('unverified')
+        setError('Please verify your email before signing in.')
+      } else if (result.error === 'RATE_LIMITED') {
+        setErrorKind('rate_limited')
+        setError('Too many sign-in attempts. Please wait 15 minutes and try again.')
+      } else {
+        setErrorKind('generic')
+        setError('Invalid email or password')
+      }
       setLoading(false)
     } else {
       if (redirectTo) {
@@ -43,14 +58,52 @@ function LoginForm() {
     }
   }
 
+  async function handleResendVerification() {
+    if (!email || resending) return
+    setResending(true)
+    setResendMsg('')
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const json = await res.json()
+      setResendMsg(
+        res.ok
+          ? '✓ If an unverified account exists for this email, a fresh verification link has been sent.'
+          : (json.error ?? 'Failed to resend')
+      )
+    } catch {
+      setResendMsg('Network error — please try again.')
+    } finally {
+      setResending(false)
+    }
+  }
+
   return (
     <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
       <h1 className="text-2xl font-bold text-gray-900 mb-2">HRMS Login</h1>
       <p className="text-gray-500 mb-6">Sign in to your account</p>
 
       {error && (
-        <div className="bg-red-50 text-red-600 px-4 py-3 rounded mb-4 text-sm">
-          {error}
+        <div className={`${errorKind === 'unverified' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-600'} px-4 py-3 rounded mb-4 text-sm`}>
+          <p>{error}</p>
+          {errorKind === 'unverified' && (
+            <div className="mt-2 flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={resending || !email}
+                className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
+              >
+                {resending ? 'Sending…' : 'Resend verification email'}
+              </button>
+            </div>
+          )}
+          {resendMsg && (
+            <p className="mt-2 text-xs text-zinc-700">{resendMsg}</p>
+          )}
         </div>
       )}
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
+import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { safeDecrypt, safeEncrypt } from '@/lib/encryption'
 import { z } from 'zod'
@@ -161,15 +162,20 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    // Only HR admins can deactivate employees.
+    const guard = await requireAdmin()
+    if (guard instanceof NextResponse) return guard
+    const session = guard
 
-    await prisma.employee.updateMany({
+    const result = await prisma.employee.updateMany({
       where: { id: id, org_id: session.user.org_id },
       data: { status: 'terminated' },
     })
+    if (result.count === 0) {
+      // Either the UUID doesn't exist OR it belongs to another tenant — return 404
+      // either way so we don't reveal which.
+      return NextResponse.json({ success: false, error: 'Employee not found' }, { status: 404 })
+    }
 
     return NextResponse.json({ success: true, data: { message: 'Employee deactivated' } })
   } catch (error) {

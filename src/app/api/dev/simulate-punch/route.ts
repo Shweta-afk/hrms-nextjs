@@ -16,8 +16,14 @@ import { prisma } from '@/lib/prisma'
 import { processPunch } from '@/lib/punch-processor'
 
 export async function POST(req: NextRequest) {
-  if (process.env.NODE_ENV === 'production') {
-    return NextResponse.json({ success: false, error: 'Not available in production' }, { status: 403 })
+  // Gate on an EXPLICIT opt-in env var, not NODE_ENV. Vercel/Netlify preview
+  // deployments don't have NODE_ENV='production', so the old check leaked
+  // this endpoint to every preview URL. Now it's off unless ALLOW_DEV_ENDPOINTS=1.
+  if (process.env.ALLOW_DEV_ENDPOINTS !== '1') {
+    return NextResponse.json(
+      { success: false, error: 'Not available' },
+      { status: 403 }
+    )
   }
 
   try {

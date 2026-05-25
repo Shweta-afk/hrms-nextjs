@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
+import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(req: NextRequest) {
@@ -15,11 +16,22 @@ export async function GET(req: NextRequest) {
     const year = searchParams.get('year')
     const employee_id = searchParams.get('employee_id')
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '50')
+    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200)
+
+    // Employees can only ever see their own attendance, regardless of the employee_id
+    // they pass in the query. Admins can filter by any employee_id, or see all.
+    const isEmployee = session.user.role === 'employee'
+    const scopedEmployeeId = isEmployee
+      ? session.user.employee_id
+      : employee_id
+
+    if (isEmployee && !session.user.employee_id) {
+      return NextResponse.json({ success: false, error: 'No employee record linked' }, { status: 403 })
+    }
 
     const where: any = {
       org_id: session.user.org_id,
-      ...(employee_id && { employee_id }),
+      ...(scopedEmployeeId && { employee_id: scopedEmployeeId }),
       ...(date && { date: new Date(date) }),
       ...(month && year && {
         date: {
@@ -85,10 +97,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    // Manual attendance entry — admin-only.
+    const guard = await requireAdmin()
+    if (guard instanceof NextResponse) return guard
+    const session = guard
 
     const body = await req.json()
     const { employee_id, date, first_in, last_out, status, source = 'manual' } = body

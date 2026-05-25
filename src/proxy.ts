@@ -2,21 +2,32 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/forgot-password', '/reset-password', '/billing']
+// Pages that don't require auth.
+// IMPORTANT: '/' must be exact-match (not prefix) — startsWith('/') would match every URL.
+const PUBLIC_PAGE_EXACT = new Set(['/', '/demo', '/verify-email'])
+const PUBLIC_PAGE_PREFIXES = ['/login', '/signup', '/forgot-password', '/reset-password', '/billing']
+
 const API_PUBLIC = [
   '/api/auth',
   '/api/attendance/device-push', // ZKTeco device PUSH — identified by push_token in URL
   '/iclock',                      // ZKTeco/ESSL ADMS standard endpoint (AiFace Magnum, F18, etc.)
 ]
 
-// These sub-paths under /api/devices/* are device-initiated (no JWT possible)
+// These sub-paths under /api/devices/* are device-initiated (no JWT possible).
+// The route handler must still verify the device's push_token in the request — these
+// are NOT trusted just because the path is public.
 const DEVICE_SUBPATHS_PUBLIC = ['/heartbeat']
+
+function isPublicPage(pathname: string): boolean {
+  if (PUBLIC_PAGE_EXACT.has(pathname)) return true
+  return PUBLIC_PAGE_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))
+}
 
 export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next()
-  if (API_PUBLIC.some(p => pathname.startsWith(p))) return NextResponse.next()
+  if (isPublicPage(pathname)) return NextResponse.next()
+  if (API_PUBLIC.some(p => pathname === p || pathname.startsWith(p + '/'))) return NextResponse.next()
   if (DEVICE_SUBPATHS_PUBLIC.some(p => pathname.endsWith(p))) return NextResponse.next()
 
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })

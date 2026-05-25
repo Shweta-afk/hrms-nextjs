@@ -16,12 +16,19 @@ const DEVICE_FULL_THRESHOLD = 90_000   // punches — typical ZKTeco capacity ~1
  */
 export async function GET(req: NextRequest) {
   // ── Auth ────────────────────────────────────────────────────────────────
+  // CRON_SECRET is REQUIRED. If it's not set, fail closed — otherwise the
+  // endpoint would be publicly callable (DoS + notification spam vector).
   const secret = process.env.CRON_SECRET
-  if (secret) {
-    const authHeader = req.headers.get('authorization') ?? ''
-    if (authHeader !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  if (!secret) {
+    console.error('[cron/notifications] CRON_SECRET env var is not set — refusing to run')
+    return NextResponse.json(
+      { success: false, error: 'Server misconfiguration' },
+      { status: 500 }
+    )
+  }
+  const authHeader = req.headers.get('authorization') ?? ''
+  if (authHeader !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const now      = new Date()

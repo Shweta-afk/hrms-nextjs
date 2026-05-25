@@ -1,0 +1,59 @@
+import Link from "next/link";
+import { ArrowRight, Play } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FeatureSlideshow } from "./FeatureSlideshow";
+
+export function Hero() {
+  return (
+    <section className="relative overflow-hidden border-b border-zinc-200 dark:border-zinc-800">
+      {/* editorial rule motif */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 mx-auto h-px max-w-6xl bg-gradient-to-r from-transparent via-indigo-600/30 to-transparent" />
+      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-16 px-6 py-24 lg:grid-cols-12 lg:gap-10 lg:py-32">
+        <div className="lg:col-span-7">
+          <h1 className="text-balance text-5xl font-semibold leading-[1.05] tracking-tight text-zinc-900 sm:text-6xl lg:text-7xl dark:text-zinc-50">
+            HR that runs itself.
+            <br />
+            <span className="text-zinc-400 dark:text-zinc-500">
+              So your team doesn&apos;t have to.
+            </span>
+          </h1>
+
+          <p className="mt-6 max-w-xl text-lg leading-relaxed text-zinc-600 dark:text-zinc-400">
+            Modern HRMS with built-in biometric attendance, payroll, and
+            India-native compliance.
+          </p>
+
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Button
+              asChild
+              size="lg"
+              className="h-12 bg-indigo-600 px-6 text-base text-white hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+            >
+              <Link href="/signup">
+                Start 14-day trial <ArrowRight className="ml-1 h-4 w-4" />
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="lg"
+              variant="outline"
+              className="h-12 border-zinc-300 px-6 text-base hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              <Link href="/demo">
+                <Play className="mr-2 h-4 w-4" /> Watch 2-min demo
+              </Link>
+            </Button>
+          </div>
+
+          <p className="mt-10 font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            Currently in private beta · accepting select Indian SMBs
+          </p>
+        </div>
+
+        <div className="lg:col-span-5">
+          <FeatureSlideshow />
+        </div>
+      </div>
+    </section>
+  );
+}

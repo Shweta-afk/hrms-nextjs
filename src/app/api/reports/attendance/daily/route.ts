@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/app/api/auth/[...nextauth]/route'
+import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 import { format } from 'date-fns'
@@ -13,10 +13,10 @@ import { format } from 'date-fns'
  */
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    // Org-wide daily attendance report — admin-only.
+    const guard = await requireAdmin()
+    if (guard instanceof NextResponse) return guard
+    const session = guard
 
     const { searchParams } = new URL(req.url)
     const dateStr = searchParams.get('date')

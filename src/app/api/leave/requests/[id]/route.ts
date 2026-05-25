@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/app/api/auth/[...nextauth]/route'
+import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function PATCH(
@@ -8,10 +8,11 @@ export async function PATCH(
 ) {
   const id = (await params).id;
   try {
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    // Only HR admins can approve/reject/cancel leave requests.
+    // (Previously: any authenticated employee could approve their own leave.)
+    const guard = await requireAdmin()
+    if (guard instanceof NextResponse) return guard
+    const session = guard
 
     const body = await req.json()
     const { status, rejection_reason } = body

@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 import { z } from 'zod'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
+import { BCRYPT_COST } from '@/lib/auth'
+import { logger } from '@/lib/logger'
 
 const SignupSchema = z.object({
   company_name: z.string().min(2),
@@ -16,7 +19,7 @@ const SignupSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req)
-    const rl = checkRateLimit(`signup:${ip}`, { max: 5, windowMs: 15 * 60 * 1000 })
+    const rl = await checkRateLimit(`signup:${ip}`, { max: 5, windowMs: 15 * 60 * 1000 })
     if (!rl.allowed) {
       return NextResponse.json(
         { success: false, error: 'Too many signup attempts. Please try again later.' },
@@ -51,7 +54,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const hashedPassword = await bcrypt.hash(data.admin_password, 10)
+    const hashedPassword = await bcrypt.hash(data.admin_password, BCRYPT_COST)
 
     // Create org + admin user + default data in a transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -77,12 +80,19 @@ export async function POST(req: NextRequest) {
       const [firstName, ...lastParts] = data.admin_name.split(' ')
       const lastName = lastParts.join(' ') || 'Admin'
 
+      // Email verification: user starts UNVERIFIED. They must click the link in
+      // the verification email before they can log in. Token expires in 24h.
+      const verificationToken = crypto.randomBytes(32).toString('hex')
+      const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000)
+
       const user = await tx.user.create({
         data: {
           org_id: org.id,
           email: data.admin_email,
           password: hashedPassword,
           role: 'hr_admin',
+          email_verification_token: verificationToken,
+          email_verification_expiry: verificationExpiry,
         },
       })
 
@@ -124,7 +134,7 @@ export async function POST(req: NextRequest) {
           { org_id: org.id, name: 'Casual Leave', code: 'CL', days_per_year: 12, is_paid: true },
           { org_id: org.id, name: 'Sick Leave', code: 'SL', days_per_year: 12, is_paid: true },
           { org_id: org.id, name: 'Earned Leave', code: 'EL', days_per_year: 18, carry_forward_limit: 15, is_paid: true },
-          { org_id: org.id, name: 'Maternity Leave', code: 'ML', days_per_year: 180, is_paid: true, applicable_gender: 'female' },
+          { org_id: org.id, name: 'Maternity Leave', code: 'ML', days_per_year: 182, is_paid: true, applicable_gender: 'female' }, // Maternity Benefit Act 1961: 26 weeks = 182 days
           { org_id: org.id, name: 'Loss of Pay', code: 'LOP', days_per_year: 0, is_paid: false },
         ],
       })
@@ -155,22 +165,39 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      return { org, user }
+      return { org, user, verificationToken }
     })
+
+    // Send verification email (outside the transaction — non-blocking for DB,
+    // but we await so failures surface in the response).
+    try {
+      const { sendVerificationEmail } = await import('@/lib/email')
+      const verifyUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/verify-email?token=${result.verificationToken}`
+      await sendVerificationEmail({
+        to: data.admin_email,
+        name: data.admin_name.split(' ')[0],
+        verifyUrl,
+        company: data.company_name,
+      })
+    } catch (emailErr) {
+      logger.error('signup_verification_email_failed', emailErr, { email: data.admin_email })
+      // Don't fail the signup — they can hit "Resend verification" from the login page.
+    }
 
     return NextResponse.json({
       success: true,
       data: {
-        message: 'Account created successfully',
+        message: 'Account created. Check your email for a verification link before signing in.',
         org_id: result.org.id,
         email: data.admin_email,
+        verification_required: true,
       },
     }, { status: 201 })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ success: false, error: error.issues[0].message }, { status: 400 })
     }
-    console.error('Signup error:', error)
+    logger.error('signup_failed', error)
     return NextResponse.json({ success: false, error: 'Failed to create account' }, { status: 500 })
   }
 }

@@ -32,8 +32,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const status = searchParams.get('status')
     const employee_id = searchParams.get('employee_id')
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '20')
+    const page = Math.max(parseInt(searchParams.get('page') || '1'), 1)
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20'), 1), 200)
 
     const where: any = {
       org_id: session.user.org_id,
@@ -91,10 +91,27 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const data = CreateLeaveSchema.parse(body)
 
-    // Find the employee record for this user
-    let employee_id = data.employee_id
+    // Only HR admins can file leave on behalf of someone else.
+    // Employees can only file their own leave — any employee_id in the body is ignored.
+    const isAdmin = session.user.role === 'hr_admin'
 
-    if (!employee_id) {
+    let employee_id: string
+    if (isAdmin && data.employee_id) {
+      // Admin filing on behalf — verify the target employee exists in this org
+      const target = await prisma.employee.findFirst({
+        where: { id: data.employee_id, org_id: session.user.org_id },
+        select: { id: true },
+      })
+      if (!target) {
+        return NextResponse.json(
+          { success: false, error: 'Target employee not found' },
+          { status: 404 }
+        )
+      }
+      employee_id = target.id
+    } else {
+      // Employee filing for themselves — always use their linked employee record,
+      // never trust an employee_id from the body.
       const user = await prisma.user.findUnique({
         where: { id: session.user.id },
         select: { employee_id: true },

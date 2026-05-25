@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/app/api/auth/[...nextauth]/route'
+import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    // Org-wide year summary — admin-only.
+    const guard = await requireAdmin()
+    if (guard instanceof NextResponse) return guard
+    const session = guard
 
     const { searchParams } = new URL(req.url)
     const year = parseInt(searchParams.get('year') ?? String(new Date().getFullYear()))

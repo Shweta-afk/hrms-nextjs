@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/app/api/auth/[...nextauth]/route'
+import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 /**
  * GET /api/employees/[id]/enrollments
  * Returns all org devices with this employee's enrollment status on each.
+ * Admin-only — reveals device topology + employee→device mapping.
  */
 export async function GET(
   _req: NextRequest,
@@ -12,10 +13,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    const guard = await requireAdmin()
+    if (guard instanceof NextResponse) return guard
+    const session = guard
 
     const org_id = session.user.org_id
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
+import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
@@ -28,8 +29,8 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search') || ''
     const department_id = searchParams.get('department_id')
     const status = searchParams.get('status')
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '20')
+    const page = Math.max(parseInt(searchParams.get('page') || '1'), 1)
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20'), 1), 200)
     const skip = (page - 1) * limit
 
     const where: any = {
@@ -82,10 +83,10 @@ export async function GET(req: NextRequest) {
 // POST — create employee
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
+    // Only HR admins can create employees.
+    const guard = await requireAdmin()
+    if (guard instanceof NextResponse) return guard
+    const session = guard
 
     // Enforce plan employee limit
     const org = await prisma.organisation.findUnique({

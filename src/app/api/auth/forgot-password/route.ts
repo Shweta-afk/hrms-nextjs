@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import crypto from 'crypto'
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req)
+    const rl = await checkRateLimit(`forgot:${ip}`, { max: 5, windowMs: 15 * 60 * 1000 })
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Too many requests. Please wait a few minutes.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+      )
+    }
+
     const { email } = await req.json()
 
     const user = await prisma.user.findUnique({ where: { email } })
@@ -34,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: { message: 'Reset link sent to your email.' } })
   } catch (error) {
-    console.error('Forgot password error:', error)
+    logger.error('forgot_password_failed', error)
     return NextResponse.json({ success: false, error: 'Failed to send reset email' }, { status: 500 })
   }
 }

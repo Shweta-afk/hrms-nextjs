@@ -69,6 +69,10 @@ const Payroll = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [otRate, setOtRate] = useState(0)
   const [showOtSettings, setShowOtSettings] = useState(false)
+  const [runWarnings, setRunWarnings] = useState<{
+    warnings: string[];
+    zero_attendance_employees: Array<{ id: string; first_name: string; emp_code?: string | null }>;
+  }>({ warnings: [], zero_attendance_employees: [] })
 
   const currentMonth = ((now.getMonth() + monthOffset) % 12) + 1
   const currentYear = now.getFullYear() + Math.floor((now.getMonth() + monthOffset) / 12)
@@ -123,7 +127,15 @@ const Payroll = () => {
       })
       const json = await res.json()
       if (json.success) {
-        toast.success(`Payroll processed — ${json.data.employees_processed} employees`)
+        const warnings: string[] = json.data.warnings ?? []
+        const zero: Array<{ id: string; first_name: string; emp_code?: string | null }> =
+          json.data.zero_attendance_employees ?? []
+        setRunWarnings({ warnings, zero_attendance_employees: zero })
+        if (zero.length > 0) {
+          toast.warning(`Payroll processed — but ${zero.length} employee${zero.length === 1 ? '' : 's'} had no attendance this month. Review before approving.`)
+        } else {
+          toast.success(`Payroll processed — ${json.data.employees_processed} employees`)
+        }
         fetchPayrollData()
       } else {
         toast.error(json.error)
@@ -419,6 +431,35 @@ const Payroll = () => {
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground w-16">Info</span>
               <span>{payslips.length} employee(s) included in this payroll run</span>
             </div>
+
+            {/* Zero-attendance warning — surfaced from the run API */}
+            {runWarnings.zero_attendance_employees.length > 0 && (
+              <div className="flex items-start gap-2 text-sm">
+                <span className="h-2 w-2 rounded-full bg-destructive shrink-0 mt-1.5" />
+                <span className="text-xs font-medium uppercase tracking-wider text-destructive w-16 mt-0.5">Warn</span>
+                <div className="flex-1">
+                  <p className="text-foreground">
+                    <strong>{runWarnings.zero_attendance_employees.length}</strong> employee{runWarnings.zero_attendance_employees.length === 1 ? '' : 's'} had no attendance records this month — full month marked as Loss of Pay.
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Likely a biometric sync issue or attendance not yet imported. Add manual attendance corrections, or import device data, before approving.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {runWarnings.zero_attendance_employees.slice(0, 8).map(e => (
+                      <span key={e.id} className="text-[11px] px-2 py-0.5 rounded bg-destructive/10 text-destructive font-mono">
+                        {e.emp_code ?? e.first_name}
+                      </span>
+                    ))}
+                    {runWarnings.zero_attendance_employees.length > 8 && (
+                      <span className="text-[11px] px-2 py-0.5 text-muted-foreground">
+                        +{runWarnings.zero_attendance_employees.length - 8} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <button onClick={() => setShowAnomalies(false)} className="text-xs text-muted-foreground hover:text-foreground">
               Dismiss
             </button>
@@ -453,6 +494,7 @@ const Payroll = () => {
                     <TableHead className="text-right">ESI</TableHead>
                     <TableHead className="text-right">PT</TableHead>
                     <TableHead className="text-right">TDS</TableHead>
+                    <TableHead className="text-right text-destructive">LOP</TableHead>
                     <TableHead className="text-right font-semibold">Net Pay</TableHead>
                     <TableHead className="text-center">Status</TableHead>
                     <TableHead className="text-center">Payslip</TableHead>
@@ -502,7 +544,10 @@ const Payroll = () => {
                           <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['ESI Employee'] ? fmt(p.deductions['ESI Employee']) : '—'}</TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['Professional Tax'] ? fmt(p.deductions['Professional Tax']) : '—'}</TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">{p.deductions['TDS'] ? fmt(p.deductions['TDS']) : '—'}</TableCell>
-                          <TableCell className="text-right tabular-nums font-semibold text-kpi-green">{fmt(p.net_salary)}</TableCell>
+                          <TableCell className="text-right tabular-nums text-destructive font-medium" title={lopDays > 0 ? `${lopDays} day${lopDays !== 1 ? 's' : ''} × ${fmt(dayRate)}/day` : undefined}>
+                            {lopAmt > 0 ? `−${fmt(lopAmt)}` : '—'}
+                          </TableCell>
+                          <TableCell className={`text-right tabular-nums font-semibold ${p.net_salary > 0 ? 'text-kpi-green' : 'text-destructive'}`}>{fmt(p.net_salary)}</TableCell>
                           <TableCell className="text-center" onClick={e => e.stopPropagation()}>
                             <Badge variant={isApproved ? 'active' : 'secondary'} className="text-[10px]">
                               {isApproved ? 'Approved' : 'Draft'}

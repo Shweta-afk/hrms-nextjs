@@ -12,14 +12,23 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const employee_id = searchParams.get('employee_id')
 
-    // Find employee
-    let empId = employee_id
-    if (!empId) {
-      const user = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { employee_id: true },
+    // Employees can only see their own balance.
+    // Admins can query any employee in their org.
+    const isEmployee = session.user.role === 'employee'
+
+    let empId: string | null
+    if (isEmployee) {
+      empId = session.user.employee_id ?? null
+    } else if (employee_id) {
+      // Admin asking about a specific employee — verify they're in the same org
+      const target = await prisma.employee.findFirst({
+        where: { id: employee_id, org_id: session.user.org_id },
+        select: { id: true },
       })
-      empId = user?.employee_id ?? null
+      empId = target?.id ?? null
+    } else {
+      // Admin without a filter — fall back to their own linked employee record
+      empId = session.user.employee_id ?? null
     }
 
     if (!empId) {

@@ -19,8 +19,11 @@ export const authOptions: NextAuthOptions = {
         // Rate limit by IP
         const forwarded = req.headers?.['x-forwarded-for'] as string | undefined
         const ip = forwarded ? forwarded.split(',')[0].trim() : 'unknown'
-        const rl = checkRateLimit(`login:${ip}`, { max: 5, windowMs: 15 * 60 * 1000 })
-        if (!rl.allowed) return null
+        const rl = await checkRateLimit(`login:${ip}`, { max: 5, windowMs: 15 * 60 * 1000 })
+        if (!rl.allowed) {
+          // Surface a distinct error so the client can display "too many attempts"
+          throw new Error('RATE_LIMITED')
+        }
 
         const user = await prisma.user.findUnique({
           where: { email: credentials.email as string },
@@ -34,6 +37,13 @@ export const authOptions: NextAuthOptions = {
           user.password
         )
         if (!isValid) return null
+
+        // Hard-block unverified emails. Throw a typed error so the login page
+        // can show "verify your email" + a resend button instead of the generic
+        // "invalid email or password" message.
+        if (!user.email_verified_at) {
+          throw new Error('EMAIL_NOT_VERIFIED')
+        }
 
         const settings = (user.organisation.settings as Record<string, unknown>) ?? {}
         return {

@@ -13,12 +13,21 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Employees can only see their OWN published payslips — must scope by employee_id,
+    // not just org_id, otherwise any employee can read any colleague's payslip by guessing UUIDs.
+    const isEmployee = session.user.role === 'employee'
+    if (isEmployee && !session.user.employee_id) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
+    }
+
     const payslip = await prisma.payslip.findFirst({
       where: {
         id: id,
         org_id: session.user.org_id,
-        // Employees can only see their own published payslips
-        ...(session.user.role === 'employee' && { is_published: true }),
+        ...(isEmployee && {
+          employee_id: session.user.employee_id,
+          is_published: true,
+        }),
       },
       include: {
         employee: {

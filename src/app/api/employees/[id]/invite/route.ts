@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { sendWelcomeEmail } from '@/lib/email'
+import { BCRYPT_COST } from '@/lib/auth'
 
 /**
  * POST /api/employees/[id]/invite
@@ -60,24 +61,36 @@ export async function POST(
 
     // Generate a human-friendly temp password: Abc1-xyz2
     const rawPassword = generateTempPassword()
-    const hashedPassword = await bcrypt.hash(rawPassword, 12)
+    const hashedPassword = await bcrypt.hash(rawPassword, BCRYPT_COST)
+
+    // Generate a fresh verification token so the recipient must prove email ownership
+    // before they can log in. Token expires in 24h.
+    const verificationToken = crypto.randomBytes(32).toString('hex')
+    const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
     const existingUser = await prisma.user.findUnique({
       where: { email: employee.email },
     })
 
     if (existingUser) {
-      // Reset their password
+      // Reset their password and re-issue verification (in case the email was wrong)
       await prisma.user.update({
         where: { id: existingUser.id },
         data: {
           password: hashedPassword,
           is_active: true,
           employee_id: employeeId,   // ensure linkage
+          email_verified_at: existingUser.email_verified_at,  // preserve if already verified
+          ...(existingUser.email_verified_at
+            ? {} // already verified — no token needed
+            : {
+                email_verification_token: verificationToken,
+                email_verification_expiry: verificationExpiry,
+              }),
         },
       })
     } else {
-      // Create new User account
+      // Create new User account — UNVERIFIED. Must click verify link before login.
       await prisma.user.create({
         data: {
           org_id,
@@ -86,18 +99,36 @@ export async function POST(
           password: hashedPassword,
           role: 'employee',
           is_active: true,
+          email_verification_token: verificationToken,
+          email_verification_expiry: verificationExpiry,
         },
       })
     }
 
-    // Send welcome email (fire-and-forget — don't fail the request if email bounces)
+    // Send welcome + verification email
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+    const verifyUrl = `${appUrl}/verify-email?token=${verificationToken}`
+
     try {
+      // Welcome email (with temp password)
       await sendWelcomeEmail({
         to:           employee.email,
         name:         `${employee.first_name} ${employee.last_name}`,
         company:      org?.name ?? session.user.org_name ?? 'Your Company',
         tempPassword: rawPassword,
       })
+
+      // Separate verification email so the link is in its own message
+      const { sendVerificationEmail } = await import('@/lib/email')
+      const alreadyVerified = existingUser?.email_verified_at != null
+      if (!alreadyVerified) {
+        await sendVerificationEmail({
+          to:        employee.email,
+          name:      `${employee.first_name} ${employee.last_name}`,
+          verifyUrl,
+          company:   org?.name ?? session.user.org_name ?? 'Your Company',
+        })
+      }
     } catch (emailErr) {
       console.error('Welcome email failed to send:', emailErr)
       // Still return success — user account was created; HR can resend manually

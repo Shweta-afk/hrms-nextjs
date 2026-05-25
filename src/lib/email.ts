@@ -126,6 +126,38 @@ export async function sendPayslipEmail({
   })
 }
 
+// ── Email verification (hard block before first login) ──
+export async function sendVerificationEmail({
+  to,
+  name,
+  verifyUrl,
+  company,
+}: {
+  to: string
+  name: string
+  verifyUrl: string
+  company: string
+}) {
+  return resend.emails.send({
+    from: FROM,
+    to,
+    subject: `Verify your email for ${company} HRMS`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+        <h2 style="color:#1e1b4b">Confirm your email 📨</h2>
+        <p>Hi ${name},</p>
+        <p>Welcome to <strong>${company}</strong>'s HRMS. Click the button below to verify your email and activate your account:</p>
+        <a href="${verifyUrl}" style="display:inline-block;background:#1e1b4b;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:500;margin:16px 0">
+          Verify email
+        </a>
+        <p style="color:#6b7280;font-size:13px">Or paste this link in your browser:<br/><span style="word-break:break-all">${verifyUrl}</span></p>
+        <p style="color:#6b7280;font-size:13px">This link expires in 24 hours. If you didn't sign up for ${company}, ignore this email.</p>
+        <p>Best regards,<br/>HR Team — ${company}</p>
+      </div>
+    `,
+  })
+}
+
 // ── Password reset email ──
 export async function sendPasswordResetEmail({
   to,
