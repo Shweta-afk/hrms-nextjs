@@ -36,56 +36,66 @@ interface RateLimitResult {
   retryAfterSeconds: number
 }
 
+// Fail-open result: returned whenever the DB table is unavailable.
+// Rate limiting is best-effort — a missing table must never block legitimate users.
+const ALLOW: RateLimitResult = { allowed: true, remaining: 999, retryAfterSeconds: 0 }
+
 export async function checkRateLimit(
   key: string,
   opts: RateLimitOptions
 ): Promise<RateLimitResult> {
   const now = new Date()
 
-  // Probabilistic cleanup of expired rows. Fire-and-forget so it doesn't
-  // block the rate-limit decision.
-  if (Math.random() < CLEANUP_PROBABILITY) {
-    prisma.rateLimitEntry
-      .deleteMany({ where: { expires_at: { lt: now } } })
-      .catch(() => {}) // ignore — best effort
-  }
+  try {
+    // Probabilistic cleanup of expired rows. Fire-and-forget.
+    if (Math.random() < CLEANUP_PROBABILITY) {
+      prisma.rateLimitEntry
+        .deleteMany({ where: { expires_at: { lt: now } } })
+        .catch(() => {})
+    }
 
-  // Load current entry. If missing or expired, start a fresh window.
-  const existing = await prisma.rateLimitEntry.findUnique({ where: { key } })
+    // Load current entry. If missing or expired, start a fresh window.
+    const existing = await prisma.rateLimitEntry.findUnique({ where: { key } })
 
-  if (!existing || existing.expires_at <= now) {
-    await prisma.rateLimitEntry.upsert({
+    if (!existing || existing.expires_at <= now) {
+      await prisma.rateLimitEntry.upsert({
+        where: { key },
+        create: {
+          key,
+          count: 1,
+          expires_at: new Date(now.getTime() + opts.windowMs),
+        },
+        update: {
+          count: 1,
+          expires_at: new Date(now.getTime() + opts.windowMs),
+        },
+      })
+      return { allowed: true, remaining: opts.max - 1, retryAfterSeconds: 0 }
+    }
+
+    if (existing.count >= opts.max) {
+      return {
+        allowed: false,
+        remaining: 0,
+        retryAfterSeconds: Math.ceil(
+          (existing.expires_at.getTime() - now.getTime()) / 1000
+        ),
+      }
+    }
+
+    const updated = await prisma.rateLimitEntry.update({
       where: { key },
-      create: {
-        key,
-        count: 1,
-        expires_at: new Date(now.getTime() + opts.windowMs),
-      },
-      update: {
-        count: 1,
-        expires_at: new Date(now.getTime() + opts.windowMs),
-      },
+      data: { count: { increment: 1 } },
     })
-    return { allowed: true, remaining: opts.max - 1, retryAfterSeconds: 0 }
-  }
 
-  if (existing.count >= opts.max) {
-    const retryAfterSeconds = Math.ceil(
-      (existing.expires_at.getTime() - now.getTime()) / 1000
-    )
-    return { allowed: false, remaining: 0, retryAfterSeconds }
-  }
-
-  // Atomic increment — concurrent callers can't both succeed at the cap boundary.
-  const updated = await prisma.rateLimitEntry.update({
-    where: { key },
-    data: { count: { increment: 1 } },
-  })
-
-  return {
-    allowed: true,
-    remaining: Math.max(opts.max - updated.count, 0),
-    retryAfterSeconds: 0,
+    return {
+      allowed: true,
+      remaining: Math.max(opts.max - updated.count, 0),
+      retryAfterSeconds: 0,
+    }
+  } catch {
+    // Table doesn't exist yet or DB unreachable — fail open so auth still works.
+    return ALLOW
   }
 }
 
