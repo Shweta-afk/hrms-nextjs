@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
-import crypto from 'crypto'
 import { z } from 'zod'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { BCRYPT_COST } from '@/lib/auth'
@@ -58,20 +57,18 @@ export async function POST(req: NextRequest) {
 
     // Create org + admin user + default data in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Create organisation
-      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
+      // Create organisation — plan 'free' means no restrictions, no trial banner.
       const org = await tx.organisation.create({
         data: {
           name: data.company_name,
           subdomain: data.subdomain,
-          plan: 'trial',
+          plan: 'free',
           settings: {
             pt_state: 'maharashtra',
             tds_regime: 'new',
             payroll_day: 28,
             pf_applicable: true,
             esi_applicable: true,
-            trial_ends_at: trialEndsAt,
           },
         },
       })
@@ -80,19 +77,15 @@ export async function POST(req: NextRequest) {
       const [firstName, ...lastParts] = data.admin_name.split(' ')
       const lastName = lastParts.join(' ') || 'Admin'
 
-      // Email verification: user starts UNVERIFIED. They must click the link in
-      // the verification email before they can log in. Token expires in 24h.
-      const verificationToken = crypto.randomBytes(32).toString('hex')
-      const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000)
-
+      // Auto-verify on signup: admin accounts are trusted at registration.
+      // No verification email needed — user can log in immediately.
       const user = await tx.user.create({
         data: {
           org_id: org.id,
           email: data.admin_email,
           password: hashedPassword,
           role: 'hr_admin',
-          email_verification_token: verificationToken,
-          email_verification_expiry: verificationExpiry,
+          email_verified_at: new Date(),   // pre-verified
         },
       })
 
@@ -165,32 +158,16 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      return { org, user, verificationToken }
+      return { org, user }
     })
-
-    // Send verification email (outside the transaction — non-blocking for DB,
-    // but we await so failures surface in the response).
-    try {
-      const { sendVerificationEmail } = await import('@/lib/email')
-      const verifyUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/verify-email?token=${result.verificationToken}`
-      await sendVerificationEmail({
-        to: data.admin_email,
-        name: data.admin_name.split(' ')[0],
-        verifyUrl,
-        company: data.company_name,
-      })
-    } catch (emailErr) {
-      logger.error('signup_verification_email_failed', emailErr, { email: data.admin_email })
-      // Don't fail the signup — they can hit "Resend verification" from the login page.
-    }
 
     return NextResponse.json({
       success: true,
       data: {
-        message: 'Account created. Check your email for a verification link before signing in.',
+        message: 'Account created. You can sign in immediately.',
         org_id: result.org.id,
         email: data.admin_email,
-        verification_required: true,
+        verification_required: false,
       },
     }, { status: 201 })
   } catch (error) {

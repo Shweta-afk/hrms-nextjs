@@ -64,8 +64,8 @@ export default function SignupPage() {
       const json = await res.json()
       if (json.success) {
         setSuccess(true)
-        toast.success('Account created! Setting up your workspace...')
-        setTimeout(() => router.push('/login?redirect=/onboarding'), 2000)
+        toast.success('Account created! Sign in to get started.')
+        setTimeout(() => router.push('/login'), 2000)
       } else {
         toast.error(json.error)
       }
@@ -84,7 +84,7 @@ export default function SignupPage() {
             <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
             <h2 className="text-2xl font-bold mb-2">Account Created!</h2>
             <p className="text-muted-foreground">
-              Your HRMS workspace is ready. Redirecting to login...
+              Your workspace is ready. Redirecting to sign in...
             </p>
           </CardContent>
         </Card>
