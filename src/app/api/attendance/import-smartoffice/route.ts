@@ -65,7 +65,9 @@ function buildDateTime(date: Date, timeStr: string | null | undefined): Date | n
 }
 
 interface UpsertData {
-  employeeId: string
+  employeeId: string   // '' means needs auto-create
+  empCode: string
+  empName: string      // best-effort name for auto-create
   date: Date
   status: string
   first_in: Date | null
@@ -112,17 +114,16 @@ async function parseMonthlyBasic(
     const empCode = String(row[1] ?? '').trim()
     if (!empCode || /^(S\.?No|EmployeeCode|Total|Sl\.?No)/i.test(empCode)) continue
 
-    const employeeId = empMap.get(empCode)
-    if (!employeeId) {
-      if (errors.length < 10) errors.push(`Unknown emp code: ${empCode}`)
-      continue
-    }
+    const empName = String(row[2] ?? '').trim() || empCode
+    const employeeId = empMap.get(empCode) ?? ''
 
     for (const [col, date] of colDateMap) {
       const val = String(row[col] ?? '').trim().toUpperCase()
       if (val !== 'P' && val !== 'A') continue
       records.push({
         employeeId,
+        empCode,
+        empName,
         date,
         status: val === 'P' ? 'present' : 'absent',
         first_in: null,
@@ -171,18 +172,16 @@ async function parseMonthlyDetails(
 
     const empRow = rows[i] ?? []
     let empCode = ''
+    let empName = ''
     for (const cell of empRow) {
-      const m = String(cell ?? '').match(/EmployeeCode:\s*(\S+)/)
-      if (m) { empCode = m[1].trim(); break }
+      const mCode = String(cell ?? '').match(/EmployeeCode:\s*(\S+)/)
+      if (mCode) empCode = mCode[1].trim()
+      const mName = String(cell ?? '').match(/EmployeeName:\s*(.+)/)
+      if (mName) empName = mName[1].trim()
     }
     if (!empCode) continue
 
-    const employeeId = empMap.get(empCode)
-    if (!employeeId) {
-      if (errors.length < 10) errors.push(`Unknown emp code: ${empCode}`)
-      i += 11
-      continue
-    }
+    const employeeId = empMap.get(empCode) ?? ''
 
     const dateHeaderRow = rows[i + 1] ?? []
     const colDateMap = buildColDateMap(dateHeaderRow, period.startDate)
@@ -207,6 +206,8 @@ async function parseMonthlyDetails(
 
       records.push({
         employeeId,
+        empCode,
+        empName: empName || empCode,
         date,
         status: statusStr === 'P' ? 'present' : 'absent',
         first_in: firstIn,
@@ -277,11 +278,9 @@ async function parseDailyBasic(
     const empCode = String(row[2] ?? '').trim()
     if (!empCode || /employeecode/i.test(empCode)) continue
 
-    const employeeId = empMap.get(empCode)
-    if (!employeeId) {
-      if (errors.length < 10) errors.push(`Unknown emp code: ${empCode}`)
-      continue
-    }
+    // Col 3 is usually employee name in Daily Basic
+    const empName = String(row[3] ?? '').trim() || empCode
+    const employeeId = empMap.get(empCode) ?? ''
 
     const statusStr = String(row[17] ?? '').trim().toUpperCase()
     const status = statusStr === 'P' ? 'present' : 'absent'
@@ -306,6 +305,8 @@ async function parseDailyBasic(
 
     records.push({
       employeeId,
+      empCode,
+      empName,
       date: reportDate,
       status,
       first_in: firstIn,
@@ -373,10 +374,63 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: errors[0] }, { status: 400 })
     }
 
+    // ── Auto-create employees whose emp_code wasn't in the HR master ──
+    // Collect unique unknown codes with best-effort names (deduplicated).
+    const unknownCodes = new Map<string, string>() // empCode → empName
+    for (const rec of records) {
+      if (!rec.employeeId && !unknownCodes.has(rec.empCode)) {
+        unknownCodes.set(rec.empCode, rec.empName)
+      }
+    }
+
+    let autoCreated = 0
+    if (unknownCodes.size > 0) {
+      // Count existing employees to generate sequential EMP codes correctly
+      const existingCount = await prisma.employee.count({ where: { org_id: session.user.org_id } })
+      let seq = existingCount
+
+      for (const [empCode, fullName] of unknownCodes) {
+        seq++
+        // Split "Firstname Lastname" into parts; default last name to 'User' if only one word
+        const parts = fullName.trim().split(/\s+/)
+        const firstName = parts[0] || empCode
+        const lastName  = parts.slice(1).join(' ') || 'User'
+
+        try {
+          const newEmp = await prisma.employee.create({
+            data: {
+              org_id: session.user.org_id,
+              emp_code: empCode,
+              first_name: firstName,
+              last_name: lastName,
+              email: `${empCode.toLowerCase()}@imported.local`,
+              date_of_joining: new Date(),
+              employment_type: 'full_time',
+              status: 'active',
+            },
+          })
+          empMap.set(empCode, newEmp.id)
+          autoCreated++
+        } catch {
+          // Duplicate or constraint error — try fetching the existing record
+          const existing = await prisma.employee.findFirst({
+            where: { org_id: session.user.org_id, emp_code: empCode },
+          })
+          if (existing) empMap.set(empCode, existing.id)
+        }
+      }
+
+      // Patch records that had empty employeeId now that empMap is updated
+      for (const rec of records) {
+        if (!rec.employeeId) rec.employeeId = empMap.get(rec.empCode) ?? ''
+      }
+    }
+
     let processed = 0
     let skipped = 0
 
     for (const rec of records) {
+      if (!rec.employeeId) { skipped++; continue }
       try {
         await prisma.attendanceRecord.upsert({
           where: {
@@ -416,14 +470,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const messageParts = [`${format} import complete — ${processed} records saved`]
+    if (autoCreated > 0) messageParts.push(`${autoCreated} new employee${autoCreated > 1 ? 's' : ''} created from attendance data`)
+
     return NextResponse.json({
       success: true,
       data: {
         format,
         processed,
         skipped,
+        auto_created: autoCreated,
         errors: errors.slice(0, 10),
-        message: `${format} import complete — ${processed} records saved`,
+        message: messageParts.join(' · '),
       },
     })
   } catch (error) {

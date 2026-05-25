@@ -144,9 +144,14 @@ function LoginForm() {
         </button>
       </form>
 
-      <p className="text-xs text-gray-400 mt-4 text-center">
-        Demo: admin@demo.com / admin123
-      </p>
+      {/* Employee note */}
+      <div className="mt-5 rounded-md bg-indigo-50 border border-indigo-100 px-4 py-3">
+        <p className="text-xs font-semibold text-indigo-800 mb-0.5">Employee?</p>
+        <p className="text-xs text-indigo-700">
+          Use the <strong>same login page</strong> with the email and password sent by your HR admin.
+          You'll be taken to your employee portal automatically after signing in.
+        </p>
+      </div>
 
       <p className="text-xs text-center text-gray-400 mt-4">
         Don't have an account?{' '}
