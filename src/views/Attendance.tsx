@@ -27,6 +27,7 @@ interface AttendanceRecord {
   first_in: string | null;
   last_out: string | null;
   total_hours: string | null;
+  overtime_hours: string | null;
   status: string;
   is_late: boolean;
   late_by_minutes: number;
@@ -91,6 +92,9 @@ const Attendance = () => {
   const [yearSummary, setYearSummary] = useState<MonthSummary[]>([])
   const [yearLoading, setYearLoading] = useState(false)
   const [yearOffset, setYearOffset] = useState(0)
+
+  // Reports
+  const [activeReport, setActiveReport] = useState<'absent' | 'late' | 'ot'>('absent')
 
   // Correction modal
   const [correctionRecord, setCorrectionRecord] = useState<AttendanceRecord | null>(null)
@@ -258,6 +262,77 @@ const Attendance = () => {
     if (ratio >= 0.9) return 'bg-kpi-green'
     if (ratio >= 0.75) return 'bg-kpi-amber'
     return 'bg-kpi-red'
+  }
+
+  // ── Per-employee report aggregates (computed from current month records) ──
+
+  interface EmpKey { id: string; name: string; emp_code: string; dept: string }
+
+  const absentReport = (() => {
+    const map = new Map<string, EmpKey & { days: number; dates: string[] }>()
+    for (const r of records) {
+      if (r.status !== 'absent') continue
+      const key = r.employee.id
+      if (!map.has(key)) map.set(key, { id: key, name: `${r.employee.first_name} ${r.employee.last_name}`, emp_code: r.employee.emp_code, dept: r.employee.department?.name ?? '—', days: 0, dates: [] })
+      const e = map.get(key)!
+      e.days++
+      e.dates.push(new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }))
+    }
+    return [...map.values()].sort((a, b) => b.days - a.days)
+  })()
+
+  const lateReport = (() => {
+    const map = new Map<string, EmpKey & { count: number; totalMins: number; maxMins: number; worstDate: string }>()
+    for (const r of records) {
+      if (!r.is_late) continue
+      const key = r.employee.id
+      if (!map.has(key)) map.set(key, { id: key, name: `${r.employee.first_name} ${r.employee.last_name}`, emp_code: r.employee.emp_code, dept: r.employee.department?.name ?? '—', count: 0, totalMins: 0, maxMins: 0, worstDate: '' })
+      const e = map.get(key)!
+      e.count++
+      e.totalMins += r.late_by_minutes
+      if (r.late_by_minutes > e.maxMins) { e.maxMins = r.late_by_minutes; e.worstDate = new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) }
+    }
+    return [...map.values()].sort((a, b) => b.totalMins - a.totalMins)
+  })()
+
+  const otReport = (() => {
+    const map = new Map<string, EmpKey & { days: number; totalHours: number }>()
+    for (const r of records) {
+      const ot = r.overtime_hours ? parseFloat(r.overtime_hours) : 0
+      if (ot <= 0) continue
+      const key = r.employee.id
+      if (!map.has(key)) map.set(key, { id: key, name: `${r.employee.first_name} ${r.employee.last_name}`, emp_code: r.employee.emp_code, dept: r.employee.department?.name ?? '—', days: 0, totalHours: 0 })
+      const e = map.get(key)!
+      e.days++
+      e.totalHours += ot
+    }
+    return [...map.values()].sort((a, b) => b.totalHours - a.totalHours)
+  })()
+
+  const fmtMins = (m: number) => m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`
+
+  function downloadReportCsv(type: 'absent' | 'late' | 'ot') {
+    let headers: string[]
+    let rows: (string | number)[][]
+    if (type === 'absent') {
+      headers = ['Emp Code', 'Name', 'Department', 'Absent Days', 'Absent Dates']
+      rows = absentReport.map(e => [e.emp_code, e.name, e.dept, e.days, e.dates.join(' | ')])
+    } else if (type === 'late') {
+      headers = ['Emp Code', 'Name', 'Department', 'Late Count', 'Total Late Time', 'Avg Late (mins)', 'Worst Day', 'Max Late (mins)']
+      rows = lateReport.map(e => [e.emp_code, e.name, e.dept, e.count, fmtMins(e.totalMins), Math.round(e.totalMins / e.count), e.worstDate, e.maxMins])
+    } else {
+      headers = ['Emp Code', 'Name', 'Department', 'OT Days', 'Total OT Hours', 'Avg OT per Day (hrs)']
+      rows = otReport.map(e => [e.emp_code, e.name, e.dept, e.days, e.totalHours.toFixed(2), (e.totalHours / e.days).toFixed(2)])
+    }
+    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${type}-report-${monthLabel.replace(' ', '-')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success(`Downloaded ${type} report`)
   }
 
   return (
@@ -531,6 +606,203 @@ const Attendance = () => {
             </Card>
           </div>
         </div>
+
+        {/* ── Detailed Reports ── */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <CardTitle className="text-base">Detailed Reports — {monthLabel}</CardTitle>
+              <div className="flex items-center gap-2">
+                {/* Tab switcher */}
+                <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
+                  {([
+                    { key: 'absent', label: `Absent (${absentReport.length})` },
+                    { key: 'late',   label: `Late (${lateReport.length})` },
+                    { key: 'ot',     label: `Overtime (${otReport.length})` },
+                  ] as const).map(t => (
+                    <button
+                      key={t.key}
+                      onClick={() => setActiveReport(t.key)}
+                      className={`px-3 py-1.5 transition-colors ${activeReport === t.key ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-muted'}`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={() => downloadReportCsv(activeReport)}>
+                  <Download className="h-3.5 w-3.5" /> CSV
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+
+            {/* ── Absent Report ── */}
+            {activeReport === 'absent' && (
+              absentReport.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-10">No absences recorded this month</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead className="text-center">Absent Days</TableHead>
+                      <TableHead>Absent Dates</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {absentReport.map(e => (
+                      <TableRow key={e.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-7 w-7">
+                              <AvatarFallback className="text-[10px] bg-kpi-red/15 text-kpi-red">
+                                {e.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="text-sm font-medium">{e.name}</p>
+                              <p className="text-[11px] text-muted-foreground">{e.emp_code}</p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{e.dept}</TableCell>
+                        <TableCell className="text-center">
+                          <span className={`inline-flex items-center justify-center rounded-full w-8 h-8 text-sm font-bold ${e.days >= 5 ? 'bg-kpi-red/15 text-kpi-red' : e.days >= 3 ? 'bg-kpi-amber/15 text-kpi-amber' : 'bg-muted text-foreground'}`}>
+                            {e.days}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {e.dates.map(d => (
+                              <span key={d} className="inline-block bg-kpi-red/10 text-kpi-red text-[10px] font-medium px-1.5 py-0.5 rounded">{d}</span>
+                            ))}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )
+            )}
+
+            {/* ── Late Report ── */}
+            {activeReport === 'late' && (
+              lateReport.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-10">No late arrivals recorded this month</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead className="text-center">Late Count</TableHead>
+                      <TableHead>Total Late Time</TableHead>
+                      <TableHead>Avg / Day</TableHead>
+                      <TableHead>Worst Day</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {lateReport.map(e => (
+                      <TableRow key={e.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-7 w-7">
+                              <AvatarFallback className="text-[10px] bg-kpi-amber/15 text-kpi-amber">
+                                {e.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="text-sm font-medium">{e.name}</p>
+                              <p className="text-[11px] text-muted-foreground">{e.emp_code}</p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{e.dept}</TableCell>
+                        <TableCell className="text-center">
+                          <span className={`inline-flex items-center justify-center rounded-full w-8 h-8 text-sm font-bold ${e.count >= 5 ? 'bg-kpi-red/15 text-kpi-red' : e.count >= 3 ? 'bg-kpi-amber/15 text-kpi-amber' : 'bg-kpi-amber/10 text-kpi-amber'}`}>
+                            {e.count}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-sm font-medium">{fmtMins(e.totalMins)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{fmtMins(Math.round(e.totalMins / e.count))}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="text-sm">{e.worstDate}</span>
+                            <span className="text-[11px] text-kpi-red font-medium">+{fmtMins(e.maxMins)}</span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )
+            )}
+
+            {/* ── OT Report ── */}
+            {activeReport === 'ot' && (
+              otReport.length === 0 ? (
+                <div className="text-center py-10 space-y-1">
+                  <p className="text-sm text-muted-foreground">No overtime recorded this month</p>
+                  <p className="text-xs text-muted-foreground/70">OT hours are imported via Smart Office Monthly Details report</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead className="text-center">OT Days</TableHead>
+                      <TableHead>Total OT</TableHead>
+                      <TableHead>Avg / Day</TableHead>
+                      <TableHead>OT Bar</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(() => {
+                      const maxHrs = Math.max(...otReport.map(e => e.totalHours), 1)
+                      return otReport.map(e => (
+                        <TableRow key={e.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Avatar className="h-7 w-7">
+                                <AvatarFallback className="text-[10px] bg-kpi-purple/15 text-kpi-purple">
+                                  {e.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="text-sm font-medium">{e.name}</p>
+                                <p className="text-[11px] text-muted-foreground">{e.emp_code}</p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{e.dept}</TableCell>
+                          <TableCell className="text-center">
+                            <span className="inline-flex items-center justify-center rounded-full w-8 h-8 text-sm font-bold bg-kpi-purple/10 text-kpi-purple">
+                              {e.days}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm font-bold text-kpi-purple">{e.totalHours.toFixed(1)}h</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{(e.totalHours / e.days).toFixed(1)}h</TableCell>
+                          <TableCell className="w-32">
+                            <div className="h-2 rounded-full bg-muted overflow-hidden w-full">
+                              <div
+                                className="h-full rounded-full bg-kpi-purple transition-all"
+                                style={{ width: `${(e.totalHours / maxHrs) * 100}%` }}
+                              />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    })()}
+                  </TableBody>
+                </Table>
+              )
+            )}
+
+          </CardContent>
+        </Card>
 
         {/* Heatmap */}
         <Card>
