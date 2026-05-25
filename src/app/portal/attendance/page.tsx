@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ChevronLeft, ChevronRight, ArrowLeft, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ArrowLeft, Loader2, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface AttendanceRecord {
@@ -25,11 +25,19 @@ const formatTime = (dateStr: string | null) => {
 }
 
 const statusStyle: Record<string, string> = {
-  present: 'bg-green-100 text-green-800',
-  absent: 'bg-red-100 text-red-800',
-  late: 'bg-yellow-100 text-yellow-800',
-  weekend: 'bg-muted text-muted-foreground',
-  holiday: 'bg-blue-100 text-blue-800',
+  present:        'bg-green-100 text-green-800',
+  absent:         'bg-red-100 text-red-800',
+  late:           'bg-yellow-100 text-yellow-800',
+  half_day:       'bg-orange-100 text-orange-800',
+  pending_review: 'bg-purple-100 text-purple-800',
+  weekend:        'bg-muted text-muted-foreground',
+  holiday:        'bg-blue-100 text-blue-800',
+}
+
+const statusLabel: Record<string, string> = {
+  present: 'Present', absent: 'Absent', late: 'Late',
+  half_day: 'Half Day', pending_review: 'Early Departure',
+  weekend: 'Weekend', holiday: 'Holiday',
 }
 
 export default function PortalAttendancePage() {
@@ -37,6 +45,29 @@ export default function PortalAttendancePage() {
   const [monthOffset, setMonthOffset] = useState(0)
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [markingHalfDay, setMarkingHalfDay] = useState<string | null>(null)
+
+  async function handleMarkHalfDay(attendanceId: string) {
+    setMarkingHalfDay(attendanceId)
+    try {
+      const res = await fetch('/api/attendance/half-day', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attendance_id: attendanceId }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Marked as half day — salary will be 50% for this day')
+        setRecords(prev => prev.map(r => r.id === attendanceId ? { ...r, status: 'half_day' } : r))
+      } else {
+        toast.error(json.error ?? 'Failed to mark half day')
+      }
+    } catch {
+      toast.error('Failed to mark half day')
+    } finally {
+      setMarkingHalfDay(null)
+    }
+  }
 
   const current = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
   const month = current.getMonth() + 1
@@ -150,10 +181,10 @@ export default function PortalAttendancePage() {
                           {date.toLocaleDateString('en-IN', { weekday: 'short' })}
                         </div>
                         <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${statusStyle[status] ?? 'bg-muted text-muted-foreground'}`}>
-                          {status.charAt(0).toUpperCase() + status.slice(1)}
+                          {statusLabel[status] ?? status}
                         </span>
                       </div>
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <span>In: {formatTime(rec?.first_in ?? null)}</span>
                         <span>Out: {formatTime(rec?.last_out ?? null)}</span>
                         <span className="font-medium text-foreground">
@@ -161,6 +192,21 @@ export default function PortalAttendancePage() {
                         </span>
                         {rec?.is_late && (
                           <span className="text-kpi-amber">{rec.late_by_minutes}m late</span>
+                        )}
+                        {/* Allow employees to self-mark present/late day as half day */}
+                        {rec && (status === 'present' || status === 'late') && !isFuture && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] text-muted-foreground hover:text-orange-700 hover:bg-orange-50"
+                            onClick={() => handleMarkHalfDay(rec.id)}
+                            disabled={markingHalfDay === rec.id}
+                          >
+                            {markingHalfDay === rec.id
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : <><Clock className="h-3 w-3 mr-1" />Half Day</>
+                            }
+                          </Button>
                         )}
                       </div>
                     </div>

@@ -132,6 +132,7 @@ model Employee {
   bank_details        String?  // encrypted
   statutory_info      String?  // encrypted
   essl_device_id      String?
+  monthly_incentive   Decimal? @db.Decimal(10, 2)
   created_at          DateTime @default(now())
   updated_at          DateTime @updatedAt
 
@@ -357,9 +358,14 @@ model Payslip {
   gross_salary     Decimal  @db.Decimal(10, 2)
   total_deductions Decimal  @db.Decimal(10, 2)
   net_salary       Decimal  @db.Decimal(10, 2)
-  pdf_s3_key       String?
-  is_published     Boolean  @default(false)
-  created_at       DateTime @default(now())
+  pdf_s3_key             String?
+  is_published           Boolean   @default(false)
+  is_manually_adjusted   Boolean   @default(false)
+  original_earnings      Json?
+  original_deductions    Json?
+  original_net_salary    Decimal?  @db.Decimal(10, 2)
+  adjustment_note        String?
+  created_at             DateTime  @default(now())
 
   organisation Organisation @relation(fields: [org_id], references: [id])
   employee     Employee     @relation(fields: [employee_id], references: [id])

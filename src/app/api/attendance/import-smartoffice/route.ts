@@ -374,6 +374,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: errors[0] }, { status: 400 })
     }
 
+    // ── Load org settings for early-departure detection ──
+    const orgData = await prisma.organisation.findUnique({
+      where: { id: session.user.org_id },
+      select: { settings: true },
+    })
+    const orgSettings = (orgData?.settings ?? {}) as Record<string, unknown>
+    const halfDayCutoffStr = (orgSettings.half_day_cutoff as string | undefined) ?? '14:00'
+    const [cutHour, cutMin] = halfDayCutoffStr.split(':').map(Number)
+
     // ── Auto-create employees whose emp_code wasn't in the HR master ──
     // Collect unique unknown codes with best-effort names (deduplicated).
     const unknownCodes = new Map<string, string>() // empCode → empName
@@ -428,9 +437,22 @@ export async function POST(req: NextRequest) {
 
     let processed = 0
     let skipped = 0
+    let earlyFlagged = 0
 
     for (const rec of records) {
       if (!rec.employeeId) { skipped++; continue }
+
+      // Early-departure flag: present/late but punched out before the half-day cutoff
+      let effectiveStatus = rec.status
+      if (rec.status === 'present' && rec.last_out) {
+        const outHour = rec.last_out.getUTCHours()
+        const outMin  = rec.last_out.getUTCMinutes()
+        if (outHour < cutHour || (outHour === cutHour && outMin < cutMin)) {
+          effectiveStatus = 'pending_review'
+          earlyFlagged++
+        }
+      }
+
       try {
         await prisma.attendanceRecord.upsert({
           where: {
@@ -441,7 +463,7 @@ export async function POST(req: NextRequest) {
             },
           },
           update: {
-            status: rec.status,
+            status: effectiveStatus,
             first_in: rec.first_in,
             last_out: rec.last_out,
             total_hours: rec.total_hours,
@@ -454,7 +476,7 @@ export async function POST(req: NextRequest) {
             org_id: session.user.org_id,
             employee_id: rec.employeeId,
             date: rec.date,
-            status: rec.status,
+            status: effectiveStatus,
             first_in: rec.first_in,
             last_out: rec.last_out,
             total_hours: rec.total_hours,
@@ -472,6 +494,7 @@ export async function POST(req: NextRequest) {
 
     const messageParts = [`${format} import complete — ${processed} records saved`]
     if (autoCreated > 0) messageParts.push(`${autoCreated} new employee${autoCreated > 1 ? 's' : ''} created from attendance data`)
+    if (earlyFlagged > 0) messageParts.push(`${earlyFlagged} early-departure record${earlyFlagged > 1 ? 's' : ''} flagged for HR review`)
 
     return NextResponse.json({
       success: true,
@@ -480,6 +503,7 @@ export async function POST(req: NextRequest) {
         processed,
         skipped,
         auto_created: autoCreated,
+        early_flagged: earlyFlagged,
         errors: errors.slice(0, 10),
         message: messageParts.join(' · '),
       },

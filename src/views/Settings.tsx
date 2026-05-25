@@ -105,8 +105,15 @@ const Settings = () => {
   const [processingDay, setProcessingDay] = useState("28")
   const [pfApplicable, setPfApplicable] = useState(true)
   const [esiApplicable, setEsiApplicable] = useState(true)
+  const [ptApplicable, setPtApplicable] = useState(true)
+  const [tdsApplicable, setTdsApplicable] = useState(true)
   const [ptState, setPtState] = useState("maharashtra")
   const [tdsRegime, setTdsRegime] = useState("new")
+  type LateTier = { from_min: number; to_min: number | null; deduction_pct?: number; is_half_day?: boolean }
+  const [latePenaltyEnabled, setLatePenaltyEnabled] = useState(false)
+  const [latePenaltyTiers, setLatePenaltyTiers] = useState<LateTier[]>([])
+  const [halfDayCutoff, setHalfDayCutoff] = useState('14:00')
+  const [savingPayroll, setSavingPayroll] = useState(false)
 
   // Attendance
   const [workDays, setWorkDays] = useState(["mon","tue","wed","thu","fri"])
@@ -232,6 +239,19 @@ const Settings = () => {
       if (s.phone)        setOrgPhone(s.phone as string)
       if (s.logo_url)     setLogoUrl(s.logo_url as string)
 
+      // Payroll policy
+      if (s.pf_applicable  !== undefined) setPfApplicable(s.pf_applicable  as boolean)
+      if (s.esi_applicable !== undefined) setEsiApplicable(s.esi_applicable as boolean)
+      if (s.pt_applicable  !== undefined) setPtApplicable(s.pt_applicable  as boolean)
+      if (s.tds_applicable !== undefined) setTdsApplicable(s.tds_applicable as boolean)
+      if (s.pt_state)    setPtState(s.pt_state as string)
+      if (s.tds_regime)  setTdsRegime(s.tds_regime as string)
+      if (s.payroll_processing_day) setProcessingDay(String(s.payroll_processing_day as number))
+      if (s.half_day_cutoff) setHalfDayCutoff(s.half_day_cutoff as string)
+      const lp = s.late_penalty as { enabled?: boolean; tiers?: LateTier[] } | undefined
+      if (lp?.enabled !== undefined) setLatePenaltyEnabled(!!lp.enabled)
+      if (Array.isArray(lp?.tiers)) setLatePenaltyTiers(lp!.tiers!)
+
       // Attendance policy
       const att = (s.attendance ?? {}) as Record<string, unknown>
       if (att.shift_start)    setShiftStart(att.shift_start as string)
@@ -314,6 +334,34 @@ const Settings = () => {
       else toast.error(json.error ?? 'Failed to save')
     } catch { toast.error('Failed to save') }
     finally { setSavingAttendance(false) }
+  }
+
+  async function savePayrollSettings() {
+    setSavingPayroll(true)
+    try {
+      const res = await fetch('/api/org/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pf_applicable:          pfApplicable,
+          esi_applicable:         esiApplicable,
+          pt_applicable:          ptApplicable,
+          tds_applicable:         tdsApplicable,
+          pt_state:               ptState,
+          tds_regime:             tdsRegime,
+          payroll_processing_day: parseInt(processingDay) || 28,
+          half_day_cutoff:        halfDayCutoff,
+          late_penalty: {
+            enabled: latePenaltyEnabled,
+            tiers:   latePenaltyTiers,
+          },
+        }),
+      })
+      const json = await res.json()
+      if (json.success) { toast.success('Payroll settings saved'); setDirtySection(null) }
+      else toast.error(json.error ?? 'Failed to save')
+    } catch { toast.error('Failed to save') }
+    finally { setSavingPayroll(false) }
   }
 
   async function fetchApiKeys() {
@@ -815,25 +863,149 @@ const Settings = () => {
                 </div>
               </RadioGroup>
             </div>
-            <div className="space-y-4 rounded-lg border p-4 bg-muted/30">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="font-medium">PF Applicable</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Applicable above 20 employees. Employee 12%, Employer 12%</p>
+            {/* Statutory toggles */}
+            <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Statutory Deductions</p>
+              {[
+                { label: 'PF Applicable', desc: 'Applicable above 20 employees. Employee 12%, Employer 12%', val: pfApplicable, set: setPfApplicable },
+                { label: 'ESI Applicable', desc: 'Wage ceiling ₹21,000. Employee 0.75%, Employer 3.25%', val: esiApplicable, set: setEsiApplicable },
+                { label: 'Professional Tax Applicable', desc: 'State-specific monthly slab. Disable if PT is not levied in your state.', val: ptApplicable, set: setPtApplicable },
+                { label: 'TDS Applicable', desc: 'Estimated annual TDS ÷ 12 per employee. Disable for zero-TDS employees.', val: tdsApplicable, set: setTdsApplicable },
+              ].map(({ label, desc, val, set }) => (
+                <div key={label} className="flex items-center justify-between">
+                  <div>
+                    <Label className="font-medium">{label}</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                  </div>
+                  <Switch checked={val} onCheckedChange={v => { set(v); markDirty('payroll') }} />
                 </div>
-                <Switch checked={pfApplicable} onCheckedChange={v => { setPfApplicable(v); markDirty('payroll') }} />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="font-medium">ESI Applicable</Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Wage ceiling ₹21,000. Employee 0.75%, Employer 3.25%</p>
-                </div>
-                <Switch checked={esiApplicable} onCheckedChange={v => { setEsiApplicable(v); markDirty('payroll') }} />
+              ))}
+            </div>
+
+            {/* Half-day cutoff */}
+            <div className="space-y-2">
+              <Label>Early Departure Cutoff (Half-Day)</Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="time"
+                  value={halfDayCutoff}
+                  className="w-32"
+                  onChange={e => { setHalfDayCutoff(e.target.value); markDirty('payroll') }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Employees who punch out before this time are flagged for HR review. Also used when employees mark a half day.
+                </p>
               </div>
             </div>
+
+            {/* Late penalty tiers */}
+            <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="font-medium">Late Penalty Rules</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Applied per attendance record during payroll run.
+                  </p>
+                </div>
+                <Switch
+                  checked={latePenaltyEnabled}
+                  onCheckedChange={v => { setLatePenaltyEnabled(v); markDirty('payroll') }}
+                />
+              </div>
+
+              {latePenaltyEnabled && (
+                <div className="space-y-3 pt-2">
+                  {/* Tier rows */}
+                  {latePenaltyTiers.map((tier, idx) => (
+                    <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">From (min)</Label>
+                        <Input
+                          type="number" min={0} value={tier.from_min}
+                          className="h-8 text-sm"
+                          onChange={e => {
+                            const t = [...latePenaltyTiers]
+                            t[idx] = { ...t[idx], from_min: parseInt(e.target.value) || 0 }
+                            setLatePenaltyTiers(t); markDirty('payroll')
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">To (min, blank = ∞)</Label>
+                        <Input
+                          type="number" min={0}
+                          value={tier.to_min === null ? '' : tier.to_min}
+                          placeholder="unlimited"
+                          className="h-8 text-sm"
+                          onChange={e => {
+                            const t = [...latePenaltyTiers]
+                            t[idx] = { ...t[idx], to_min: e.target.value === '' ? null : parseInt(e.target.value) || 0 }
+                            setLatePenaltyTiers(t); markDirty('payroll')
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Penalty</Label>
+                        <div className="flex gap-1.5">
+                          <Select
+                            value={tier.is_half_day ? 'half_day' : 'pct'}
+                            onValueChange={v => {
+                              const t = [...latePenaltyTiers]
+                              if (v === 'half_day') t[idx] = { ...t[idx], is_half_day: true, deduction_pct: undefined }
+                              else t[idx] = { ...t[idx], is_half_day: false, deduction_pct: t[idx].deduction_pct ?? 1 }
+                              setLatePenaltyTiers(t); markDirty('payroll')
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs w-28"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pct">% of day</SelectItem>
+                              <SelectItem value="half_day">Half day</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {!tier.is_half_day && (
+                            <Input
+                              type="number" min={0} max={100} step={0.5}
+                              value={tier.deduction_pct ?? 1}
+                              className="h-8 text-sm w-16"
+                              onChange={e => {
+                                const t = [...latePenaltyTiers]
+                                t[idx] = { ...t[idx], deduction_pct: parseFloat(e.target.value) || 0 }
+                                setLatePenaltyTiers(t); markDirty('payroll')
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => { setLatePenaltyTiers(latePenaltyTiers.filter((_, i) => i !== idx)); markDirty('payroll') }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    variant="outline" size="sm" className="gap-2 h-8"
+                    onClick={() => {
+                      const lastTo = latePenaltyTiers[latePenaltyTiers.length - 1]?.to_min
+                      const from = lastTo !== null && lastTo !== undefined ? lastTo + 1 : 1
+                      setLatePenaltyTiers([...latePenaltyTiers, { from_min: from, to_min: null, deduction_pct: 1 }])
+                      markDirty('payroll')
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add Tier
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Example: 1–10 min = 1% of daily pay · 11–30 min = 2% · 31+ min = half day deduction.
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end">
-              <Button onClick={() => handleSave('Payroll settings')} className="gap-2">
-                <Save className="h-4 w-4" /> Save
+              <Button onClick={savePayrollSettings} disabled={savingPayroll} className="gap-2">
+                {savingPayroll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {savingPayroll ? 'Saving…' : 'Save'}
               </Button>
             </div>
           </CardContent>

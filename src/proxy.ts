@@ -7,6 +7,12 @@ import { getToken } from 'next-auth/jwt'
 const PUBLIC_PAGE_EXACT = new Set(['/', '/demo', '/verify-email'])
 const PUBLIC_PAGE_PREFIXES = ['/login', '/signup', '/forgot-password', '/reset-password', '/billing']
 
+// Routes only HR admins can access (employees are redirected to /portal)
+const HR_ONLY_PREFIXES = [
+  '/dashboard', '/employees', '/attendance', '/payroll',
+  '/leave', '/recruitment', '/analytics', '/settings', '/onboarding',
+]
+
 const API_PUBLIC = [
   '/api/auth',
   '/api/attendance/device-push', // ZKTeco device PUSH — identified by push_token in URL
@@ -38,6 +44,24 @@ export default async function proxy(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
     return NextResponse.redirect(new URL('/login', req.url))
+  }
+
+  // Role-based page guards (page routes only)
+  if (!pathname.startsWith('/api/')) {
+    const role = token.role as string | undefined
+
+    // Employees must not reach HR-only pages
+    if (role === 'employee') {
+      const isHrRoute = HR_ONLY_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))
+      if (isHrRoute) {
+        return NextResponse.redirect(new URL('/portal', req.url))
+      }
+    }
+
+    // HR admins landing directly on /portal → dashboard
+    if (role === 'hr_admin' && (pathname === '/portal' || pathname.startsWith('/portal/'))) {
+      return NextResponse.redirect(new URL('/dashboard', req.url))
+    }
   }
 
   // Check trial expiry for page routes only (not API)

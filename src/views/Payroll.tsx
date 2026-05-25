@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, CircleAlert,
   FileSpreadsheet, FileText, CheckCircle2, Loader2, Play, Settings2, Clock,
+  Upload, ArrowLeftRight,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -34,6 +35,11 @@ interface Payslip {
   total_deductions: number;
   net_salary: number;
   is_published: boolean;
+  is_manually_adjusted: boolean;
+  original_earnings: Record<string, number> | null;
+  original_deductions: Record<string, number> | null;
+  original_net_salary: number | null;
+  adjustment_note: string | null;
   employee: {
     first_name: string;
     last_name: string;
@@ -77,6 +83,15 @@ const Payroll = () => {
     warnings: string[];
     zero_attendance_employees: Array<{ id: string; first_name: string; emp_code?: string | null }>;
   }>({ warnings: [], zero_attendance_employees: [] })
+
+  // Adjustment workflow
+  const [adjModal, setAdjModal] = useState(false)
+  const [adjFile, setAdjFile] = useState<File | null>(null)
+  const [adjUploading, setAdjUploading] = useState(false)
+  const [adjResult, setAdjResult] = useState<{
+    adjusted: number; unchanged: number; not_found: number;
+    diffs: Array<{ emp_code: string; name: string; original_net: number; adjusted_net: number }>
+  } | null>(null)
 
   const currentMonth = ((now.getMonth() + monthOffset) % 12) + 1
   const currentYear = now.getFullYear() + Math.floor((now.getMonth() + monthOffset) / 12)
@@ -191,6 +206,49 @@ const Payroll = () => {
       toast.error('Failed to approve payroll')
     } finally {
       setApproving(false)
+    }
+  }
+
+  async function handleExportForReview() {
+    if (!run) return
+    try {
+      const res = await fetch(`/api/payroll/runs/${run.id}/export`)
+      if (!res.ok) { toast.error('Export failed'); return }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `payroll-${monthLabel.replace(' ', '-')}-review.xlsx`
+      link.click()
+      URL.revokeObjectURL(url)
+      toast.success('Exported — edit the file and upload adjustments when done')
+    } catch {
+      toast.error('Export failed')
+    }
+  }
+
+  async function handleImportAdjustments() {
+    if (!run || !adjFile) return
+    setAdjUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', adjFile)
+      const res = await fetch(`/api/payroll/runs/${run.id}/import-adjustments`, {
+        method: 'POST',
+        body: form,
+      })
+      const json = await res.json()
+      if (json.success) {
+        setAdjResult(json.data)
+        toast.success(`Adjustments applied — ${json.data.adjusted} payslip${json.data.adjusted !== 1 ? 's' : ''} updated`)
+        fetchPayrollData()
+      } else {
+        toast.error(json.error)
+      }
+    } catch {
+      toast.error('Upload failed')
+    } finally {
+      setAdjUploading(false)
     }
   }
 
@@ -584,9 +642,14 @@ const Payroll = () => {
                           </TableCell>
                           <TableCell className={`text-right tabular-nums font-semibold ${p.net_salary > 0 ? 'text-kpi-green' : 'text-destructive'}`}>{fmt(p.net_salary)}</TableCell>
                           <TableCell className="text-center" onClick={e => e.stopPropagation()}>
-                            <Badge variant={isApproved ? 'active' : 'secondary'} className="text-[10px]">
-                              {isApproved ? 'Approved' : 'Draft'}
-                            </Badge>
+                            <div className="flex flex-col items-center gap-1">
+                              <Badge variant={isApproved ? 'active' : 'secondary'} className="text-[10px]">
+                                {isApproved ? 'Approved' : 'Draft'}
+                              </Badge>
+                              {p.is_manually_adjusted && (
+                                <Badge variant="notice" className="text-[10px]">Adjusted</Badge>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="text-center" onClick={e => e.stopPropagation()}>
                             <button
@@ -726,6 +789,30 @@ const Payroll = () => {
                                   </span>
                                   <span className="text-lg font-bold text-kpi-green tabular-nums">{fmt(p.net_salary)}</span>
                                 </div>
+
+                                {/* Manual adjustment diff */}
+                                {p.is_manually_adjusted && p.original_net_salary !== null && (
+                                  <div className="mt-3 rounded-lg border border-kpi-amber/40 bg-kpi-amber/5 p-3">
+                                    <p className="text-xs font-semibold text-kpi-amber mb-2 flex items-center gap-1.5">
+                                      <ArrowLeftRight className="h-3.5 w-3.5" /> Manual Adjustment Applied
+                                    </p>
+                                    <div className="flex items-center gap-3 text-sm">
+                                      <div className="text-muted-foreground">
+                                        Original: <span className="line-through tabular-nums">{fmt(Number(p.original_net_salary))}</span>
+                                      </div>
+                                      <span className="text-muted-foreground">→</span>
+                                      <div className="font-medium text-kpi-green">
+                                        Adjusted: <span className="tabular-nums">{fmt(p.net_salary)}</span>
+                                      </div>
+                                      <div className={`text-xs font-medium ${p.net_salary > Number(p.original_net_salary) ? 'text-kpi-green' : 'text-destructive'}`}>
+                                        ({p.net_salary > Number(p.original_net_salary) ? '+' : ''}{fmt(p.net_salary - Number(p.original_net_salary))})
+                                      </div>
+                                    </div>
+                                    {p.adjustment_note && (
+                                      <p className="text-xs text-muted-foreground mt-1">Note: {p.adjustment_note}</p>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -740,17 +827,32 @@ const Payroll = () => {
         </CardContent>
       </Card>
 
-      {/* Action Footer — always visible when run exists */}
+      {/* Action Footer */}
       {run && (
         <div className="flex flex-wrap items-center justify-between gap-3 mt-4 p-4 bg-card border border-border rounded-lg">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={payslips.length === 0}>
-              <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Export to Excel
+              <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Export CSV
             </Button>
             <Button variant="outline" size="sm" onClick={handleDownloadPDF} disabled={payslips.length === 0}>
               <FileText className="h-4 w-4 mr-1.5" /> Download Register PDF
             </Button>
-          </div >
+            <Button
+              variant="outline" size="sm"
+              disabled={payslips.length === 0}
+              onClick={handleExportForReview}
+              title="Download Excel for offline editing. Upload the modified file back to apply adjustments."
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-1.5 text-kpi-amber" /> Export for Review
+            </Button>
+            <Button
+              variant="outline" size="sm"
+              disabled={isApproved || payslips.length === 0}
+              onClick={() => { setAdjModal(true); setAdjResult(null); setAdjFile(null) }}
+            >
+              <Upload className="h-4 w-4 mr-1.5" /> Upload Adjustments
+            </Button>
+          </div>
           <Button
             variant="outline" size="sm"
             disabled={isApproved || payslips.length === 0}
@@ -761,6 +863,102 @@ const Payroll = () => {
           </Button>
         </div>
       )}
+
+      {/* Upload Adjustments Modal */}
+      <Dialog open={adjModal} onOpenChange={v => { setAdjModal(v); if (!v) { setAdjFile(null); setAdjResult(null) } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Upload Payroll Adjustments</DialogTitle>
+            <DialogDescription>
+              Upload the reviewed Excel file. The system will compare each row to the current payslip, save the original values, and apply your changes.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!adjResult ? (
+            <div className="space-y-4">
+              <div
+                className="rounded-lg border-2 border-dashed p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => document.getElementById('adj-file-input')?.click()}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) setAdjFile(f) }}
+              >
+                {adjFile ? (
+                  <div>
+                    <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 text-kpi-green" />
+                    <p className="text-sm font-medium">{adjFile.name}</p>
+                    <p className="text-xs text-muted-foreground">{(adjFile.size / 1024).toFixed(1)} KB</p>
+                  </div>
+                ) : (
+                  <div>
+                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                    <p className="text-sm font-medium">Click or drag to upload</p>
+                    <p className="text-xs text-muted-foreground">Excel file exported from "Export for Review"</p>
+                  </div>
+                )}
+              </div>
+              <input id="adj-file-input" type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) setAdjFile(f); e.target.value = '' }} />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-lg bg-kpi-green/10 p-3">
+                  <p className="text-2xl font-bold text-kpi-green">{adjResult.adjusted}</p>
+                  <p className="text-xs text-muted-foreground">Adjusted</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-2xl font-bold">{adjResult.unchanged}</p>
+                  <p className="text-xs text-muted-foreground">Unchanged</p>
+                </div>
+                <div className="rounded-lg bg-destructive/10 p-3">
+                  <p className="text-2xl font-bold text-destructive">{adjResult.not_found}</p>
+                  <p className="text-xs text-muted-foreground">Not Found</p>
+                </div>
+              </div>
+              {adjResult.diffs.length > 0 && (
+                <div className="max-h-48 overflow-y-auto rounded border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50 sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2">Employee</th>
+                        <th className="text-right px-3 py-2">Original Net</th>
+                        <th className="text-right px-3 py-2">Adjusted Net</th>
+                        <th className="text-right px-3 py-2">Diff</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adjResult.diffs.map((d, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="px-3 py-1.5">{d.name} <span className="text-muted-foreground">({d.emp_code})</span></td>
+                          <td className="px-3 py-1.5 text-right tabular-nums line-through text-muted-foreground">{fmt(d.original_net)}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums font-medium text-kpi-green">{fmt(d.adjusted_net)}</td>
+                          <td className={`px-3 py-1.5 text-right tabular-nums text-xs ${d.adjusted_net > d.original_net ? 'text-kpi-green' : 'text-destructive'}`}>
+                            {d.adjusted_net > d.original_net ? '+' : ''}{fmt(d.adjusted_net - d.original_net)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdjModal(false)}>
+              {adjResult ? 'Close' : 'Cancel'}
+            </Button>
+            {!adjResult && (
+              <Button onClick={handleImportAdjustments} disabled={!adjFile || adjUploading}>
+                {adjUploading
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing…</>
+                  : <><Upload className="h-4 w-4 mr-2" />Apply Adjustments</>
+                }
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Approve Modal */}
       <Dialog open={approveModal} onOpenChange={setApproveModal}>

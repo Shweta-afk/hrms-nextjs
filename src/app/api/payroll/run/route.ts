@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { calculatePF, calculateESI, calculatePT, calculateTDS } from '@/lib/payroll/compliance'
 import { logger } from '@/lib/logger'
@@ -63,6 +64,23 @@ export async function POST(req: NextRequest) {
 
     const workingDays = getWorkingDays(run.year, run.month, weeklyOffs, holidayDatesOnWorkingDays.length)
 
+    // ── Statutory toggle flags ──────────────────────────────────────────────
+    const pfApplicable  = settings.pf_applicable  !== false
+    const esiApplicable = settings.esi_applicable !== false
+    const ptApplicable  = settings.pt_applicable  !== false
+    const tdsApplicable = settings.tds_applicable !== false
+
+    // ── Late penalty tiers ──────────────────────────────────────────────────
+    // Format: [{ from_min, to_min, deduction_pct, is_half_day }]
+    type LateTier = { from_min: number; to_min: number | null; deduction_pct?: number; is_half_day?: boolean }
+    const latePenaltyConfig = settings.late_penalty as { enabled?: boolean; tiers?: LateTier[] } | undefined
+    const latePenaltyEnabled = latePenaltyConfig?.enabled === true
+    const lateTiers: LateTier[] = latePenaltyConfig?.tiers ?? []
+
+    // ── Half-day early-departure cutoff ────────────────────────────────────
+    const halfDayCutoffStr = (settings.half_day_cutoff as string | undefined) ?? '14:00'
+    const [hCut, mCut] = halfDayCutoffStr.split(':').map(Number)
+
     const employees = await prisma.employee.findMany({
       where: { org_id: session.user.org_id, status: 'active' },
       select: {
@@ -71,6 +89,7 @@ export async function POST(req: NextRequest) {
         last_name: true,
         emp_code: true,
         ctc_annual: true,
+        monthly_incentive: true,
         salary_structure_id: true,
         salary_structure: true,
       },
@@ -92,22 +111,9 @@ export async function POST(req: NextRequest) {
           employee_id: employee.id,
           date: { gte: monthStart, lte: monthEnd },
         },
-        select: { status: true, overtime_hours: true },
+        select: { status: true, overtime_hours: true, is_late: true, late_by_minutes: true, last_out: true },
       })
 
-      // BUG-FIX: previously, "no attendance records = assume full attendance"
-      // silently paid employees whose biometric never synced. New behaviour:
-      // if zero records exist for the entire month, treat the employee as
-      // absent for the whole period and let HR explicitly mark presence
-      // (manual correction) or absent (LOP). Net result is zero pay for the
-      // month until the issue is resolved — safer than overpaying.
-      const presentDays = attendance.filter(
-        a => a.status === 'present' || a.status === 'late'
-      ).length
-      const lopDays = Math.max(0, workingDays - presentDays)
-
-      // Flag employees with zero attendance — likely a biometric sync issue,
-      // not a deliberate absence. Surfaced in the response so the UI can warn.
       if (attendance.length === 0) {
         zeroAttendanceEmployees.push({
           id: employee.id,
@@ -115,6 +121,15 @@ export async function POST(req: NextRequest) {
           emp_code: employee.emp_code,
         })
       }
+
+      // ── Attendance counts ──
+      const fullPresentDays = attendance.filter(
+        a => a.status === 'present' || a.status === 'late'
+      ).length
+      const halfDayCount = attendance.filter(a => a.status === 'half_day').length
+      // Effective present days including half-days
+      const effectivePresentDays = fullPresentDays + halfDayCount * 0.5
+      const lopDays = Math.max(0, workingDays - effectivePresentDays)
 
       const totalOtHours = attendance.reduce(
         (sum, a) => sum + (a.overtime_hours ? Number(a.overtime_hours) : 0),
@@ -124,6 +139,7 @@ export async function POST(req: NextRequest) {
 
       const ctcAnnual = employee.ctc_annual ? Number(employee.ctc_annual) : 300_000
       const ctcMonthly = ctcAnnual / 12
+      const dailySalary = ctcMonthly / workingDays
 
       const structure = (employee.salary_structure ?? defaultStructure) as any
       const components = (structure?.components as any[]) ?? null
@@ -139,7 +155,6 @@ export async function POST(req: NextRequest) {
           else if (comp.calc_type === 'percentage_of_basic') amount = Math.round(basic * comp.value / 100)
           else if (comp.calc_type === 'fixed') amount = comp.value
           else if (comp.calc_type === 'remainder') amount = Math.round(ctcMonthly - basic - hra - otherEarnings)
-
           if (comp.name === 'Basic') basic = amount
           else if (comp.name === 'HRA') hra = amount
           else otherEarnings += amount
@@ -151,31 +166,57 @@ export async function POST(req: NextRequest) {
         special = Math.round(ctcMonthly - basic - hra)
       }
 
-      const grossSalary = basic + hra + special + otPay
-      const baseSalary  = basic + hra + special
-      const lopAmount   = lopDays > 0
+      const incentiveAmount = employee.monthly_incentive ? Math.round(Number(employee.monthly_incentive)) : 0
+      const baseSalary = basic + hra + special
+      const grossSalary = baseSalary + otPay + incentiveAmount
+
+      const lopAmount = lopDays > 0
         ? Math.round((baseSalary / workingDays) * lopDays)
         : 0
 
-      // Statutory deductions — now use org settings.
-      const pf  = calculatePF(basic)
-      const esi = calculateESI(grossSalary)
-      const pt  = calculatePT(grossSalary, ptState, run.month - 1)
-      const tds = calculateTDS(grossSalary * 12, tdsRegime)
+      // ── Late penalty calculation ──────────────────────────────────────────
+      let latePenaltyAmount = 0
+      let latePenaltyHalfDays = 0
+      if (latePenaltyEnabled && lateTiers.length > 0) {
+        for (const rec of attendance) {
+          if (!rec.is_late || rec.late_by_minutes === 0) continue
+          const mins = rec.late_by_minutes
+          const tier = lateTiers.find(
+            t => mins >= t.from_min && (t.to_min === null || mins <= t.to_min)
+          )
+          if (!tier) continue
+          if (tier.is_half_day) {
+            latePenaltyHalfDays += 0.5
+          } else if (tier.deduction_pct) {
+            latePenaltyAmount += Math.round(dailySalary * tier.deduction_pct / 100)
+          }
+        }
+      }
+      if (latePenaltyHalfDays > 0) {
+        latePenaltyAmount += Math.round(dailySalary * latePenaltyHalfDays)
+      }
+
+      // ── Statutory deductions — respect per-org toggles ───────────────────
+      const pf  = pfApplicable  ? calculatePF(basic)                            : { employee: 0, applicable: false }
+      const esi = esiApplicable ? calculateESI(grossSalary)                     : { applicable: false, employee: 0 }
+      const pt  = ptApplicable  ? calculatePT(grossSalary, ptState, run.month - 1) : 0
+      const tds = tdsApplicable ? calculateTDS(grossSalary * 12, tdsRegime)     : 0
 
       const earnings: Record<string, number> = {
         Basic: basic,
         HRA: hra,
         'Special Allowance': special,
-        ...(otPay > 0 ? { [`Overtime Pay (${totalOtHours.toFixed(1)}h)`]: otPay } : {}),
+        ...(incentiveAmount > 0 ? { Incentive: incentiveAmount } : {}),
+        ...(otPay > 0 ? { [`OT Pay (${totalOtHours.toFixed(1)}h)`]: otPay } : {}),
       }
 
       const empDeductions: Record<string, number> = {}
-      if (lopAmount > 0)    empDeductions['Loss of Pay']      = lopAmount
-      if (pf.employee > 0)  empDeductions['PF Employee']       = pf.employee
-      if (esi.applicable)   empDeductions['ESI Employee']      = esi.employee
-      if (pt > 0)           empDeductions['Professional Tax']  = pt
-      if (tds > 0)          empDeductions['TDS']               = tds
+      if (lopAmount > 0)          empDeductions['Loss of Pay']          = lopAmount
+      if (latePenaltyAmount > 0)  empDeductions['Late Penalty']         = latePenaltyAmount
+      if ((pf as any).employee > 0) empDeductions['PF (Employee)']      = (pf as any).employee
+      if ((esi as any).applicable)  empDeductions['ESI (Employee)']     = (esi as any).employee
+      if (pt > 0)                 empDeductions['Professional Tax']     = pt
+      if (tds > 0)                empDeductions['TDS']                  = tds
 
       const empTotalDeductions = Object.values(empDeductions).reduce((a, b) => a + b, 0)
       const netSalary = Math.max(0, grossSalary - empTotalDeductions)
@@ -191,12 +232,17 @@ export async function POST(req: NextRequest) {
         },
         update: {
           working_days: workingDays,
-          present_days: presentDays,
+          present_days: effectivePresentDays,
           earnings,
           deductions: empDeductions,
           gross_salary: grossSalary,
           total_deductions: empTotalDeductions,
           net_salary: netSalary,
+          // Reset manual adjustment flag when re-running payroll
+          is_manually_adjusted: false,
+          original_earnings: Prisma.DbNull,
+          original_deductions: Prisma.DbNull,
+          original_net_salary: null,
         },
         create: {
           org_id: session.user.org_id,
@@ -205,7 +251,7 @@ export async function POST(req: NextRequest) {
           month: run.month,
           year: run.year,
           working_days: workingDays,
-          present_days: presentDays,
+          present_days: effectivePresentDays,
           earnings,
           deductions: empDeductions,
           gross_salary: grossSalary,
