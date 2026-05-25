@@ -69,6 +69,10 @@ const Payroll = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [otRate, setOtRate] = useState(0)
   const [showOtSettings, setShowOtSettings] = useState(false)
+  const [orgInfo, setOrgInfo] = useState<{
+    name: string; logo_url?: string; address?: string;
+    gst_number?: string; tan_number?: string; website?: string; phone?: string;
+  }>({ name: '' })
   const [runWarnings, setRunWarnings] = useState<{
     warnings: string[];
     zero_attendance_employees: Array<{ id: string; first_name: string; emp_code?: string | null }>;
@@ -105,6 +109,25 @@ const Payroll = () => {
   }
 
   useEffect(() => { fetchPayrollData() }, [monthOffset])
+
+  useEffect(() => {
+    fetch('/api/org/settings').then(r => r.json()).then(j => {
+      if (j.success) {
+        const s = j.data as Record<string, unknown>
+        setOrgInfo({
+          name:        (s.company_name as string) || '',
+          logo_url:    s.logo_url    as string | undefined,
+          address:     s.address     as string | undefined,
+          gst_number:  s.gst_number  as string | undefined,
+          tan_number:  s.tan_number  as string | undefined,
+          website:     s.website     as string | undefined,
+          phone:       s.phone       as string | undefined,
+        })
+      }
+    }).catch(() => {})
+    // Also pull org name from session via existing runs API
+    fetch('/api/payroll/runs').then(r => r.json()).catch(() => {})
+  }, [])
 
   async function handleRunPayroll() {
     setRunning(true)
@@ -179,14 +202,24 @@ const Payroll = () => {
       .map(([l, a]) => `<tr><td>${l}</td><td style="text-align:right">${f(a)}</td></tr>`).join('')
     const deductionRows = Object.entries(payslip.deductions)
       .map(([l, a]) => `<tr><td>${l}</td><td style="text-align:right">${f(a)}</td></tr>`).join('')
+    const co = orgInfo
     const draftBanner = !isApproved
       ? `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:8px 16px;margin-bottom:16px;text-align:center;font-size:12px;font-weight:bold;color:#92400e">DRAFT — This payslip has not been approved yet and is subject to change</div>`
       : ''
-    const html = `<!DOCTYPE html><html><head><title>Payslip</title>
+    const logoHtml = co.logo_url
+      ? `<img src="${co.logo_url}" style="height:64px;width:auto;object-fit:contain;display:block;margin:0 auto 6px" />`
+      : ''
+    const companyMeta = [
+      co.address    ? `<p style="margin:2px 0;font-size:11px;color:#666">${co.address}</p>` : '',
+      co.phone      ? `<p style="margin:2px 0;font-size:11px;color:#666">📞 ${co.phone}</p>` : '',
+      co.gst_number ? `<p style="margin:2px 0;font-size:11px;color:#666">GSTIN: ${co.gst_number}</p>` : '',
+      co.tan_number ? `<p style="margin:2px 0;font-size:11px;color:#666">TAN: ${co.tan_number}</p>` : '',
+    ].filter(Boolean).join('')
+    const html = `<!DOCTYPE html><html><head><title>Payslip — ${co.name || 'Company'}</title>
     <style>body{font-family:Arial,sans-serif;font-size:13px;margin:32px}h1{text-align:center;font-size:20px;margin:0}.sub{text-align:center;color:#555;margin:4px 0 16px}hr{border:none;border-top:1px solid #ddd;margin:16px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin:16px 0}.row{display:flex;justify-content:space-between;padding:4px 0}.label{color:#555}table{width:100%;border-collapse:collapse}table td{padding:7px 8px;border-bottom:1px solid #eee;font-size:12px}table td:last-child{text-align:right}.total td{font-weight:bold;background:#f5f5ff;border-top:2px solid #1e1b4b}.two-col{display:grid;grid-template-columns:1fr 1fr;border:1px solid #ddd;border-radius:6px;overflow:hidden}.col:first-child{border-right:1px solid #ddd}.col-hdr{background:#f5f5f5;padding:8px 12px;font-size:11px;font-weight:bold;text-transform:uppercase;color:#555}.net{text-align:center;border:2px solid #16a34a;border-radius:8px;padding:16px;margin:16px 0;background:#f0fdf4}.net-amt{font-size:28px;font-weight:bold;color:#16a34a}.footer{text-align:center;font-size:11px;color:#888;margin-top:24px}@media print{button{display:none}}</style>
     </head><body>${draftBanner}
     <button onclick="window.print()" style="float:right;padding:8px 16px;background:#4f46e5;color:white;border:none;border-radius:6px;cursor:pointer">🖨 Print / Save PDF</button>
-    <h1>Demo Company Pvt. Ltd.</h1>
+    <div style="text-align:center;margin-bottom:12px">${logoHtml}<h1>${co.name || 'Company'}</h1>${companyMeta}</div>
     <p class="sub">Payslip for ${monthLabel}</p><hr>
     <div class="grid">
       <div>
@@ -257,10 +290,12 @@ const Payroll = () => {
 
   function handleDownloadPDF() {
     if (payslips.length === 0) { toast.error('No payslips to download'); return }
+    const co2 = orgInfo
     const printContent = `<!DOCTYPE html><html><head><title>Payroll Register — ${monthLabel}</title>
     <style>body{font-family:Arial,sans-serif;font-size:12px;margin:20px}h1{font-size:18px;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-top:16px}th{background:#1e1b4b;color:#fff;padding:8px 6px;text-align:right;font-size:11px}th:first-child{text-align:left}td{padding:7px 6px;border-bottom:1px solid #eee;text-align:right;font-size:11px}td:first-child{text-align:left;font-weight:500}.net{color:#16a34a;font-weight:700}tfoot td{font-weight:700;border-top:2px solid #1e1b4b;background:#f8f9ff}</style>
     </head><body>
-    <h1>Payroll Register — ${monthLabel}</h1>
+    ${co2.logo_url ? `<img src="${co2.logo_url}" style="height:48px;width:auto;object-fit:contain;margin-bottom:4px;display:block" />` : ''}
+    <h1>${co2.name || 'Company'} — Payroll Register — ${monthLabel}</h1>
     <p>Generated: ${new Date().toLocaleDateString('en-IN')} | Employees: ${payslips.length} | Status: ${run?.status?.toUpperCase()}</p>
     <table><thead><tr><th>Employee</th><th>Basic</th><th>HRA</th><th>Special</th><th>Gross</th><th>PF</th><th>ESI</th><th>PT</th><th>TDS</th><th>Net Pay</th></tr></thead>
     <tbody>${payslips.map(p => `<tr>

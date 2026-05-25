@@ -96,6 +96,10 @@ const Settings = () => {
   const [address, setAddress] = useState("")
   const [gstNumber, setGstNumber] = useState("")
   const [tanNumber, setTanNumber] = useState("")
+  const [orgPhone, setOrgPhone] = useState("")
+  const [logoUrl, setLogoUrl] = useState<string>("")
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [savingCompany, setSavingCompany] = useState(false)
 
   // Payroll settings
   const [processingDay, setProcessingDay] = useState("28")
@@ -217,6 +221,18 @@ const Settings = () => {
       const json = await res.json()
       if (!json.success) return
       const s = json.data as Record<string, unknown>
+
+      // Company profile fields
+      if (s.company_name) setOrgName(s.company_name as string)
+      if (s.industry)     setIndustry(s.industry as string)
+      if (s.website)      setWebsite(s.website as string)
+      if (s.address)      setAddress(s.address as string)
+      if (s.gst_number)   setGstNumber(s.gst_number as string)
+      if (s.tan_number)   setTanNumber(s.tan_number as string)
+      if (s.phone)        setOrgPhone(s.phone as string)
+      if (s.logo_url)     setLogoUrl(s.logo_url as string)
+
+      // Attendance policy
       const att = (s.attendance ?? {}) as Record<string, unknown>
       if (att.shift_start)    setShiftStart(att.shift_start as string)
       if (att.shift_end)      setShiftEnd(att.shift_end as string)
@@ -224,6 +240,57 @@ const Settings = () => {
       if (att.standard_hours) setStandardHours(String(att.standard_hours))
       if (att.work_days && Array.isArray(att.work_days)) setWorkDays(att.work_days as string[])
     } catch { /* silent */ }
+  }
+
+  async function saveCompanyInfo() {
+    setSavingCompany(true)
+    try {
+      const res = await fetch('/api/org/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_name: orgName.trim(),
+          industry:     industry.trim(),
+          website:      website.trim(),
+          address:      address.trim(),
+          gst_number:   gstNumber.trim(),
+          tan_number:   tanNumber.trim(),
+          phone:        orgPhone.trim(),
+          ...(logoUrl ? { logo_url: logoUrl } : {}),
+        }),
+      })
+      const json = await res.json()
+      if (json.success) { toast.success('Company profile saved'); setDirtySection(null) }
+      else toast.error(json.error ?? 'Failed to save')
+    } catch { toast.error('Failed to save') }
+    finally { setSavingCompany(false) }
+  }
+
+  function handleLogoFile(file: File) {
+    if (!file.type.startsWith('image/')) { toast.error('Please upload an image file'); return }
+    if (file.size > 2 * 1024 * 1024) { toast.error('Logo must be under 2 MB'); return }
+    setLogoUploading(true)
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const base64 = e.target?.result as string
+      // Compress via canvas if image is large
+      const img = new Image()
+      img.onload = () => {
+        const MAX = 400
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width  = Math.round(img.width  * scale)
+        canvas.height = Math.round(img.height * scale)
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        const compressed = canvas.toDataURL('image/png', 0.85)
+        setLogoUrl(compressed)
+        markDirty('company')
+        setLogoUploading(false)
+      }
+      img.src = base64
+    }
+    reader.readAsDataURL(file)
   }
 
   async function saveAttendancePolicy() {
@@ -598,6 +665,72 @@ const Settings = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
+
+            {/* ── Logo uploader ── */}
+            <div className="space-y-2">
+              <Label>Company Logo</Label>
+              <div className="flex items-center gap-4">
+                {/* Preview */}
+                <div
+                  className={cn(
+                    "h-20 w-40 flex items-center justify-center rounded-lg border-2 border-dashed bg-muted/30 overflow-hidden shrink-0 transition-colors",
+                    logoUploading ? "opacity-50" : "hover:border-primary/50 cursor-pointer",
+                  )}
+                  onClick={() => !logoUploading && document.getElementById('logo-upload-input')?.click()}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleLogoFile(f) }}
+                >
+                  {logoUploading ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  ) : logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={logoUrl} alt="Company logo" className="h-full w-full object-contain p-1" />
+                  ) : (
+                    <div className="text-center px-2">
+                      <Building2 className="h-6 w-6 mx-auto mb-1 text-muted-foreground/50" />
+                      <span className="text-[10px] text-muted-foreground">Click or drag to upload</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={logoUploading}
+                    onClick={() => document.getElementById('logo-upload-input')?.click()}
+                    className="gap-2 text-xs"
+                  >
+                    {logoUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                    {logoUrl ? 'Change logo' : 'Upload logo'}
+                  </Button>
+                  {logoUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-destructive hover:text-destructive"
+                      onClick={() => { setLogoUrl(''); markDirty('company') }}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                  <p className="text-[10px] text-muted-foreground leading-tight">PNG, JPG, SVG · max 2 MB<br />Shown on payslips & documents</p>
+                </div>
+
+                {/* Hidden file input */}
+                <input
+                  id="logo-upload-input"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoFile(f); e.target.value = '' }}
+                />
+              </div>
+            </div>
+
+            {/* ── Company fields grid ── */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Company Name *</Label>
@@ -606,6 +739,10 @@ const Settings = () => {
               <div className="space-y-2">
                 <Label>Industry</Label>
                 <Input value={industry} onChange={e => { setIndustry(e.target.value); markDirty('company') }} placeholder="Information Technology" />
+              </div>
+              <div className="space-y-2">
+                <Label>Phone</Label>
+                <Input value={orgPhone} onChange={e => { setOrgPhone(e.target.value); markDirty('company') }} placeholder="+91 98765 43210" />
               </div>
               <div className="space-y-2">
                 <Label>Website</Label>
@@ -625,8 +762,9 @@ const Settings = () => {
               <Textarea value={address} onChange={e => { setAddress(e.target.value); markDirty('company') }} rows={2} placeholder="Full registered address" />
             </div>
             <div className="flex justify-end">
-              <Button onClick={() => handleSave('Company information')} className="gap-2">
-                <Save className="h-4 w-4" /> Save
+              <Button onClick={saveCompanyInfo} disabled={savingCompany} className="gap-2">
+                {savingCompany ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {savingCompany ? 'Saving…' : 'Save'}
               </Button>
             </div>
           </CardContent>
