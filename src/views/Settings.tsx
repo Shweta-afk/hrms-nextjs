@@ -61,6 +61,11 @@ interface SalaryStructure {
 
 interface Department { id: string; name: string; code: string }
 interface Holiday { id: string; name: string; date: string; type: string }
+interface LeaveType {
+  id: string; name: string; code: string
+  days_per_year: number; carry_forward_limit: number
+  is_paid: boolean; applicable_gender: string; min_notice_days: number
+}
 interface Device {
   id: string; name: string; model: string | null; ip_address: string; port: number
   location: string | null; serial_no: string | null; push_token: string
@@ -151,6 +156,21 @@ const Settings = () => {
   const [newHolidayDate, setNewHolidayDate] = useState("")
   const [newHolidayType, setNewHolidayType] = useState("national")
 
+  // Leave Types
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([])
+  const [leaveTypesLoading, setLeaveTypesLoading] = useState(false)
+  const [leaveTypeModal, setLeaveTypeModal] = useState(false)
+  const [editingLeaveType, setEditingLeaveType] = useState<LeaveType | null>(null)
+  const [ltName, setLtName] = useState('')
+  const [ltCode, setLtCode] = useState('')
+  const [ltDaysPerYear, setLtDaysPerYear] = useState('12')
+  const [ltCarryForward, setLtCarryForward] = useState('0')
+  const [ltIsPaid, setLtIsPaid] = useState(true)
+  const [ltGender, setLtGender] = useState('all')
+  const [ltMinNotice, setLtMinNotice] = useState('0')
+  const [savingLeaveType, setSavingLeaveType] = useState(false)
+  const [deletingLeaveType, setDeletingLeaveType] = useState<string | null>(null)
+
   // Biometric Devices
   const [devices, setDevices] = useState<Device[]>([])
   const [devicesLoading, setDevicesLoading] = useState(false)
@@ -236,6 +256,7 @@ const Settings = () => {
     if (activeTab === 'devices') fetchDevices()
     if (activeTab === 'integrations') fetchApiKeys()
     if (activeTab === 'attendance') fetchShiftGroups()
+    if (activeTab === 'leave') fetchLeaveTypes()
   }, [activeTab])
 
   async function loadOrgSettings() {
@@ -790,6 +811,74 @@ const Settings = () => {
       else toast.error(json.error ?? 'Failed to load device users')
     } catch { toast.error('Failed to load device users') }
     finally { setDevicePeopleLoading(false) }
+  }
+
+  async function fetchLeaveTypes() {
+    setLeaveTypesLoading(true)
+    try {
+      const res = await fetch('/api/leave/types')
+      const json = await res.json()
+      if (json.success) setLeaveTypes(json.data)
+    } catch { toast.error('Failed to load leave types') }
+    finally { setLeaveTypesLoading(false) }
+  }
+
+  function openLeaveTypeModal(lt?: LeaveType) {
+    if (lt) {
+      setEditingLeaveType(lt)
+      setLtName(lt.name)
+      setLtCode(lt.code)
+      setLtDaysPerYear(String(lt.days_per_year))
+      setLtCarryForward(String(lt.carry_forward_limit))
+      setLtIsPaid(lt.is_paid)
+      setLtGender(lt.applicable_gender || 'all')
+      setLtMinNotice(String(lt.min_notice_days))
+    } else {
+      setEditingLeaveType(null)
+      setLtName(''); setLtCode(''); setLtDaysPerYear('12')
+      setLtCarryForward('0'); setLtIsPaid(true); setLtGender('all'); setLtMinNotice('0')
+    }
+    setLeaveTypeModal(true)
+  }
+
+  async function handleSaveLeaveType() {
+    if (!ltName.trim() || !ltCode.trim()) { toast.error('Name and code are required'); return }
+    setSavingLeaveType(true)
+    try {
+      const payload = {
+        name: ltName.trim(),
+        code: ltCode.trim().toUpperCase(),
+        days_per_year: parseFloat(ltDaysPerYear) || 0,
+        carry_forward_limit: parseInt(ltCarryForward) || 0,
+        is_paid: ltIsPaid,
+        applicable_gender: ltGender,
+        min_notice_days: parseInt(ltMinNotice) || 0,
+      }
+      const url = editingLeaveType ? `/api/leave/types/${editingLeaveType.id}` : '/api/leave/types'
+      const method = editingLeaveType ? 'PATCH' : 'POST'
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(editingLeaveType ? 'Leave type updated' : 'Leave type created')
+        setLeaveTypeModal(false)
+        fetchLeaveTypes()
+      } else {
+        toast.error(json.error ?? 'Failed to save leave type')
+      }
+    } catch { toast.error('Failed to save leave type') }
+    finally { setSavingLeaveType(false) }
+  }
+
+  async function handleDeleteLeaveType(id: string, name: string) {
+    if (!confirm(`Delete leave type "${name}"? This cannot be undone.`)) return
+    setDeletingLeaveType(id)
+    try {
+      const res = await fetch(`/api/leave/types/${id}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (json.success) { toast.success('Leave type deleted'); fetchLeaveTypes() }
+      else toast.error(json.error ?? 'Failed to delete')
+    } catch { toast.error('Failed to delete') }
+    finally { setDeletingLeaveType(null) }
   }
 
   const markDirty = (section: string) => setDirtySection(section)
@@ -1799,10 +1888,111 @@ const Settings = () => {
     // ── LEAVE POLICY ──
     if (activeTab === 'leave') return (
       <div className="space-y-6">
+
+        {/* ── Leave Types ── */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" /> Leave Types
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Define leave categories (CL, PL, SL, etc.) and the entitlements for each.
+                </p>
+              </div>
+              <Button size="sm" className="gap-1.5" onClick={() => openLeaveTypeModal()}>
+                <Plus className="h-3.5 w-3.5" /> Add Leave Type
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {leaveTypesLoading ? (
+              <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : leaveTypes.length === 0 ? (
+              <div className="text-center py-10 space-y-2">
+                <FileText className="h-9 w-9 text-muted-foreground/40 mx-auto" />
+                <p className="text-sm font-medium">No leave types configured</p>
+                <p className="text-xs text-muted-foreground">Add Casual Leave, Sick Leave, Earned Leave, etc.</p>
+                <Button size="sm" className="mt-2 gap-1.5" onClick={() => openLeaveTypeModal()}>
+                  <Plus className="h-3.5 w-3.5" /> Add First Leave Type
+                </Button>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Leave Type</TableHead>
+                    <TableHead>Code</TableHead>
+                    <TableHead className="text-right">Days / Year</TableHead>
+                    <TableHead className="text-right">Carry Forward</TableHead>
+                    <TableHead>Paid</TableHead>
+                    <TableHead>Applies To</TableHead>
+                    <TableHead className="text-right">Min Notice</TableHead>
+                    <TableHead className="text-right w-24">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {leaveTypes.map(lt => (
+                    <TableRow key={lt.id}>
+                      <TableCell className="font-medium text-sm">{lt.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="font-mono text-[11px]">{lt.code}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right text-sm">{lt.days_per_year}</TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {lt.carry_forward_limit > 0 ? `Up to ${lt.carry_forward_limit}` : '—'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="secondary"
+                          className={cn("text-[10px]",
+                            lt.is_paid
+                              ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
+                              : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          {lt.is_paid ? 'Paid' : 'Unpaid'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground capitalize">
+                        {lt.applicable_gender === 'all' ? 'All' : lt.applicable_gender}
+                      </TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {lt.min_notice_days > 0 ? `${lt.min_notice_days}d` : '—'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs"
+                            onClick={() => openLeaveTypeModal(lt)}>
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                            disabled={deletingLeaveType === lt.id}
+                            onClick={() => handleDeleteLeaveType(lt.id, lt.name)}
+                          >
+                            {deletingLeaveType === lt.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Trash2 className="h-3.5 w-3.5" />
+                            }
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Leave Policy Text ── */}
         <Card className="shadow-sm">
           <CardHeader className="pb-4">
             <CardTitle className="text-base flex items-center gap-2">
-              <FileText className="h-4 w-4 text-primary" /> Leave Policy
+              <FileText className="h-4 w-4 text-primary" /> Leave Policy Text
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -1810,9 +2000,9 @@ const Settings = () => {
               This policy text is displayed to employees in their self-service portal so they know the rules before applying for leave.
             </p>
             <div className="space-y-2">
-              <Label>Leave Policy Text</Label>
+              <Label>Policy Text</Label>
               <Textarea
-                rows={14}
+                rows={10}
                 placeholder={`Example:\n• Casual Leave: 12 days per year\n• Sick Leave: 6 days per year (requires medical certificate for 3+ consecutive days)\n• Earned Leave: 1 day per 20 days worked, encashable at year-end\n• Leave must be applied at least 2 working days in advance\n• No carry-forward of Casual Leave; Earned Leave can be carried forward up to 30 days`}
                 value={leavePolicyText}
                 onChange={e => { setLeavePolicyText(e.target.value); markDirty('leave-policy') }}
@@ -2392,6 +2582,106 @@ const Settings = () => {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Leave Type Create/Edit Modal */}
+      <Dialog open={leaveTypeModal} onOpenChange={open => { if (!open) setLeaveTypeModal(false) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingLeaveType ? 'Edit Leave Type' : 'Add Leave Type'}</DialogTitle>
+            <DialogDescription>
+              {editingLeaveType
+                ? 'Update the entitlement and rules for this leave type.'
+                : 'Create a new leave category for your organisation.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Leave Type Name *</Label>
+                <Input
+                  placeholder="e.g. Casual Leave"
+                  value={ltName}
+                  onChange={e => setLtName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Code *</Label>
+                <Input
+                  placeholder="e.g. CL"
+                  value={ltCode}
+                  maxLength={10}
+                  onChange={e => setLtCode(e.target.value.toUpperCase())}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Days Per Year</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={ltDaysPerYear}
+                  onChange={e => setLtDaysPerYear(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Carry Forward Limit</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={ltCarryForward}
+                    onChange={e => setLtCarryForward(e.target.value)}
+                  />
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">days (0 = none)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Applicable Gender</Label>
+                <Select value={ltGender} onValueChange={setLtGender}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Employees</SelectItem>
+                    <SelectItem value="female">Female Only</SelectItem>
+                    <SelectItem value="male">Male Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Min Notice Days</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={ltMinNotice}
+                  onChange={e => setLtMinNotice(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/30">
+              <div>
+                <Label className="font-medium">Paid Leave</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Salary is paid during this leave. Turn off for LOP / unpaid leave types.
+                </p>
+              </div>
+              <Switch checked={ltIsPaid} onCheckedChange={setLtIsPaid} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLeaveTypeModal(false)}>Cancel</Button>
+            <Button onClick={handleSaveLeaveType} disabled={savingLeaveType} className="gap-2">
+              {savingLeaveType && <Loader2 className="h-4 w-4 animate-spin" />}
+              {editingLeaveType ? 'Save Changes' : 'Create Leave Type'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
