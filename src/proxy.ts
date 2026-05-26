@@ -17,6 +17,7 @@ const API_PUBLIC = [
   '/api/auth',
   '/api/attendance/device-push', // ZKTeco device PUSH — identified by push_token in URL
   '/iclock',                      // ZKTeco/ESSL ADMS standard endpoint (AiFace Magnum, F18, etc.)
+  '/api/admin/run-migrations',   // One-shot migration — protected by MIGRATION_SECRET header
 ]
 
 // These sub-paths under /api/devices/* are device-initiated (no JWT possible).
