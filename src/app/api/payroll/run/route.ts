@@ -114,9 +114,28 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    const defaultStructure = await prisma.salaryStructure.findFirst({
-      where: { org_id: session.user.org_id, is_default: true },
-    })
+    const [defaultStructure, allAttendance] = await Promise.all([
+      prisma.salaryStructure.findFirst({
+        where: { org_id: session.user.org_id, is_default: true },
+      }),
+      // Load ALL employee attendance in ONE query instead of N queries
+      prisma.attendanceRecord.findMany({
+        where: {
+          org_id: session.user.org_id,
+          employee_id: { in: employees.map(e => e.id) },
+          date: { gte: monthStart, lte: monthEnd },
+        },
+        select: { employee_id: true, status: true, overtime_hours: true, is_late: true, late_by_minutes: true, last_out: true },
+      }),
+    ])
+
+    // Group attendance by employee_id for O(1) lookup
+    const attendanceByEmp = new Map<string, typeof allAttendance>()
+    for (const rec of allAttendance) {
+      const list = attendanceByEmp.get(rec.employee_id) ?? []
+      list.push(rec)
+      attendanceByEmp.set(rec.employee_id, list)
+    }
 
     let runTotalGross = 0
     let runTotalDeductions = 0
@@ -124,14 +143,7 @@ export async function POST(req: NextRequest) {
     const zeroAttendanceEmployees: Array<{ emp_code?: string | null; first_name: string; id: string }> = []
 
     for (const employee of employees) {
-      const attendance = await prisma.attendanceRecord.findMany({
-        where: {
-          org_id: session.user.org_id,
-          employee_id: employee.id,
-          date: { gte: monthStart, lte: monthEnd },
-        },
-        select: { status: true, overtime_hours: true, is_late: true, late_by_minutes: true, last_out: true },
-      })
+      const attendance = attendanceByEmp.get(employee.id) ?? []
 
       if (attendance.length === 0) {
         zeroAttendanceEmployees.push({

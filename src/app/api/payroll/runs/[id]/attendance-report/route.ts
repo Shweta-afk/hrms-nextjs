@@ -68,7 +68,7 @@ export async function GET(
       else { holidayDates.add(ds); holidayNames.set(ds, h.name) }
     }
 
-    // Payslips with employee + attendance
+    // Payslips with employee data
     const payslips = await prisma.payslip.findMany({
       where: { payroll_run_id: id, org_id: session.user.org_id },
       include: {
@@ -84,6 +84,24 @@ export async function GET(
       },
       orderBy: [{ employee: { emp_code: 'asc' } }],
     })
+
+    // Load ALL attendance in ONE query (avoid N+1)
+    const employeeIds = payslips.map(p => p.employee.id)
+    const allAttendance = await prisma.attendanceRecord.findMany({
+      where: {
+        org_id: session.user.org_id,
+        employee_id: { in: employeeIds },
+        date: { gte: periodStart, lte: periodEnd },
+      },
+      select: { employee_id: true, date: true, status: true, first_in: true,
+                last_out: true, is_late: true, late_by_minutes: true, overtime_hours: true },
+    })
+    const attByEmp = new Map<string, typeof allAttendance>()
+    for (const a of allAttendance) {
+      const list = attByEmp.get(a.employee_id) ?? []
+      list.push(a)
+      attByEmp.set(a.employee_id, list)
+    }
 
     // Collect all dates in the period
     const allDates: Date[] = []
@@ -101,18 +119,10 @@ export async function GET(
       const emp = ps.employee
       const empWeeklyOffs = (emp.shift_group?.weekly_offs as number[] | null) ?? weeklyOffs
 
-      // Load this employee's attendance for the period
-      const attendance = await prisma.attendanceRecord.findMany({
-        where: {
-          org_id: session.user.org_id,
-          employee_id: emp.id,
-          date: { gte: periodStart, lte: periodEnd },
-        },
-        select: { date: true, status: true, first_in: true, last_out: true,
-                  is_late: true, late_by_minutes: true, overtime_hours: true },
-      })
+      // Use pre-loaded attendance map (no extra DB call per employee)
+      const empAttendance = attByEmp.get(emp.id) ?? []
       const attMap = new Map(
-        attendance.map(a => [new Date(a.date).toISOString().slice(0, 10), a])
+        empAttendance.map(a => [new Date(a.date).toISOString().slice(0, 10), a])
       )
 
       const empWorkingDays = getWorkingDays(periodStart, periodEnd, empWeeklyOffs, holidayDates, workingDayOverrides)
