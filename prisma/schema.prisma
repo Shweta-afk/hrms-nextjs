@@ -37,6 +37,7 @@ model Organisation {
   punch_logs         PunchLog[]
   device_enrollments DeviceEnrollment[]
   api_keys           OrgApiKey[]
+  shift_groups       ShiftGroup[]
 
   @@map("organisations")
 }
@@ -133,6 +134,8 @@ model Employee {
   statutory_info      String?  // encrypted
   essl_device_id      String?
   monthly_incentive   Decimal? @db.Decimal(10, 2)
+  shift_group_id      String?
+  shift_group         ShiftGroup? @relation("EmployeeShiftGroup", fields: [shift_group_id], references: [id])
   created_at          DateTime @default(now())
   updated_at          DateTime @updatedAt
 
@@ -456,6 +459,24 @@ model SalaryStructure {
   employees    Employee[]   @relation("EmployeeSalaryStructure")
 
   @@map("salary_structures")
+}
+
+// ─── SHIFT GROUPS ───────────────────────────────────────────────────────
+// Each group defines a set of weekly day-off numbers (0=Sun … 6=Sat).
+// Employees assigned to a group use its weekly_offs in payroll instead of the
+// org-level default, enabling different schedules (e.g. 6-day vs 5-day).
+
+model ShiftGroup {
+  id          String   @id @default(uuid())
+  org_id      String
+  name        String
+  weekly_offs Int[]
+  created_at  DateTime @default(now())
+
+  organisation Organisation @relation(fields: [org_id], references: [id])
+  employees    Employee[]   @relation("EmployeeShiftGroup")
+
+  @@map("shift_groups")
 }
 
 // ─── RATE LIMIT (shared store for serverless) ──────────────────────────

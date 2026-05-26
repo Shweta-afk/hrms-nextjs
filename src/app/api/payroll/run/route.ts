@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     const ptState   = (settings.pt_state as string) ?? 'maharashtra'
     const tdsRegime: 'old' | 'new' = (settings.tds_regime as 'old' | 'new') ?? 'new'
 
-    // Holidays falling inside this payroll month — subtract from working days.
+    // Holidays falling inside this payroll month.
     const monthStart = new Date(Date.UTC(run.year, run.month - 1, 1))
     const monthEnd   = new Date(Date.UTC(run.year, run.month, 0, 23, 59, 59))
     const holidays = await prisma.holiday.findMany({
@@ -56,13 +56,13 @@ export async function POST(req: NextRequest) {
       },
       select: { date: true, type: true },
     })
-    // Only count holidays that fall on what would otherwise be a working day —
-    // a holiday on Sunday shouldn't subtract a working day.
-    const holidayDatesOnWorkingDays = holidays
-      .map(h => new Date(h.date))
-      .filter(d => !weeklyOffs.includes(d.getUTCDay()))
+    // 'working_day' holidays = Sundays/holidays that HR marked as working days
+    const workingDayOverrides = holidays
+      .filter(h => h.type === 'working_day')
+      .map(h => new Date(h.date).toISOString().slice(0, 10))
 
-    const workingDays = getWorkingDays(run.year, run.month, weeklyOffs, holidayDatesOnWorkingDays.length)
+    // org-level working days (used as fallback for employees without a shift group)
+    const orgWorkingDays = getWorkingDays(run.year, run.month, weeklyOffs, holidays, workingDayOverrides)
 
     // ── Statutory toggle flags ──────────────────────────────────────────────
     const pfApplicable  = settings.pf_applicable  !== false
@@ -92,6 +92,10 @@ export async function POST(req: NextRequest) {
         monthly_incentive: true,
         salary_structure_id: true,
         salary_structure: true,
+        shift_group_id: true,
+        shift_group: { select: { weekly_offs: true } },
+        date_of_joining: true,
+        bank_details: true,
       },
     })
 
@@ -122,9 +126,16 @@ export async function POST(req: NextRequest) {
         })
       }
 
+      // ── Per-employee working days (shift group overrides org default) ──
+      const empWeeklyOffs = (employee.shift_group as any)?.weekly_offs as number[] | null
+      const effectiveWeeklyOffs = empWeeklyOffs ?? weeklyOffs
+      const workingDays = empWeeklyOffs
+        ? getWorkingDays(run.year, run.month, empWeeklyOffs, holidays, workingDayOverrides)
+        : orgWorkingDays
+
       // ── Attendance counts ──
       const fullPresentDays = attendance.filter(
-        a => a.status === 'present' || a.status === 'late'
+        a => a.status === 'present' || a.status === 'late' || a.status === 'pending_review'
       ).length
       const halfDayCount = attendance.filter(a => a.status === 'half_day').length
       // Effective present days including half-days
@@ -292,8 +303,8 @@ export async function POST(req: NextRequest) {
         employees_processed: employees.length,
         total_gross: runTotalGross,
         total_net: runTotalNet,
-        working_days: workingDays,
-        holidays_in_month: holidayDatesOnWorkingDays.length,
+        working_days: orgWorkingDays,
+        holidays_in_month: holidays.filter(h => h.type !== 'working_day').length,
         warnings,
         zero_attendance_employees: zeroAttendanceEmployees,
       },
@@ -305,20 +316,40 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * Compute working days for a month, given the configured weekly offs and the
- * number of holidays already known to fall on otherwise-working days.
+ * Compute working days for a month.
+ * - weeklyOffs:          day-of-week numbers to treat as off (0=Sun…6=Sat)
+ * - holidays:            all holiday records for the month
+ * - workingDayOverrides: ISO date strings (YYYY-MM-DD) that HR marked as
+ *                        working days — these count even if they fall on a
+ *                        weekly off (e.g. a working Sunday)
  */
 function getWorkingDays(
   year: number,
   month: number,
   weeklyOffs: number[],
-  workingDayHolidays: number,
+  holidays: { date: Date; type: string }[],
+  workingDayOverrides: string[],
 ): number {
   const daysInMonth = new Date(year, month, 0).getDate()
+  const overrideSet = new Set(workingDayOverrides)
+  // Holidays that fall on working days (not weekends, not already an override)
+  const holidayDeductions = holidays
+    .filter(h => h.type !== 'working_day')
+    .map(h => new Date(h.date))
+    .filter(d => !weeklyOffs.includes(d.getUTCDay()))
+    .length
+
   let count = 0
   for (let d = 1; d <= daysInMonth; d++) {
-    const day = new Date(year, month - 1, d).getDay()
-    if (!weeklyOffs.includes(day)) count++
+    const date = new Date(year, month - 1, d)
+    const dow  = date.getDay()
+    const isoDate = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    if (weeklyOffs.includes(dow)) {
+      // Weekend: only count if HR marked it as a working day
+      if (overrideSet.has(isoDate)) count++
+    } else {
+      count++
+    }
   }
-  return Math.max(0, count - workingDayHolidays)
+  return Math.max(0, count - holidayDeductions)
 }

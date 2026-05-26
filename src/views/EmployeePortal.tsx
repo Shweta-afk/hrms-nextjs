@@ -227,7 +227,7 @@ const EmployeePortal = () => {
     { label: 'Apply for Leave', icon: CalendarDays, href: '/leave/apply', color: 'bg-blue-50', iconColor: 'text-blue-600', ring: 'ring-blue-200' },
     { label: 'Download Payslip', icon: Download, href: '/payslip', color: 'bg-green-50', iconColor: 'text-green-600', ring: 'ring-green-200' },
     { label: 'View Attendance', icon: Clock, href: '/portal/attendance', color: 'bg-indigo-50', iconColor: 'text-indigo-600', ring: 'ring-indigo-200' },
-    { label: 'IT Declaration', icon: FileText, href: '#', color: 'bg-orange-50', iconColor: 'text-orange-600', ring: 'ring-orange-200' },
+    { label: 'Company Policies', icon: FileText, href: '/portal/policy', color: 'bg-orange-50', iconColor: 'text-orange-600', ring: 'ring-orange-200' },
     { label: 'Update Profile', icon: User, href: '/portal/profile', color: 'bg-purple-50', iconColor: 'text-purple-600', ring: 'ring-purple-200' },
     { label: 'Raise a Request', icon: HelpCircle, href: '#request', color: 'bg-muted', iconColor: 'text-muted-foreground', ring: 'ring-border' },
   ]

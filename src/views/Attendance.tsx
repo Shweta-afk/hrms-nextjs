@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, Download, Upload, Users, UserX,
   CalendarDays, Clock, Home, Wifi, Loader2, BarChart3, FileSpreadsheet,
+  Mail, CheckCircle2, UserPlus,
 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,11 +82,25 @@ const Attendance = () => {
 
   // Import modal
   const [importModal, setImportModal] = useState(false)
-  const [importTab, setImportTab] = useState<'smartoffice' | 'essl'>('smartoffice')
+  const [importTab, setImportTab] = useState<'smartoffice' | 'essl' | 'monthly'>('monthly')
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<any>(null)
   const xlsxRef = useRef<HTMLInputElement>(null)
   const csvRef = useRef<HTMLInputElement>(null)
+  const monthlyRef = useRef<HTMLInputElement>(null)
+
+  // Monthly Details import result & email sending
+  const [monthlyResult, setMonthlyResult] = useState<{
+    message: string; date_range: string; payroll_month: number; payroll_year: number;
+    employees_total: number; employees_created: number; records_saved: number;
+    employees: Array<{
+      emp_code: string; name: string; employee_id: string;
+      email: string | null; is_new: boolean;
+      present: number; absent: number; late: number; records_saved: number
+    }>
+  } | null>(null)
+  const [sendingEmails, setSendingEmails] = useState(false)
+  const [emailsSent, setEmailsSent] = useState(false)
 
   // Year overview
   const [showYearView, setShowYearView] = useState(false)
@@ -163,7 +178,16 @@ const Attendance = () => {
       if (json.success) {
         setImportResult(json.data)
         toast.success(json.data.message)
-        fetchAttendance()
+        // Navigate to the month/year of the imported data so user can see it immediately
+        if (json.data.imported_month && json.data.imported_year) {
+          const targetDate = new Date(json.data.imported_year, json.data.imported_month - 1, 1)
+          const nowDate   = new Date(now.getFullYear(), now.getMonth(), 1)
+          const diff = (targetDate.getFullYear() - nowDate.getFullYear()) * 12
+            + (targetDate.getMonth() - nowDate.getMonth())
+          setMonthOffset(diff)
+        } else {
+          fetchAttendance()
+        }
       } else {
         toast.error(json.error || 'Import failed')
       }
@@ -187,6 +211,58 @@ const Attendance = () => {
       } else toast.error('Import failed')
     } catch { toast.error('Import failed') }
     finally { setImporting(false) }
+  }
+
+  // Monthly Details CSV import
+  async function handleMonthlyDetailsImport(file: File) {
+    setImporting(true)
+    setMonthlyResult(null)
+    setEmailsSent(false)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/attendance/import-monthly-details', { method: 'POST', body: formData })
+      const json = await res.json()
+      if (json.success) {
+        setMonthlyResult(json.data)
+        toast.success(json.data.message)
+        // Navigate to the payroll month so data is immediately visible
+        if (json.data.imported_month && json.data.imported_year) {
+          const targetDate = new Date(json.data.imported_year, json.data.imported_month - 1, 1)
+          const nowDate    = new Date(now.getFullYear(), now.getMonth(), 1)
+          const diff = (targetDate.getFullYear() - nowDate.getFullYear()) * 12
+            + (targetDate.getMonth() - nowDate.getMonth())
+          setMonthOffset(diff)
+        } else {
+          fetchAttendance()
+        }
+      } else {
+        toast.error(json.error || 'Import failed')
+      }
+    } catch { toast.error('Import failed') }
+    finally { setImporting(false) }
+  }
+
+  // Send welcome emails to imported employees
+  async function handleSendWelcomeEmails() {
+    if (!monthlyResult) return
+    const employeeIds = monthlyResult.employees.map(e => e.employee_id)
+    setSendingEmails(true)
+    try {
+      const res = await fetch('/api/attendance/send-welcome-emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_ids: employeeIds }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(json.data.message)
+        setEmailsSent(true)
+      } else {
+        toast.error(json.error || 'Failed to send emails')
+      }
+    } catch { toast.error('Failed to send emails') }
+    finally { setSendingEmails(false) }
   }
 
   function handleDownloadReport() {
@@ -847,31 +923,172 @@ const Attendance = () => {
       </div>
 
       {/* ── Import Modal ── */}
-      <Dialog open={importModal} onOpenChange={open => { setImportModal(open); if (!open) setImportResult(null) }}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={importModal} onOpenChange={open => {
+        setImportModal(open)
+        if (!open) { setImportResult(null); setMonthlyResult(null); setEmailsSent(false) }
+      }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Import Attendance Data</DialogTitle>
-            <DialogDescription>Upload a Smart Office report or ESSL CSV file</DialogDescription>
+            <DialogDescription>Upload monthly attendance from your biometric system</DialogDescription>
           </DialogHeader>
 
           {/* Tabs */}
-          <div className="flex rounded-lg border border-border overflow-hidden text-sm font-medium">
+          <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium shrink-0">
             <button
-              className={`flex-1 py-2 px-3 transition-colors ${importTab === 'smartoffice' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-muted'}`}
-              onClick={() => { setImportTab('smartoffice'); setImportResult(null) }}
+              className={`flex-1 py-2 px-2 transition-colors ${importTab === 'monthly' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-muted'}`}
+              onClick={() => { setImportTab('monthly'); setImportResult(null); setMonthlyResult(null); setEmailsSent(false) }}
             >
-              <FileSpreadsheet className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-              Smart Office Report
+              <Upload className="h-3.5 w-3.5 inline mr-1 -mt-0.5" />
+              Monthly Details CSV
             </button>
             <button
-              className={`flex-1 py-2 px-3 transition-colors ${importTab === 'essl' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-muted'}`}
-              onClick={() => { setImportTab('essl'); setImportResult(null) }}
+              className={`flex-1 py-2 px-2 transition-colors ${importTab === 'smartoffice' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-muted'}`}
+              onClick={() => { setImportTab('smartoffice'); setImportResult(null); setMonthlyResult(null) }}
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5 inline mr-1 -mt-0.5" />
+              Smart Office XLSX
+            </button>
+            <button
+              className={`flex-1 py-2 px-2 transition-colors ${importTab === 'essl' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-muted'}`}
+              onClick={() => { setImportTab('essl'); setImportResult(null); setMonthlyResult(null) }}
             >
               ESSL CSV
             </button>
           </div>
 
-          {importTab === 'smartoffice' ? (
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+
+          {/* ── Monthly Details CSV tab ── */}
+          {importTab === 'monthly' && !monthlyResult && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs space-y-1.5">
+                <p className="font-semibold text-blue-900">Monthly Detailed Attendance Report</p>
+                <p className="text-blue-800">Accepts the CSV exported from your biometric software with the heading <span className="font-mono bg-blue-100 px-1 rounded">Monthly Detailed Attendance Report(Default)</span></p>
+                <p className="text-blue-700 mt-1">• The date range is read from row 3 (e.g. <span className="font-mono">21-Apr-2026 to 20-May-2026</span>)</p>
+                <p className="text-blue-700">• Each employee's P/A status, in-time, out-time, overtime and late-by are imported</p>
+                <p className="text-blue-700">• New employees are auto-created and will appear in the Employees list</p>
+                <p className="text-blue-700">• You can send welcome emails to all imported employees after upload</p>
+              </div>
+              <div
+                className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => monthlyRef.current?.click()}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleMonthlyDetailsImport(f) }}
+              >
+                <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                <p className="text-sm font-semibold">Click or drag CSV file here</p>
+                <p className="text-xs text-muted-foreground mt-1">Monthly Details CSV from SmartOffice / ESSL biometric system</p>
+                <input
+                  ref={monthlyRef}
+                  type="file"
+                  accept=".csv,.txt"
+                  className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleMonthlyDetailsImport(f); e.target.value = '' }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ── Monthly Details result panel ── */}
+          {importTab === 'monthly' && monthlyResult && (
+            <div className="space-y-4">
+              {/* Summary */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <span className="font-semibold text-green-800 text-sm">Import Successful</span>
+                </div>
+                <p className="text-xs text-green-700">Period: <strong>{monthlyResult.date_range}</strong></p>
+                <div className="grid grid-cols-3 gap-3 mt-3">
+                  <div className="bg-white rounded p-2 text-center border border-green-100">
+                    <p className="text-lg font-bold text-foreground">{monthlyResult.employees_total}</p>
+                    <p className="text-[10px] text-muted-foreground">Employees</p>
+                  </div>
+                  <div className="bg-white rounded p-2 text-center border border-green-100">
+                    <p className="text-lg font-bold text-blue-600">{monthlyResult.employees_created}</p>
+                    <p className="text-[10px] text-muted-foreground">Auto-created</p>
+                  </div>
+                  <div className="bg-white rounded p-2 text-center border border-green-100">
+                    <p className="text-lg font-bold text-foreground">{monthlyResult.records_saved}</p>
+                    <p className="text-[10px] text-muted-foreground">Records saved</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Employee list */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium">Imported Employees</p>
+                  {!emailsSent ? (
+                    <Button
+                      size="sm"
+                      className="gap-1.5 text-xs"
+                      disabled={sendingEmails}
+                      onClick={handleSendWelcomeEmails}
+                    >
+                      {sendingEmails
+                        ? <><Loader2 className="h-3 w-3 animate-spin" /> Sending…</>
+                        : <><Mail className="h-3 w-3" /> Send Welcome Emails</>}
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-green-600 flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Emails sent
+                    </span>
+                  )}
+                </div>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium">Code</th>
+                        <th className="text-left px-3 py-2 font-medium">Name</th>
+                        <th className="text-center px-2 py-2 font-medium">P</th>
+                        <th className="text-center px-2 py-2 font-medium">A</th>
+                        <th className="text-center px-2 py-2 font-medium">Late</th>
+                        <th className="text-right px-3 py-2 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthlyResult.employees.map((emp, idx) => (
+                        <tr key={emp.employee_id} className={idx % 2 === 0 ? 'bg-background' : 'bg-muted/30'}>
+                          <td className="px-3 py-1.5 font-mono">{emp.emp_code}</td>
+                          <td className="px-3 py-1.5">
+                            <span>{emp.name}</span>
+                            {emp.is_new && (
+                              <span className="ml-1.5 inline-flex items-center gap-0.5 bg-blue-100 text-blue-700 rounded px-1 py-0.5 text-[10px] font-medium">
+                                <UserPlus className="h-2.5 w-2.5" /> New
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 text-center text-green-700 font-medium">{emp.present}</td>
+                          <td className="px-2 py-1.5 text-center text-red-600 font-medium">{emp.absent}</td>
+                          <td className="px-2 py-1.5 text-center text-amber-600 font-medium">{emp.late}</td>
+                          <td className="px-3 py-1.5 text-right">
+                            {emp.email
+                              ? <span className="text-green-600">✓ Has email</span>
+                              : <span className="text-muted-foreground">No email</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {monthlyResult.employees.some(e => !e.email) && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    ⚠ Employees with no email won't receive welcome emails. Go to <strong>Employees</strong> to add their email addresses.
+                  </p>
+                )}
+              </div>
+
+              <Button variant="outline" size="sm" className="w-full" onClick={() => { setMonthlyResult(null); setEmailsSent(false) }}>
+                ← Import Another File
+              </Button>
+            </div>
+          )}
+
+          {/* ── Smart Office XLSX tab ── */}
+          {importTab === 'smartoffice' && (
             <div className="space-y-4">
               <div className="bg-muted rounded-md p-3 text-xs text-muted-foreground space-y-1">
                 <p className="font-medium text-foreground">Supported Smart Office formats:</p>
@@ -896,7 +1113,10 @@ const Attendance = () => {
                 />
               </div>
             </div>
-          ) : (
+          )}
+
+          {/* ── ESSL CSV tab ── */}
+          {importTab === 'essl' && (
             <div className="space-y-4">
               <div className="bg-muted rounded-md p-3 text-xs text-muted-foreground space-y-1">
                 <p className="font-medium text-foreground">Expected CSV format:</p>
@@ -924,15 +1144,15 @@ const Attendance = () => {
           )}
 
           {importing && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Processing attendance records...
+            <div className="flex items-center gap-3 text-sm text-muted-foreground bg-muted rounded-md p-3">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              <span>Processing attendance records… this may take a moment for large files.</span>
             </div>
           )}
 
-          {importResult && (
-            <div className="bg-kpi-green/10 border border-kpi-green/20 rounded-md p-3 space-y-1">
-              <p className="text-sm font-medium text-kpi-green">Import Complete</p>
+          {importResult && importTab !== 'monthly' && (
+            <div className="bg-green-50 border border-green-200 rounded-md p-3 space-y-1">
+              <p className="text-sm font-medium text-green-700">Import Complete</p>
               {importResult.format && (
                 <p className="text-xs text-muted-foreground">Format: {importResult.format}</p>
               )}
@@ -951,8 +1171,10 @@ const Attendance = () => {
             </div>
           )}
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setImportModal(false); setImportResult(null) }}>Close</Button>
+          </div>
+
+          <DialogFooter className="shrink-0 pt-2">
+            <Button variant="outline" onClick={() => { setImportModal(false); setImportResult(null); setMonthlyResult(null); setEmailsSent(false) }}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -210,6 +210,21 @@ const Settings = () => {
   const [keyModal, setKeyModal] = useState(false)
   const [revokingKey, setRevokingKey] = useState<string | null>(null)
 
+  // Policy text
+  const [attendancePolicyText, setAttendancePolicyText] = useState('')
+  const [leavePolicyText, setLeavePolicyText] = useState('')
+  const [savingPolicy, setSavingPolicy] = useState(false)
+
+  // Shift Groups
+  interface ShiftGroup { id: string; name: string; weekly_offs: number[]; _count: { employees: number } }
+  const [shiftGroups, setShiftGroups] = useState<ShiftGroup[]>([])
+  const [shiftGroupsLoading, setShiftGroupsLoading] = useState(false)
+  const [shiftGroupModal, setShiftGroupModal] = useState(false)
+  const [editingShiftGroup, setEditingShiftGroup] = useState<ShiftGroup | null>(null)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [newGroupWeeklyOffs, setNewGroupWeeklyOffs] = useState<number[]>([0])
+  const [savingGroup, setSavingGroup] = useState(false)
+
   useEffect(() => {
     loadOrgSettings()
   }, [])
@@ -220,6 +235,7 @@ const Settings = () => {
     if (activeTab === 'holidays') fetchHolidays()
     if (activeTab === 'devices') fetchDevices()
     if (activeTab === 'integrations') fetchApiKeys()
+    if (activeTab === 'attendance') fetchShiftGroups()
   }, [activeTab])
 
   async function loadOrgSettings() {
@@ -259,6 +275,10 @@ const Settings = () => {
       if (att.late_threshold) setGracePeriod(String(att.late_threshold))
       if (att.standard_hours) setStandardHours(String(att.standard_hours))
       if (att.work_days && Array.isArray(att.work_days)) setWorkDays(att.work_days as string[])
+
+      // Policy text
+      if (s.attendance_policy_text) setAttendancePolicyText(s.attendance_policy_text as string)
+      if (s.leave_policy_text)      setLeavePolicyText(s.leave_policy_text as string)
     } catch { /* silent */ }
   }
 
@@ -402,6 +422,84 @@ const Settings = () => {
       else toast.error(json.error || 'Failed to revoke')
     } catch { toast.error('Failed to revoke key') }
     finally { setRevokingKey(null) }
+  }
+
+  async function savePolicyText(type: 'attendance' | 'leave') {
+    setSavingPolicy(true)
+    try {
+      const payload = type === 'attendance'
+        ? { attendance_policy_text: attendancePolicyText }
+        : { leave_policy_text: leavePolicyText }
+      const res = await fetch('/api/org/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json()
+      if (json.success) { toast.success('Policy saved'); setDirtySection(null) }
+      else toast.error(json.error ?? 'Failed to save')
+    } catch { toast.error('Failed to save') }
+    finally { setSavingPolicy(false) }
+  }
+
+  async function fetchShiftGroups() {
+    setShiftGroupsLoading(true)
+    try {
+      const res = await fetch('/api/payroll/shift-groups')
+      const json = await res.json()
+      if (json.success) setShiftGroups(json.data)
+    } catch { toast.error('Failed to load shift groups') }
+    finally { setShiftGroupsLoading(false) }
+  }
+
+  async function handleSaveShiftGroup() {
+    if (!newGroupName.trim()) { toast.error('Group name is required'); return }
+    setSavingGroup(true)
+    try {
+      if (editingShiftGroup) {
+        const res = await fetch(`/api/payroll/shift-groups/${editingShiftGroup.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newGroupName.trim(), weekly_offs: newGroupWeeklyOffs }),
+        })
+        const json = await res.json()
+        if (json.success) { toast.success('Shift group updated'); setShiftGroupModal(false); fetchShiftGroups() }
+        else toast.error(json.error ?? 'Failed to update')
+      } else {
+        const res = await fetch('/api/payroll/shift-groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newGroupName.trim(), weekly_offs: newGroupWeeklyOffs }),
+        })
+        const json = await res.json()
+        if (json.success) { toast.success('Shift group created'); setShiftGroupModal(false); fetchShiftGroups() }
+        else toast.error(json.error ?? 'Failed to create')
+      }
+    } catch { toast.error('Failed to save shift group') }
+    finally { setSavingGroup(false) }
+  }
+
+  async function handleDeleteShiftGroup(id: string, name: string) {
+    if (!confirm(`Delete shift group "${name}"? Employees in this group will be unassigned.`)) return
+    try {
+      const res = await fetch(`/api/payroll/shift-groups/${id}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (json.success) { toast.success('Shift group deleted'); fetchShiftGroups() }
+      else toast.error(json.error ?? 'Failed to delete')
+    } catch { toast.error('Failed to delete') }
+  }
+
+  function openShiftGroupModal(group?: ShiftGroup) {
+    if (group) {
+      setEditingShiftGroup(group)
+      setNewGroupName(group.name)
+      setNewGroupWeeklyOffs([...group.weekly_offs])
+    } else {
+      setEditingShiftGroup(null)
+      setNewGroupName('')
+      setNewGroupWeeklyOffs([0])
+    }
+    setShiftGroupModal(true)
   }
 
   async function fetchStructures() {
@@ -1268,11 +1366,12 @@ const Settings = () => {
               <Input type="date" value={newHolidayDate}
                 onChange={e => setNewHolidayDate(e.target.value)} className="w-40" />
               <Select value={newHolidayType} onValueChange={setNewHolidayType}>
-                <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="national">National</SelectItem>
                   <SelectItem value="optional">Optional</SelectItem>
                   <SelectItem value="regional">Regional</SelectItem>
+                  <SelectItem value="working_day">Working Day (Weekend Override)</SelectItem>
                 </SelectContent>
               </Select>
               <Button onClick={handleAddHoliday} className="gap-2">
@@ -1308,7 +1407,14 @@ const Settings = () => {
                         {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary" className="text-[10px] capitalize">{h.type}</Badge>
+                        <Badge
+                          variant="secondary"
+                          className={cn("text-[10px] capitalize",
+                            h.type === 'working_day' && "bg-green-100 text-green-800"
+                          )}
+                        >
+                          {h.type === 'working_day' ? 'Working Day ✓' : h.type}
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1687,6 +1793,133 @@ const Settings = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      </div>
+    )
+
+    // ── LEAVE POLICY ──
+    if (activeTab === 'leave') return (
+      <div className="space-y-6">
+        <Card className="shadow-sm">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="h-4 w-4 text-primary" /> Leave Policy
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <p className="text-sm text-muted-foreground">
+              This policy text is displayed to employees in their self-service portal so they know the rules before applying for leave.
+            </p>
+            <div className="space-y-2">
+              <Label>Leave Policy Text</Label>
+              <Textarea
+                rows={14}
+                placeholder={`Example:\n• Casual Leave: 12 days per year\n• Sick Leave: 6 days per year (requires medical certificate for 3+ consecutive days)\n• Earned Leave: 1 day per 20 days worked, encashable at year-end\n• Leave must be applied at least 2 working days in advance\n• No carry-forward of Casual Leave; Earned Leave can be carried forward up to 30 days`}
+                value={leavePolicyText}
+                onChange={e => { setLeavePolicyText(e.target.value); markDirty('leave-policy') }}
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => savePolicyText('leave')} disabled={savingPolicy} className="gap-2">
+                {savingPolicy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Policy
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+
+    // ── ATTENDANCE POLICY ──
+    if (activeTab === 'attendance') return (
+      <div className="space-y-6">
+        {/* Policy text */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Clock className="h-4 w-4 text-primary" /> Attendance Policy
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <p className="text-sm text-muted-foreground">
+              Displayed to employees in the portal. Describe shift timings, late-mark rules, half-day rules, and any other attendance expectations.
+            </p>
+            <div className="space-y-2">
+              <Label>Attendance Policy Text</Label>
+              <Textarea
+                rows={10}
+                placeholder={`Example:\n• Office hours: 9:30 AM – 6:30 PM (Mon–Fri)\n• Grace period: 15 minutes. Arrival after 9:45 AM is marked Late.\n• Three late marks in a month = half-day deduction.\n• Half-day: leave before 2:00 PM counts as a half-day absence.\n• Biometric punch is mandatory. Missing punch = Absent unless corrected before payroll.`}
+                value={attendancePolicyText}
+                onChange={e => { setAttendancePolicyText(e.target.value); markDirty('attendance-policy') }}
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => savePolicyText('attendance')} disabled={savingPolicy} className="gap-2">
+                {savingPolicy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Policy
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Shift Groups */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Users className="h-4 w-4 text-primary" /> Shift Groups
+              </CardTitle>
+              <Button size="sm" className="gap-1.5" onClick={() => openShiftGroupModal()}>
+                <Plus className="h-3.5 w-3.5" /> New Group
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Assign different weekly-off schedules to groups of employees. Payroll uses each employee's group to count working days.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {shiftGroupsLoading ? (
+              <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : shiftGroups.length === 0 ? (
+              <div className="text-center py-8 text-sm text-muted-foreground">
+                No shift groups yet. The default org work-week applies to all employees.
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Group Name</TableHead>
+                    <TableHead>Weekly Offs</TableHead>
+                    <TableHead>Employees</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {shiftGroups.map(g => {
+                    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+                    return (
+                      <TableRow key={g.id}>
+                        <TableCell className="font-medium">{g.name}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {g.weekly_offs.map(d => dayNames[d]).join(', ') || '—'}
+                        </TableCell>
+                        <TableCell className="text-sm">{g._count.employees}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={() => openShiftGroupModal(g)}>Edit</Button>
+                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive"
+                              onClick={() => handleDeleteShiftGroup(g.id, g.name)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       </div>
     )
 
@@ -2159,6 +2392,63 @@ const Settings = () => {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Shift Group Create/Edit Modal */}
+      <Dialog open={shiftGroupModal} onOpenChange={open => { if (!open) setShiftGroupModal(false) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingShiftGroup ? 'Edit Shift Group' : 'Create Shift Group'}</DialogTitle>
+            <DialogDescription>
+              Employees assigned to this group will use its weekly-off days for payroll calculations.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Group Name *</Label>
+              <Input
+                placeholder="e.g. 6-Day Shift, Night Shift, Factory Floor"
+                value={newGroupName}
+                onChange={e => setNewGroupName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Weekly Off Days</Label>
+              <p className="text-xs text-muted-foreground">Select which days are off for this group</p>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, idx) => (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => {
+                      setNewGroupWeeklyOffs(prev =>
+                        prev.includes(idx) ? prev.filter(d => d !== idx) : [...prev, idx]
+                      )
+                    }}
+                    className={cn(
+                      "px-3 py-1.5 rounded-md text-sm font-medium border transition-colors",
+                      newGroupWeeklyOffs.includes(idx)
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                    )}
+                  >
+                    {day}
+                  </button>
+                ))}
+              </div>
+              {newGroupWeeklyOffs.length === 0 && (
+                <p className="text-xs text-amber-600">⚠ No days off — all 7 days will be counted as working days.</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShiftGroupModal(false)}>Cancel</Button>
+            <Button onClick={handleSaveShiftGroup} disabled={savingGroup} className="gap-2">
+              {savingGroup && <Loader2 className="h-4 w-4 animate-spin" />}
+              {editingShiftGroup ? 'Save Changes' : 'Create Group'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </AppLayout>

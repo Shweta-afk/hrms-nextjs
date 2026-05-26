@@ -175,6 +175,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: error.issues[0].message }, { status: 400 })
     }
     logger.error('signup_failed', error)
-    return NextResponse.json({ success: false, error: 'Failed to create account' }, { status: 500 })
+    // Surface a meaningful message in development; keep generic in production
+    const isDev = process.env.NODE_ENV === 'development'
+    const message = isDev && error instanceof Error ? error.message : 'Failed to create account'
+    return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }

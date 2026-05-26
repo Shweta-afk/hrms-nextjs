@@ -44,6 +44,8 @@ interface Payslip {
     first_name: string;
     last_name: string;
     emp_code: string;
+    date_of_joining: string | null;
+    bank_details: { bank_name?: string; account_number?: string; ifsc_code?: string; branch?: string } | null;
     department: { name: string } | null;
     designation: { name: string } | null;
   };
@@ -285,6 +287,7 @@ const Payroll = () => {
         <div class="row"><span class="label">Employee ID</span><span>${payslip.employee.emp_code}</span></div>
         <div class="row"><span class="label">Department</span><span>${payslip.employee.department?.name ?? '—'}</span></div>
         <div class="row"><span class="label">Designation</span><span>${payslip.employee.designation?.name ?? '—'}</span></div>
+        ${payslip.employee.date_of_joining ? `<div class="row"><span class="label">Date of Joining</span><span>${new Date(payslip.employee.date_of_joining).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span></div>` : ''}
       </div>
       <div>
         <div class="row"><span class="label">Pay Period</span><span>${monthLabel}</span></div>
@@ -303,7 +306,17 @@ const Payroll = () => {
     </div>
     <div class="net"><div style="font-size:12px;color:#555;margin-bottom:4px">NET SALARY</div>
       <div class="net-amt">${f(payslip.net_salary)}</div>
-    </div><hr>
+    </div>
+    ${payslip.employee.bank_details ? `<div style="background:#f8faff;border:1px solid #e0e7ff;border-radius:6px;padding:12px 16px;margin:12px 0;font-size:12px">
+      <div style="font-weight:bold;margin-bottom:6px;color:#1e1b4b;text-transform:uppercase;font-size:11px;letter-spacing:.05em">Bank Details</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+        ${payslip.employee.bank_details.bank_name ? `<div><span style="color:#555">Bank:</span> ${payslip.employee.bank_details.bank_name}</div>` : ''}
+        ${payslip.employee.bank_details.account_number ? `<div><span style="color:#555">Account No:</span> ${payslip.employee.bank_details.account_number}</div>` : ''}
+        ${payslip.employee.bank_details.ifsc_code ? `<div><span style="color:#555">IFSC:</span> ${payslip.employee.bank_details.ifsc_code}</div>` : ''}
+        ${payslip.employee.bank_details.branch ? `<div><span style="color:#555">Branch:</span> ${payslip.employee.bank_details.branch}</div>` : ''}
+      </div>
+    </div>` : ''}
+    <hr>
     <div class="footer"><p>This is a computer-generated payslip and does not require a signature.</p></div>
     </body></html>`
     const win = window.open('', '_blank')

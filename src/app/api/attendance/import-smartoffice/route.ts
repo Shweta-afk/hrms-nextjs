@@ -115,7 +115,7 @@ async function parseMonthlyBasic(
     if (!empCode || /^(S\.?No|EmployeeCode|Total|Sl\.?No)/i.test(empCode)) continue
 
     const empName = String(row[2] ?? '').trim() || empCode
-    const employeeId = empMap.get(empCode) ?? ''
+    const employeeId = empMap.get(empCode.toUpperCase()) ?? ''
 
     for (const [col, date] of colDateMap) {
       const val = String(row[col] ?? '').trim().toUpperCase()
@@ -181,7 +181,7 @@ async function parseMonthlyDetails(
     }
     if (!empCode) continue
 
-    const employeeId = empMap.get(empCode) ?? ''
+    const employeeId = empMap.get(empCode.toUpperCase()) ?? ''
 
     const dateHeaderRow = rows[i + 1] ?? []
     const colDateMap = buildColDateMap(dateHeaderRow, period.startDate)
@@ -280,7 +280,7 @@ async function parseDailyBasic(
 
     // Col 3 is usually employee name in Daily Basic
     const empName = String(row[3] ?? '').trim() || empCode
-    const employeeId = empMap.get(empCode) ?? ''
+    const employeeId = empMap.get(empCode.toUpperCase()) ?? ''
 
     const statusStr = String(row[17] ?? '').trim().toUpperCase()
     const status = statusStr === 'P' ? 'present' : 'absent'
@@ -342,32 +342,51 @@ export async function POST(req: NextRequest) {
       where: { org_id: session.user.org_id },
       select: { id: true, emp_code: true },
     })
-    const empMap = new Map(employees.map(e => [e.emp_code, e.id]))
+    // Case-insensitive lookup: normalise all codes to uppercase so
+    // "E001" in file == "e001" in DB, etc.
+    const empMap = new Map(employees.map(e => [e.emp_code.toUpperCase(), e.id]))
+    function lookupEmpId(code: string): string {
+      return empMap.get(code.toUpperCase()) ?? ''
+    }
 
     let records: UpsertData[] = []
     let errors: string[] = []
     let format = ''
     const fn = filename.toLowerCase()
 
-    if (
-      sheetNames.includes('Monthly_BasicReportForEmployee') ||
-      (fn.includes('monthly') && fn.includes('basic') && !fn.includes('detail'))
-    ) {
-      format = 'Monthly Basic'
-      const sheet = wb.Sheets[sheetNames.find(n => n.toLowerCase().includes('basic')) ?? sheetNames[0]]
-      ;({ records, errors } = await parseMonthlyBasic(sheet, empMap))
-    } else if (fn.includes('monthly') && fn.includes('detail')) {
+    // Detect format: filename first, then sheet names, then content sniff
+    const isMonthlyBasicByName  = fn.includes('monthly') && (fn.includes('basic') || fn.includes('basicreport')) && !fn.includes('detail')
+    const isMonthlyDetailByName = fn.includes('monthly') && fn.includes('detail')
+    const isDailyByName         = fn.includes('daily')
+    const isMonthlyBasicBySheet = sheetNames.some(n => /monthly.*basic/i.test(n) || n === 'Monthly_BasicReportForEmployee')
+    const isMonthlyDetailBySheet = sheetNames.some(n => /monthly.*detail/i.test(n))
+    const isDailyBySheet         = sheetNames.some(n => /daily/i.test(n))
+
+    // Content sniff: peek at first sheet for EmployeeCode: (monthly details pattern)
+    const firstSheetRows = XLSX.utils.sheet_to_json(
+      wb.Sheets[sheetNames[0]], { header: 1, raw: false, defval: '' }
+    ) as any[][]
+    const sampleText = firstSheetRows.slice(0, 30).flat().join(' ')
+    const isMonthlyDetailByContent = sampleText.includes('EmployeeCode:')
+    const isMonthlyBasicByContent  = !isMonthlyDetailByContent &&
+      firstSheetRows.some(r => r.some((c: any) => /^\d{1,2}-[A-Za-z]{3}$/.test(String(c ?? ''))))
+
+    if (isMonthlyDetailByName || isMonthlyDetailBySheet || isMonthlyDetailByContent) {
       format = 'Monthly Details'
       ;({ records, errors } = await parseMonthlyDetails(wb.Sheets[sheetNames[0]], empMap))
-    } else if (
-      sheetNames.some(n => n.toLowerCase().includes('daily')) ||
-      fn.includes('daily')
-    ) {
+    } else if (isMonthlyBasicByName || isMonthlyBasicBySheet || isMonthlyBasicByContent) {
+      format = 'Monthly Basic'
+      const sheet = wb.Sheets[sheetNames.find(n => /basic/i.test(n)) ?? sheetNames[0]]
+      ;({ records, errors } = await parseMonthlyBasic(sheet, empMap))
+    } else if (isDailyByName || isDailyBySheet) {
       format = 'Daily Basic'
-      const sheet = wb.Sheets[sheetNames.find(n => n.toLowerCase().includes('daily')) ?? sheetNames[0]]
+      const sheet = wb.Sheets[sheetNames.find(n => /daily/i.test(n)) ?? sheetNames[0]]
       ;({ records, errors } = await parseDailyBasic(sheet, empMap, filename))
     } else {
-      return NextResponse.json({ success: false, error: 'Unrecognized Smart Office report format' }, { status: 400 })
+      // Last resort: try Monthly Basic anyway (most common format)
+      format = 'Monthly Basic (auto-detected)'
+      const sheet = wb.Sheets[sheetNames[0]]
+      ;({ records, errors } = await parseMonthlyBasic(sheet, empMap))
     }
 
     if (records.length === 0 && errors.length > 0) {
@@ -385,10 +404,10 @@ export async function POST(req: NextRequest) {
 
     // ── Auto-create employees whose emp_code wasn't in the HR master ──
     // Collect unique unknown codes with best-effort names (deduplicated).
-    const unknownCodes = new Map<string, string>() // empCode → empName
+    const unknownCodes = new Map<string, string>() // empCode.toUpperCase() → empName
     for (const rec of records) {
-      if (!rec.employeeId && !unknownCodes.has(rec.empCode)) {
-        unknownCodes.set(rec.empCode, rec.empName)
+      if (!rec.employeeId && !unknownCodes.has(rec.empCode.toUpperCase())) {
+        unknownCodes.set(rec.empCode.toUpperCase(), rec.empName)
       }
     }
 
@@ -418,20 +437,20 @@ export async function POST(req: NextRequest) {
               status: 'active',
             },
           })
-          empMap.set(empCode, newEmp.id)
+          empMap.set(empCode.toUpperCase(), newEmp.id)
           autoCreated++
         } catch {
-          // Duplicate or constraint error — try fetching the existing record
+          // Duplicate or constraint error — employee already exists, just fetch them
           const existing = await prisma.employee.findFirst({
             where: { org_id: session.user.org_id, emp_code: empCode },
           })
-          if (existing) empMap.set(empCode, existing.id)
+          if (existing) empMap.set(empCode.toUpperCase(), existing.id)
         }
       }
 
       // Patch records that had empty employeeId now that empMap is updated
       for (const rec of records) {
-        if (!rec.employeeId) rec.employeeId = empMap.get(rec.empCode) ?? ''
+        if (!rec.employeeId) rec.employeeId = empMap.get(rec.empCode.toUpperCase()) ?? ''
       }
     }
 
@@ -492,6 +511,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Determine the month/year of the imported data so the UI can navigate there
+    const importedDates = records.filter(r => r.date).map(r => r.date)
+    const latestDate = importedDates.length
+      ? importedDates.reduce((a, b) => a > b ? a : b)
+      : new Date()
+    const imported_month = latestDate.getMonth() + 1
+    const imported_year  = latestDate.getFullYear()
+
     const messageParts = [`${format} import complete — ${processed} records saved`]
     if (autoCreated > 0) messageParts.push(`${autoCreated} new employee${autoCreated > 1 ? 's' : ''} created from attendance data`)
     if (earlyFlagged > 0) messageParts.push(`${earlyFlagged} early-departure record${earlyFlagged > 1 ? 's' : ''} flagged for HR review`)
@@ -504,6 +531,8 @@ export async function POST(req: NextRequest) {
         skipped,
         auto_created: autoCreated,
         early_flagged: earlyFlagged,
+        imported_month,
+        imported_year,
         errors: errors.slice(0, 10),
         message: messageParts.join(' · '),
       },
