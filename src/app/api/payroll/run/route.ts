@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     if (guard instanceof NextResponse) return guard
     const session = guard
 
-    const { payroll_run_id, ot_rate_per_hour = 0 } = await req.json()
+    const { payroll_run_id, ot_rate_per_hour = 0, period_from, period_to } = await req.json()
 
     const run = await prisma.payrollRun.findFirst({
       where: { id: payroll_run_id, org_id: session.user.org_id },
@@ -46,9 +46,24 @@ export async function POST(req: NextRequest) {
     const ptState   = (settings.pt_state as string) ?? 'maharashtra'
     const tdsRegime: 'old' | 'new' = (settings.tds_regime as 'old' | 'new') ?? 'new'
 
-    // Holidays falling inside this payroll month.
-    const monthStart = new Date(Date.UTC(run.year, run.month - 1, 1))
-    const monthEnd   = new Date(Date.UTC(run.year, run.month, 0, 23, 59, 59))
+    // Salary period — HR can override the default full-month range.
+    const monthStart = period_from
+      ? new Date(period_from)
+      : new Date(Date.UTC(run.year, run.month - 1, 1))
+    const monthEnd = period_to
+      ? new Date(period_to + 'T23:59:59Z')
+      : new Date(Date.UTC(run.year, run.month, 0, 23, 59, 59))
+
+    // Persist period on the run so it's visible later
+    if (period_from || period_to) {
+      await prisma.payrollRun.update({
+        where: { id: run.id },
+        data: {
+          ...(period_from && { period_from: new Date(period_from) }),
+          ...(period_to   && { period_to:   new Date(period_to + 'T23:59:59Z') }),
+        },
+      })
+    }
     const holidays = await prisma.holiday.findMany({
       where: {
         org_id: session.user.org_id,

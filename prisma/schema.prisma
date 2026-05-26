@@ -339,6 +339,8 @@ model PayrollRun {
   total_gross      Decimal   @db.Decimal(12, 2) @default(0)
   total_deductions Decimal   @db.Decimal(12, 2) @default(0)
   total_net        Decimal   @db.Decimal(12, 2) @default(0)
+  period_from      DateTime? // custom salary period start (optional, defaults to 1st of month)
+  period_to        DateTime? // custom salary period end (optional, defaults to last of month)
   run_by           String?
   approved_by      String?
   paid_at          DateTime?

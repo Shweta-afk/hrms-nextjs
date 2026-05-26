@@ -88,6 +88,10 @@ const Payroll = () => {
     zero_attendance_employees: Array<{ id: string; first_name: string; emp_code?: string | null }>;
   }>({ warnings: [], zero_attendance_employees: [] })
 
+  // Custom salary period
+  const [periodFrom, setPeriodFrom] = useState('')
+  const [periodTo, setPeriodTo] = useState('')
+
   // Adjustment workflow
   const [adjModal, setAdjModal] = useState(false)
   const [adjFile, setAdjFile] = useState<File | null>(null)
@@ -165,7 +169,12 @@ const Payroll = () => {
       const res = await fetch('/api/payroll/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payroll_run_id: runId, ot_rate_per_hour: otRate }),
+        body: JSON.stringify({
+          payroll_run_id: runId,
+          ot_rate_per_hour: otRate,
+          ...(periodFrom && { period_from: periodFrom }),
+          ...(periodTo   && { period_to:   periodTo }),
+        }),
       })
       const json = await res.json()
       if (json.success) {
@@ -429,6 +438,25 @@ const Payroll = () => {
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMonthOffset(p => p + 1)}>
               <ChevronRight className="h-4 w-4" />
             </Button>
+          </div>
+          {/* Salary period date range */}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="hidden sm:inline">Period:</span>
+            <input
+              type="date"
+              value={periodFrom}
+              onChange={e => setPeriodFrom(e.target.value)}
+              className="h-9 text-xs border border-input bg-background text-foreground rounded-md px-2 w-32"
+              title="Salary period start (leave blank for 1st of month)"
+            />
+            <span>–</span>
+            <input
+              type="date"
+              value={periodTo}
+              onChange={e => setPeriodTo(e.target.value)}
+              className="h-9 text-xs border border-input bg-background text-foreground rounded-md px-2 w-32"
+              title="Salary period end (leave blank for last of month)"
+            />
           </div>
           <Button
             variant="outline"

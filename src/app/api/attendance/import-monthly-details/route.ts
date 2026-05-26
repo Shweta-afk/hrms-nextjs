@@ -28,6 +28,21 @@ function cleanTime(val: string): string | null {
   return clean
 }
 
+// Combine a UTC date with a HH:MM:SS time string into a proper DateTime.
+// The device records IST (UTC+5:30); we store as UTC by subtracting the offset.
+function toDateTime(dateUtc: Date, timeStr: string | null): Date | null {
+  if (!timeStr) return null
+  const parts = timeStr.split(':')
+  const h = parseInt(parts[0] ?? '0', 10)
+  const m = parseInt(parts[1] ?? '0', 10)
+  const s = parseInt(parts[2] ?? '0', 10)
+  if (isNaN(h) || isNaN(m) || isNaN(s)) return null
+  // Copy the date, set time in UTC treating device local time as IST (UTC+5:30)
+  const dt = new Date(dateUtc)
+  dt.setUTCHours(h - 5, m - 30, s, 0)
+  return dt
+}
+
 // Parse "21-Apr-2026 to 20-May-2026" → { startDay, startMonth, startYear, endDay, endMonth, endYear }
 function parseDateRange(rangeStr: string) {
   const parts = rangeStr.trim().split(/\s+to\s+/i)
@@ -209,8 +224,8 @@ export async function POST(req: NextRequest) {
 
         const late        = lateByMins[col] ?? 0
         const ot          = otHours[col] ?? 0
-        const inTime      = cleanTime(inTimeCols[col] ?? '')
-        const outTime     = cleanTime(outTimeCols[col] ?? '')
+        const inTime      = toDateTime(actualDate, cleanTime(inTimeCols[col] ?? ''))
+        const outTime     = toDateTime(actualDate, cleanTime(outTimeCols[col] ?? ''))
 
         let status: string
         if (rawStatus === 'P') {
@@ -221,8 +236,6 @@ export async function POST(req: NextRequest) {
           status = 'absent'
           absentCount++
         }
-
-        const dateStr = actualDate.toISOString().slice(0, 10)
 
         await prisma.attendanceRecord.upsert({
           where: {
@@ -236,9 +249,9 @@ export async function POST(req: NextRequest) {
             status,
             is_late:          late > 0,
             late_by_minutes:  late,
-            overtime_hours:   ot > 0 ? ot : undefined,
-            first_in:         inTime ?? undefined,
-            last_out:         outTime ?? undefined,
+            ...(ot > 0  && { overtime_hours: ot }),
+            ...(inTime  && { first_in: inTime }),
+            ...(outTime && { last_out: outTime }),
             source:           'monthly_details_csv',
           },
           create: {
@@ -248,9 +261,9 @@ export async function POST(req: NextRequest) {
             status,
             is_late:         late > 0,
             late_by_minutes: late,
-            overtime_hours:  ot > 0 ? ot : undefined,
-            first_in:        inTime ?? undefined,
-            last_out:        outTime ?? undefined,
+            ...(ot > 0  && { overtime_hours: ot }),
+            ...(inTime  && { first_in: inTime }),
+            ...(outTime && { last_out: outTime }),
             source:          'monthly_details_csv',
           },
         })

@@ -9,7 +9,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Loader2, Receipt, CheckCircle2, XCircle, Clock, IndianRupee } from 'lucide-react'
+import { Loader2, Receipt, CheckCircle2, XCircle, Clock, IndianRupee, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Reimbursement {
@@ -60,6 +60,32 @@ const Reimbursements = () => {
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectionReasonInput, setRejectionReasonInput] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [exportFrom, setExportFrom] = useState('')
+  const [exportTo, setExportTo] = useState('')
+  const [exporting, setExporting] = useState(false)
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (activeTab !== 'all') params.set('status', activeTab)
+      if (exportFrom) params.set('from', exportFrom)
+      if (exportTo)   params.set('to',   exportTo)
+      const res = await fetch(`/api/reimbursements/export?${params}`)
+      if (!res.ok) throw new Error('Export failed')
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url
+      a.download = `reimbursements${exportFrom ? `_${exportFrom}_to_${exportTo || 'now'}` : ''}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Failed to export')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   async function fetchReimbursements(status?: string) {
     setLoading(true)
@@ -296,11 +322,45 @@ const Reimbursements = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
           <Receipt className="h-6 w-6 text-primary" />
           Reimbursements
         </h1>
+        {/* Export controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-muted-foreground whitespace-nowrap">From</label>
+            <input
+              type="date"
+              value={exportFrom}
+              onChange={e => setExportFrom(e.target.value)}
+              className="h-8 text-sm border border-input bg-background rounded-md px-2 text-foreground"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-muted-foreground whitespace-nowrap">To</label>
+            <input
+              type="date"
+              value={exportTo}
+              onChange={e => setExportTo(e.target.value)}
+              className="h-8 text-sm border border-input bg-background rounded-md px-2 text-foreground"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExport}
+            disabled={exporting}
+            className="gap-1.5"
+          >
+            {exporting
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Download className="h-4 w-4" />
+            }
+            Export Excel
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
