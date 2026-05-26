@@ -16,8 +16,8 @@ const UpdateEmployeeSchema = z.object({
   status: z.enum(['active', 'on_notice', 'terminated']).optional(),
   personal_info: z.record(z.string(), z.unknown()).optional(),
   contact_info: z.record(z.string(), z.unknown()).optional(),
-  essl_device_id: z.string().optional(),
-  salary_structure_id: z.string().optional(),
+  essl_device_id: z.string().nullable().optional(),
+  salary_structure_id: z.string().nullable().optional(),
   ctc_annual: z.number().optional(),
   exclude_from_payroll: z.boolean().optional(),
   // Sensitive fields — accepted as plain objects, encrypted before storage
@@ -112,18 +112,38 @@ export async function PATCH(
       }
     }
 
+    // Verify the employee belongs to this org before touching anything
+    const existing = await prisma.employee.findFirst({
+      where: { id: id, org_id: session.user.org_id },
+    })
+    if (!existing) {
+      return NextResponse.json({ success: false, error: 'Employee not found' }, { status: 404 })
+    }
+
     const updatePayload: Record<string, unknown> = { ...rest }
     if (bank_details !== undefined) updatePayload.bank_details = safeEncrypt(bank_details)
     if (statutory_info !== undefined) updatePayload.statutory_info = safeEncrypt(statutory_info)
 
-    const result = await prisma.employee.updateMany({
-      where: { id: id, org_id: session.user.org_id },
+    // If there's nothing to update just return the current record
+    if (Object.keys(updatePayload).length === 0) {
+      const current = await prisma.employee.findFirst({
+        where: { id: id },
+        include: { department: true, designation: true },
+      })
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...current,
+          bank_details: safeDecrypt(current!.bank_details),
+          statutory_info: safeDecrypt(current!.statutory_info),
+        },
+      })
+    }
+
+    await prisma.employee.update({
+      where: { id: id },
       data: updatePayload,
     })
-
-    if (result.count === 0) {
-      return NextResponse.json({ success: false, error: 'Employee not found' }, { status: 404 })
-    }
 
     // If email changed, keep the linked User account in sync
     if (updatePayload.email) {
