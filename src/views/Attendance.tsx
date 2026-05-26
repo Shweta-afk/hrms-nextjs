@@ -109,7 +109,7 @@ const Attendance = () => {
   const [yearOffset, setYearOffset] = useState(0)
 
   // Reports
-  const [activeReport, setActiveReport] = useState<'absent' | 'late' | 'ot'>('absent')
+  const [activeReport, setActiveReport] = useState<'absent' | 'late' | 'ot' | 'grid'>('absent')
 
   // Correction modal
   const [correctionRecord, setCorrectionRecord] = useState<AttendanceRecord | null>(null)
@@ -695,6 +695,7 @@ const Attendance = () => {
                     { key: 'absent', label: `Absent (${absentReport.length})` },
                     { key: 'late',   label: `Late (${lateReport.length})` },
                     { key: 'ot',     label: `Overtime (${otReport.length})` },
+                    { key: 'grid',   label: 'Daily Grid' },
                   ] as const).map(t => (
                     <button
                       key={t.key}
@@ -705,9 +706,11 @@ const Attendance = () => {
                     </button>
                   ))}
                 </div>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={() => downloadReportCsv(activeReport)}>
-                  <Download className="h-3.5 w-3.5" /> CSV
-                </Button>
+                {activeReport !== 'grid' && (
+                  <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={() => downloadReportCsv(activeReport as 'absent' | 'late' | 'ot')}>
+                    <Download className="h-3.5 w-3.5" /> CSV
+                  </Button>
+                )}
               </div>
             </div>
           </CardHeader>
@@ -876,6 +879,125 @@ const Attendance = () => {
                 </Table>
               )
             )}
+
+            {/* ── Daily Grid ── */}
+            {activeReport === 'grid' && (() => {
+              // Group records by employee, then by day-of-month
+              const empRows = (() => {
+                const map = new Map<string, {
+                  id: string; name: string; emp_code: string; dept: string;
+                  days: Map<number, AttendanceRecord>
+                }>()
+                for (const r of records) {
+                  const key = r.employee.id
+                  if (!map.has(key)) map.set(key, {
+                    id: key,
+                    name: `${r.employee.first_name} ${r.employee.last_name}`,
+                    emp_code: r.employee.emp_code,
+                    dept: r.employee.department?.name ?? '—',
+                    days: new Map(),
+                  })
+                  const d = new Date(r.date).getUTCDate()
+                  map.get(key)!.days.set(d, r)
+                }
+                return [...map.values()].sort((a, b) => a.emp_code.localeCompare(b.emp_code))
+              })()
+              const dayNums = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+              const cellCls = (r: AttendanceRecord | undefined) => {
+                if (!r) return 'bg-muted/40 text-muted-foreground/30'
+                const s = r.is_late ? 'late' : r.status
+                return ({
+                  present:    'bg-kpi-green/20 text-kpi-green font-semibold',
+                  late:       'bg-kpi-amber/20 text-kpi-amber font-semibold',
+                  absent:     'bg-kpi-red/20 text-kpi-red font-semibold',
+                  half_day:   'bg-kpi-amber/10 text-kpi-amber',
+                  holiday:    'bg-muted text-muted-foreground',
+                  weekly_off: 'bg-muted/50 text-muted-foreground/50',
+                } as Record<string, string>)[s] ?? 'bg-muted text-muted-foreground'
+              }
+              const cellLabel = (r: AttendanceRecord | undefined) => {
+                if (!r) return ''
+                const s = r.is_late ? 'late' : r.status
+                return ({ present: 'P', late: 'L', absent: 'A', half_day: '½', holiday: 'H', weekly_off: '–' } as Record<string, string>)[s] ?? '?'
+              }
+              if (empRows.length === 0) return (
+                <p className="text-sm text-muted-foreground text-center py-10">No attendance records for this month</p>
+              )
+              return (
+                <div className="overflow-x-auto">
+                  <table className="text-[11px] border-collapse w-max min-w-full">
+                    <thead>
+                      <tr>
+                        <th className="sticky left-0 z-10 bg-card border-b border-border px-3 py-2 text-left font-medium text-muted-foreground min-w-[160px]">
+                          Employee
+                        </th>
+                        <th className="sticky left-[160px] z-10 bg-card border-b border-border px-2 py-2 text-left font-medium text-muted-foreground min-w-[90px]">
+                          Dept
+                        </th>
+                        {dayNums.map(d => {
+                          const dow = new Date(year, month - 1, d).getDay()
+                          const isWeekend = dow === 0 || dow === 6
+                          return (
+                            <th key={d} className={`border-b border-border px-0 py-2 text-center font-medium w-8 ${isWeekend ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
+                              {d}
+                            </th>
+                          )
+                        })}
+                        <th className="border-b border-border px-2 py-2 text-center font-medium text-muted-foreground">P</th>
+                        <th className="border-b border-border px-2 py-2 text-center font-medium text-muted-foreground">A</th>
+                        <th className="border-b border-border px-2 py-2 text-center font-medium text-muted-foreground">L</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {empRows.map((emp, ri) => {
+                        let pCount = 0, aCount = 0, lCount = 0
+                        return (
+                          <tr key={emp.id} className={ri % 2 === 0 ? 'bg-card' : 'bg-muted/20'}>
+                            <td className="sticky left-0 z-10 bg-inherit border-b border-border px-3 py-1.5 min-w-[160px]">
+                              <div>
+                                <span className="font-medium text-foreground">{emp.name}</span>
+                                <span className="ml-1.5 text-muted-foreground">({emp.emp_code})</span>
+                              </div>
+                            </td>
+                            <td className="sticky left-[160px] z-10 bg-inherit border-b border-border px-2 py-1.5 text-muted-foreground min-w-[90px] truncate max-w-[90px]">
+                              {emp.dept}
+                            </td>
+                            {dayNums.map(d => {
+                              const rec = emp.days.get(d)
+                              const s = rec ? (rec.is_late ? 'late' : rec.status) : ''
+                              if (s === 'present') pCount++
+                              else if (s === 'absent') aCount++
+                              else if (s === 'late') { pCount++; lCount++ }
+                              return (
+                                <td key={d} className={`border-b border-border text-center py-1 w-8 ${cellCls(rec)}`}
+                                  title={rec ? `${d} ${monthLabel}: ${s}${rec.first_in ? ` · In ${formatTime(rec.first_in)}` : ''}${rec.late_by_minutes > 0 ? ` · Late ${rec.late_by_minutes}m` : ''}` : `${d} ${monthLabel}: no record`}>
+                                  {cellLabel(rec)}
+                                </td>
+                              )
+                            })}
+                            <td className="border-b border-border px-2 py-1.5 text-center font-bold text-kpi-green">{pCount}</td>
+                            <td className="border-b border-border px-2 py-1.5 text-center font-bold text-kpi-red">{aCount}</td>
+                            <td className="border-b border-border px-2 py-1.5 text-center font-bold text-kpi-amber">{lCount}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                  <div className="flex items-center gap-4 px-4 py-3 text-[11px] text-muted-foreground border-t border-border flex-wrap">
+                    {[
+                      { label: 'P = Present', cls: 'bg-kpi-green/20 text-kpi-green' },
+                      { label: 'L = Late',    cls: 'bg-kpi-amber/20 text-kpi-amber' },
+                      { label: 'A = Absent',  cls: 'bg-kpi-red/20 text-kpi-red' },
+                      { label: 'H = Holiday', cls: 'bg-muted text-muted-foreground' },
+                      { label: '½ = Half Day',cls: 'bg-kpi-amber/10 text-kpi-amber' },
+                      { label: '– = Off',     cls: 'bg-muted/50 text-muted-foreground/50' },
+                    ].map(l => (
+                      <span key={l.label} className={`px-2 py-0.5 rounded font-medium ${l.cls}`}>{l.label}</span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
 
           </CardContent>
         </Card>

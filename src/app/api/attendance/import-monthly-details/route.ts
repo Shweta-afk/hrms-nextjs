@@ -369,6 +369,20 @@ export async function POST(req: NextRequest) {
       totalRecordsSaved += chunk.length
     }
 
+    // ── 6. Notify the HR user who triggered the import ──────────────────────
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const monthName = MONTH_NAMES[payrollMonth - 1] ?? String(payrollMonth)
+    await prisma.notification.create({
+      data: {
+        org_id:  session.user.org_id,
+        user_id: session.user.id,
+        title:   'Attendance Import Complete',
+        message: `${totalRecordsSaved} records imported for ${importedEmployees.length} employees (${monthName} ${payrollYear}). ${totalEmployeesCreated > 0 ? `${totalEmployeesCreated} new employee(s) created.` : ''}`.trim(),
+        type:    'success',
+        link:    '/attendance',
+      },
+    }).catch(() => {}) // non-critical — don't fail the import if notification fails
+
     return NextResponse.json({
       success: true,
       data: {
