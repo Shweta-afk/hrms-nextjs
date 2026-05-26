@@ -91,32 +91,32 @@ const MONTHS = [
 
 function statusBadge(status: string) {
   const cfg: Record<string, { label: string; className: string }> = {
-    Present:   { label: 'Present',  className: 'bg-emerald-50 text-emerald-700 border-0' },
-    Late:      { label: 'Late',     className: 'bg-amber-50 text-amber-700 border-0' },
-    Absent:    { label: 'Absent',   className: 'bg-red-50 text-red-600 border-0' },
-    'Half Day':{ label: 'Half Day', className: 'bg-blue-50 text-blue-600 border-0' },
+    Present:   { label: 'Present',  className: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-0' },
+    Late:      { label: 'Late',     className: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-0' },
+    Absent:    { label: 'Absent',   className: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-0' },
+    'Half Day':{ label: 'Half Day', className: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-0' },
   }
-  const c = cfg[status] ?? { label: status, className: 'bg-gray-100 text-gray-600 border-0' }
+  const c = cfg[status] ?? { label: status, className: 'bg-muted text-muted-foreground border-0' }
   return <Badge className={cn('text-[10px] px-1.5 py-0 font-medium', c.className)}>{c.label}</Badge>
 }
 
 function enrollBadge(hrmsStatus: string, onDevice: boolean | null) {
   if (hrmsStatus === 'enrolled' && onDevice === true) {
-    return <Badge className="bg-emerald-50 text-emerald-700 border-0 text-[10px] gap-1"><CheckCircle2 className="h-3 w-3" />Enrolled</Badge>
+    return <Badge className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-0 text-[10px] gap-1"><CheckCircle2 className="h-3 w-3" />Enrolled</Badge>
   }
   if (hrmsStatus === 'enrolled' && onDevice === false) {
-    return <Badge className="bg-amber-50 text-amber-700 border-0 text-[10px] gap-1"><AlertCircle className="h-3 w-3" />HRMS only</Badge>
+    return <Badge className="bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-0 text-[10px] gap-1"><AlertCircle className="h-3 w-3" />HRMS only</Badge>
   }
   if (hrmsStatus !== 'enrolled' && onDevice === true) {
-    return <Badge className="bg-blue-50 text-blue-700 border-0 text-[10px] gap-1"><AlertCircle className="h-3 w-3" />Device only</Badge>
+    return <Badge className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-0 text-[10px] gap-1"><AlertCircle className="h-3 w-3" />Device only</Badge>
   }
   if (hrmsStatus === 'pending') {
-    return <Badge className="bg-gray-100 text-gray-500 border-0 text-[10px]">Pending sync</Badge>
+    return <Badge className="bg-muted text-muted-foreground border-0 text-[10px]">Pending sync</Badge>
   }
   if (hrmsStatus === 'failed') {
-    return <Badge className="bg-red-50 text-red-600 border-0 text-[10px] gap-1"><XCircle className="h-3 w-3" />Failed</Badge>
+    return <Badge className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-0 text-[10px] gap-1"><XCircle className="h-3 w-3" />Failed</Badge>
   }
-  return <Badge className="bg-gray-100 text-gray-400 border-0 text-[10px]">Not enrolled</Badge>
+  return <Badge className="bg-muted text-muted-foreground border-0 text-[10px]">Not enrolled</Badge>
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -475,7 +475,7 @@ export default function AttendanceReports() {
                   const statusColor =
                     device.status === 'online' ? 'bg-emerald-500' :
                     device.status === 'idle'   ? 'bg-amber-400' :
-                    device.status === 'never_connected' ? 'bg-gray-300' :
+                    device.status === 'never_connected' ? 'bg-gray-300 dark:bg-muted-foreground/40' :
                     'bg-red-400'
                   return (
                     <div
@@ -544,16 +544,16 @@ export default function AttendanceReports() {
               <>
                 {/* Summary chips */}
                 <div className="flex gap-2 flex-wrap mb-4">
-                  <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full font-medium">
+                  <span className="text-xs bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-full font-medium">
                     {devicePeople.filter((p) => p.hrms_status === 'enrolled' && p.on_device === true).length} Fully enrolled
                   </span>
-                  <span className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full font-medium">
+                  <span className="text-xs bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 px-2 py-1 rounded-full font-medium">
                     {devicePeople.filter((p) => p.hrms_status === 'enrolled' && p.on_device === false).length} HRMS only
                   </span>
-                  <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full font-medium">
+                  <span className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 px-2 py-1 rounded-full font-medium">
                     {devicePeople.filter((p) => p.hrms_status !== 'enrolled' && p.on_device === true).length} Device only
                   </span>
-                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-medium">
+                  <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full font-medium">
                     {devicePeople.filter((p) => p.hrms_status === 'not_enrolled' && !p.on_device).length} Not enrolled
                   </span>
                 </div>

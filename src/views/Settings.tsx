@@ -1410,7 +1410,7 @@ const Settings = () => {
                         <Badge
                           variant="secondary"
                           className={cn("text-[10px] capitalize",
-                            h.type === 'working_day' && "bg-green-100 text-green-800"
+                            h.type === 'working_day' && "bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300"
                           )}
                         >
                           {h.type === 'working_day' ? 'Working Day ✓' : h.type}
@@ -1459,10 +1459,10 @@ const Settings = () => {
           <div className="space-y-4">
             {devices.map(device => {
               const statusColor =
-                device.status === 'online' ? 'text-emerald-600 bg-emerald-50' :
-                device.status === 'idle'   ? 'text-amber-600 bg-amber-50' :
-                device.status === 'never_connected' ? 'text-gray-500 bg-gray-100' :
-                'text-red-500 bg-red-50'
+                device.status === 'online' ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' :
+                device.status === 'idle'   ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20' :
+                device.status === 'never_connected' ? 'text-muted-foreground bg-muted' :
+                'text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
               const StatusIcon = device.status === 'online' ? Wifi : WifiOff
               return (
                 <Card key={device.id} className="shadow-sm">
@@ -1779,7 +1779,7 @@ const Settings = () => {
                 </div>
 
                 {/* Tip */}
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 space-y-1">
+                <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-xs text-amber-800 dark:text-amber-400 space-y-1">
                   <p className="font-semibold">💡 Tip: ESSL AIFACE Magnum menu path</p>
                   <p>Some firmware versions use: <strong>Menu → Advanced → Server Settings → ADMS</strong></p>
                   <p>Others use: <strong>Menu → Comm → Cloud Server</strong></p>
@@ -2231,16 +2231,16 @@ const Settings = () => {
             ) : (
               <>
                 <div className="flex gap-2 flex-wrap mb-4">
-                  <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full font-medium">
+                  <span className="text-xs bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-full font-medium">
                     {devicePeople.filter((p) => p.hrms_status === 'enrolled' && p.on_device === true).length} Fully enrolled
                   </span>
-                  <span className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full font-medium">
+                  <span className="text-xs bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 px-2 py-1 rounded-full font-medium">
                     {devicePeople.filter((p) => p.hrms_status === 'enrolled' && p.on_device === false).length} HRMS only
                   </span>
-                  <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full font-medium">
+                  <span className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 px-2 py-1 rounded-full font-medium">
                     {devicePeople.filter((p) => p.hrms_status !== 'enrolled' && p.on_device === true).length} Device only
                   </span>
-                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-medium">
+                  <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full font-medium">
                     {devicePeople.filter((p) => p.hrms_status === 'not_enrolled' && !p.on_device).length} Not enrolled
                   </span>
                 </div>
@@ -2265,11 +2265,11 @@ const Settings = () => {
                           <TableCell className="font-medium">{person.name}</TableCell>
                           <TableCell className="text-muted-foreground">{person.department ?? '—'}</TableCell>
                           <TableCell>
-                            {enrolled   && <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1 w-fit"><CheckCircle2 className="h-3 w-3" />Enrolled</span>}
-                            {hrmsOnly   && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1 w-fit"><AlertCircle className="h-3 w-3" />HRMS only</span>}
-                            {deviceOnly && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-medium w-fit">Device only</span>}
+                            {enrolled   && <span className="text-[10px] bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1 w-fit"><CheckCircle2 className="h-3 w-3" />Enrolled</span>}
+                            {hrmsOnly   && <span className="text-[10px] bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1 w-fit"><AlertCircle className="h-3 w-3" />HRMS only</span>}
+                            {deviceOnly && <span className="text-[10px] bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 rounded-full font-medium w-fit">Device only</span>}
                             {!enrolled && !hrmsOnly && !deviceOnly && (
-                              <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium w-fit">Not enrolled</span>
+                              <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full font-medium w-fit">Not enrolled</span>
                             )}
                           </TableCell>
                           <TableCell className="text-muted-foreground text-[11px]">
@@ -2313,11 +2313,11 @@ const Settings = () => {
               <>
                 {/* Summary */}
                 <div className="flex gap-3 mb-4 flex-wrap">
-                  <span className="text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-medium">
+                  <span className="text-xs bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full font-medium">
                     {importUsers.filter(u => !u.exists_in_hrms).length} to import
                   </span>
                   {importUsers.filter(u => u.exists_in_hrms).length > 0 && (
-                    <span className="text-xs bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full font-medium">
+                    <span className="text-xs bg-muted text-muted-foreground px-2.5 py-1 rounded-full font-medium">
                       {importUsers.filter(u => u.exists_in_hrms).length} already in HRMS (will skip)
                     </span>
                   )}
@@ -2363,8 +2363,8 @@ const Settings = () => {
                         </TableCell>
                         <TableCell>
                           {u.exists_in_hrms
-                            ? <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Already exists</span>
-                            : <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full">Will import</span>
+                            ? <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">Already exists</span>
+                            : <span className="text-[10px] bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded-full">Will import</span>
                           }
                         </TableCell>
                       </TableRow>

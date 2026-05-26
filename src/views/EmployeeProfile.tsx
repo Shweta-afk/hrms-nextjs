@@ -436,7 +436,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                 </Button>
               )}
               {employee.email?.endsWith('@company.com') && (
-                <span className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-1 rounded-md flex items-center gap-1">
+                <span className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 px-2 py-1 rounded-md flex items-center gap-1">
                   <AlertCircle className="h-3 w-3" /> Update real email to send invite
                 </span>
               )}
@@ -517,7 +517,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                           value={personalDraft.email || ''}
                           onChange={e => setPersonalDraft(p => ({ ...p, email: e.target.value }))}
                           placeholder="employee@example.com"
-                          className={personalDraft.email?.endsWith('@company.com') ? 'border-amber-300 bg-amber-50/40' : ''}
+                          className={personalDraft.email?.endsWith('@company.com') ? 'border-amber-300 bg-amber-50/40 dark:bg-amber-900/20' : ''}
                         />
                       </div>
                       <div className="space-y-1.5 col-span-2">
@@ -852,9 +852,9 @@ const EmployeeProfile = ({ employeeId }: Props) => {
             </CardHeader>
             <CardContent className="pt-0">
               {/* Device User ID mapping */}
-              <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
-                <p className="text-xs font-semibold text-amber-800 mb-0.5">ESSL / ZKTeco Device User ID</p>
-                <p className="text-xs text-amber-700 mb-3">
+              <div className="mb-5 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-900/20 p-4">
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-400 mb-0.5">ESSL / ZKTeco Device User ID</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">
                   The numeric ID this employee is enrolled with on the physical device.
                   If blank, punches are matched by Employee Code (<code className="bg-amber-100 px-1 rounded">{employee?.emp_code}</code>).
                   Set this if the device user ID differs from the employee code.
@@ -865,7 +865,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                     value={esslDeviceId}
                     onChange={(e) => setEsslDeviceId(e.target.value)}
                     placeholder={`Leave blank to use emp code (${employee?.emp_code})`}
-                    className="flex-1 text-sm border border-amber-300 bg-white rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    className="flex-1 text-sm border border-amber-300 bg-background dark:bg-card rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
                   />
                   <Button
                     size="sm"
@@ -939,7 +939,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                           d.device_status === 'online' ? 'bg-green-500'
                           : d.device_status === 'idle' ? 'bg-yellow-500'
                           : d.device_status === 'offline' ? 'bg-red-500'
-                          : 'bg-gray-400'
+                          : 'bg-gray-400 dark:bg-muted-foreground/50'
 
                         return (
                           <TableRow key={d.device_id}>

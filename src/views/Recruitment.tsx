@@ -51,11 +51,11 @@ interface Job {
 
 const STAGES = [
   { id: 'applied', label: 'Applied', color: 'text-muted-foreground', bgColor: 'bg-muted', borderColor: 'border-muted-foreground/30' },
-  { id: 'screening', label: 'Screening', color: 'text-blue-700', bgColor: 'bg-blue-50 dark:bg-blue-950/40', borderColor: 'border-blue-400/40' },
-  { id: 'interview', label: 'Interview', color: 'text-yellow-700', bgColor: 'bg-yellow-50 dark:bg-yellow-950/40', borderColor: 'border-yellow-400/40' },
-  { id: 'final', label: 'Final Round', color: 'text-purple-700', bgColor: 'bg-purple-50 dark:bg-purple-950/40', borderColor: 'border-purple-400/40' },
-  { id: 'offer', label: 'Offer', color: 'text-green-700', bgColor: 'bg-green-50 dark:bg-green-950/40', borderColor: 'border-green-400/40' },
-  { id: 'rejected', label: 'Rejected', color: 'text-red-700', bgColor: 'bg-red-50 dark:bg-red-950/40', borderColor: 'border-red-400/40' },
+  { id: 'screening', label: 'Screening', color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-950/40', borderColor: 'border-blue-400/40' },
+  { id: 'interview', label: 'Interview', color: 'text-yellow-700 dark:text-yellow-400', bgColor: 'bg-yellow-50 dark:bg-yellow-950/40', borderColor: 'border-yellow-400/40' },
+  { id: 'final', label: 'Final Round', color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-950/40', borderColor: 'border-purple-400/40' },
+  { id: 'offer', label: 'Offer', color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-950/40', borderColor: 'border-green-400/40' },
+  { id: 'rejected', label: 'Rejected', color: 'text-red-700 dark:text-red-400', bgColor: 'bg-red-50 dark:bg-red-950/40', borderColor: 'border-red-400/40' },
 ]
 
 const STAGE_ORDER = ['applied', 'screening', 'interview', 'final', 'offer']
@@ -63,19 +63,19 @@ const STAGE_ORDER = ['applied', 'screening', 'interview', 'final', 'offer']
 const MatchBadge = ({ score }: { score: number | null }) => {
   if (!score) return null
   const color = score >= 80
-    ? 'bg-green-100 text-green-800'
+    ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
     : score >= 60
-    ? 'bg-yellow-100 text-yellow-800'
-    : 'bg-red-100 text-red-800'
+    ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-400'
+    : 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-400'
   return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${color}`}>{score}% Match</span>
 }
 
 const SourceTag = ({ source }: { source: string }) => {
   const map: Record<string, string> = {
-    LinkedIn: 'bg-blue-100 text-blue-700',
-    Referral: 'bg-purple-100 text-purple-700',
+    LinkedIn: 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400',
+    Referral: 'bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400',
     Website: 'bg-muted text-muted-foreground',
-    Naukri: 'bg-teal-100 text-teal-700',
+    Naukri: 'bg-teal-100 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400',
   }
   return <span className={`text-[10px] px-1.5 py-0.5 rounded ${map[source] ?? 'bg-muted text-muted-foreground'}`}>{source}</span>
 }

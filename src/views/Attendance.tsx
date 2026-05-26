@@ -962,13 +962,13 @@ const Attendance = () => {
           {/* ── Monthly Details CSV tab ── */}
           {importTab === 'monthly' && !monthlyResult && (
             <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-xs space-y-1.5">
-                <p className="font-semibold text-blue-900">Monthly Detailed Attendance Report</p>
-                <p className="text-blue-800">Accepts the CSV exported from your biometric software with the heading <span className="font-mono bg-blue-100 px-1 rounded">Monthly Detailed Attendance Report(Default)</span></p>
-                <p className="text-blue-700 mt-1">• The date range is read from row 3 (e.g. <span className="font-mono">21-Apr-2026 to 20-May-2026</span>)</p>
-                <p className="text-blue-700">• Each employee's P/A status, in-time, out-time, overtime and late-by are imported</p>
-                <p className="text-blue-700">• New employees are auto-created and will appear in the Employees list</p>
-                <p className="text-blue-700">• You can send welcome emails to all imported employees after upload</p>
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-xs space-y-1.5">
+                <p className="font-semibold text-blue-900 dark:text-blue-300">Monthly Detailed Attendance Report</p>
+                <p className="text-blue-800 dark:text-blue-300">Accepts the CSV exported from your biometric software with the heading <span className="font-mono bg-blue-100 dark:bg-blue-900/40 px-1 rounded">Monthly Detailed Attendance Report(Default)</span></p>
+                <p className="text-blue-700 dark:text-blue-400 mt-1">• The date range is read from row 3 (e.g. <span className="font-mono">21-Apr-2026 to 20-May-2026</span>)</p>
+                <p className="text-blue-700 dark:text-blue-400">• Each employee's P/A status, in-time, out-time, overtime and late-by are imported</p>
+                <p className="text-blue-700 dark:text-blue-400">• New employees are auto-created and will appear in the Employees list</p>
+                <p className="text-blue-700 dark:text-blue-400">• You can send welcome emails to all imported employees after upload</p>
               </div>
               <div
                 className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
@@ -994,22 +994,22 @@ const Attendance = () => {
           {importTab === 'monthly' && monthlyResult && (
             <div className="space-y-4">
               {/* Summary */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
-                  <span className="font-semibold text-green-800 text-sm">Import Successful</span>
+                  <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  <span className="font-semibold text-green-800 dark:text-green-300 text-sm">Import Successful</span>
                 </div>
-                <p className="text-xs text-green-700">Period: <strong>{monthlyResult.date_range}</strong></p>
+                <p className="text-xs text-green-700 dark:text-green-400">Period: <strong>{monthlyResult.date_range}</strong></p>
                 <div className="grid grid-cols-3 gap-3 mt-3">
-                  <div className="bg-white rounded p-2 text-center border border-green-100">
+                  <div className="bg-card rounded p-2 text-center border border-green-100 dark:border-green-900">
                     <p className="text-lg font-bold text-foreground">{monthlyResult.employees_total}</p>
                     <p className="text-[10px] text-muted-foreground">Employees</p>
                   </div>
-                  <div className="bg-white rounded p-2 text-center border border-green-100">
+                  <div className="bg-card rounded p-2 text-center border border-green-100 dark:border-green-900">
                     <p className="text-lg font-bold text-blue-600">{monthlyResult.employees_created}</p>
                     <p className="text-[10px] text-muted-foreground">Auto-created</p>
                   </div>
-                  <div className="bg-white rounded p-2 text-center border border-green-100">
+                  <div className="bg-card rounded p-2 text-center border border-green-100 dark:border-green-900">
                     <p className="text-lg font-bold text-foreground">{monthlyResult.records_saved}</p>
                     <p className="text-[10px] text-muted-foreground">Records saved</p>
                   </div>
@@ -1032,7 +1032,7 @@ const Attendance = () => {
                         : <><Mail className="h-3 w-3" /> Send Welcome Emails</>}
                     </Button>
                   ) : (
-                    <span className="text-xs text-green-600 flex items-center gap-1">
+                    <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                       <CheckCircle2 className="h-3.5 w-3.5" /> Emails sent
                     </span>
                   )}
@@ -1056,17 +1056,17 @@ const Attendance = () => {
                           <td className="px-3 py-1.5">
                             <span>{emp.name}</span>
                             {emp.is_new && (
-                              <span className="ml-1.5 inline-flex items-center gap-0.5 bg-blue-100 text-blue-700 rounded px-1 py-0.5 text-[10px] font-medium">
+                              <span className="ml-1.5 inline-flex items-center gap-0.5 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded px-1 py-0.5 text-[10px] font-medium">
                                 <UserPlus className="h-2.5 w-2.5" /> New
                               </span>
                             )}
                           </td>
-                          <td className="px-2 py-1.5 text-center text-green-700 font-medium">{emp.present}</td>
-                          <td className="px-2 py-1.5 text-center text-red-600 font-medium">{emp.absent}</td>
-                          <td className="px-2 py-1.5 text-center text-amber-600 font-medium">{emp.late}</td>
+                          <td className="px-2 py-1.5 text-center text-green-700 dark:text-green-400 font-medium">{emp.present}</td>
+                          <td className="px-2 py-1.5 text-center text-red-600 dark:text-red-400 font-medium">{emp.absent}</td>
+                          <td className="px-2 py-1.5 text-center text-amber-600 dark:text-amber-400 font-medium">{emp.late}</td>
                           <td className="px-3 py-1.5 text-right">
                             {emp.email
-                              ? <span className="text-green-600">✓ Has email</span>
+                              ? <span className="text-green-600 dark:text-green-400">✓ Has email</span>
                               : <span className="text-muted-foreground">No email</span>}
                           </td>
                         </tr>
@@ -1151,8 +1151,8 @@ const Attendance = () => {
           )}
 
           {importResult && importTab !== 'monthly' && (
-            <div className="bg-green-50 border border-green-200 rounded-md p-3 space-y-1">
-              <p className="text-sm font-medium text-green-700">Import Complete</p>
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md p-3 space-y-1">
+              <p className="text-sm font-medium text-green-700 dark:text-green-400">Import Complete</p>
               {importResult.format && (
                 <p className="text-xs text-muted-foreground">Format: {importResult.format}</p>
               )}

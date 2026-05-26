@@ -95,7 +95,7 @@ const deviceStatusConfig: Record<string, { dot: string; label: string; labelColo
   online:          { dot: 'bg-green-500',  label: 'Online',           labelColor: 'text-green-600' },
   idle:            { dot: 'bg-yellow-500', label: 'Idle',             labelColor: 'text-yellow-600' },
   offline:         { dot: 'bg-red-500',    label: 'OFFLINE',          labelColor: 'text-red-600' },
-  never_connected: { dot: 'bg-gray-400',   label: 'Never connected',  labelColor: 'text-muted-foreground' },
+  never_connected: { dot: 'bg-gray-400 dark:bg-muted-foreground/50',   label: 'Never connected',  labelColor: 'text-muted-foreground' },
 }
 
 const POLL_MS = 30_000
@@ -348,8 +348,8 @@ const AttendanceLive = () => {
                                   className={cn(
                                     'text-xs font-semibold border-0',
                                     punch.direction === 'IN'
-                                      ? 'bg-green-500/15 text-green-700 hover:bg-green-500/15'
-                                      : 'bg-red-500/15 text-red-700 hover:bg-red-500/15'
+                                      ? 'bg-green-500/15 text-green-700 dark:text-green-400 hover:bg-green-500/15'
+                                      : 'bg-red-500/15 text-red-700 dark:text-red-400 hover:bg-red-500/15'
                                   )}
                                 >
                                   {punch.direction === 'IN' ? '🟢 IN' : '🔴 OUT'}

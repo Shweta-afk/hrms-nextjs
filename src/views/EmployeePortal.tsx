@@ -72,10 +72,10 @@ const formatTime = (dateStr: string | null) => {
 const StatusChip = ({ status, isLate }: { status: string; isLate: boolean }) => {
   const label = isLate ? 'Late' : status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())
   const map: Record<string, string> = {
-    present: 'bg-green-100 text-green-800',
-    late: 'bg-yellow-100 text-yellow-800',
-    absent: 'bg-red-100 text-red-800',
-    Leave: 'bg-orange-100 text-orange-800',
+    present: 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300',
+    late: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-400',
+    absent: 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-400',
+    Leave: 'bg-orange-100 dark:bg-orange-900/20 text-orange-800 dark:text-orange-400',
   }
   const key = isLate ? 'late' : status
   return (
@@ -224,11 +224,11 @@ const EmployeePortal = () => {
   }
 
   const quickActions = [
-    { label: 'Apply for Leave', icon: CalendarDays, href: '/leave/apply', color: 'bg-blue-50', iconColor: 'text-blue-600', ring: 'ring-blue-200' },
-    { label: 'Download Payslip', icon: Download, href: '/payslip', color: 'bg-green-50', iconColor: 'text-green-600', ring: 'ring-green-200' },
-    { label: 'View Attendance', icon: Clock, href: '/portal/attendance', color: 'bg-indigo-50', iconColor: 'text-indigo-600', ring: 'ring-indigo-200' },
-    { label: 'Company Policies', icon: FileText, href: '/portal/policy', color: 'bg-orange-50', iconColor: 'text-orange-600', ring: 'ring-orange-200' },
-    { label: 'Update Profile', icon: User, href: '/portal/profile', color: 'bg-purple-50', iconColor: 'text-purple-600', ring: 'ring-purple-200' },
+    { label: 'Apply for Leave', icon: CalendarDays, href: '/leave/apply', color: 'bg-blue-50 dark:bg-blue-900/20', iconColor: 'text-blue-600 dark:text-blue-400', ring: 'ring-blue-200 dark:ring-blue-800' },
+    { label: 'Download Payslip', icon: Download, href: '/payslip', color: 'bg-green-50 dark:bg-green-900/20', iconColor: 'text-green-600 dark:text-green-400', ring: 'ring-green-200 dark:ring-green-800' },
+    { label: 'View Attendance', icon: Clock, href: '/portal/attendance', color: 'bg-indigo-50 dark:bg-indigo-900/20', iconColor: 'text-indigo-600 dark:text-indigo-400', ring: 'ring-indigo-200 dark:ring-indigo-800' },
+    { label: 'Company Policies', icon: FileText, href: '/portal/policy', color: 'bg-orange-50 dark:bg-orange-900/20', iconColor: 'text-orange-600 dark:text-orange-400', ring: 'ring-orange-200 dark:ring-orange-800' },
+    { label: 'Update Profile', icon: User, href: '/portal/profile', color: 'bg-purple-50 dark:bg-purple-900/20', iconColor: 'text-purple-600 dark:text-purple-400', ring: 'ring-purple-200 dark:ring-purple-800' },
     { label: 'Raise a Request', icon: HelpCircle, href: '#request', color: 'bg-muted', iconColor: 'text-muted-foreground', ring: 'ring-border' },
   ]
 
@@ -354,18 +354,18 @@ const EmployeePortal = () => {
                   </div>
                   <div className="flex flex-wrap gap-3">
                     {todayAttendance && (
-                      <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium bg-green-50 text-green-700 border-green-200">
+                      <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800">
                         <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Present today
                       </Badge>
                     )}
                     {leaveBalances[0] && (
-                      <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium bg-blue-50 text-blue-700 border-blue-200">
+                      <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800">
                         <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
                         {leaveBalances[0].available} {leaveBalances[0].code} days remaining
                       </Badge>
                     )}
                     {latestPayslip && (
-                      <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 border-indigo-200">
+                      <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800">
                         <Download className="mr-1.5 h-3.5 w-3.5" />
                         Payslip for {monthNames[latestPayslip.month - 1]} {latestPayslip.year} available
                       </Badge>
