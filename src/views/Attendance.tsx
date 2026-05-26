@@ -129,7 +129,7 @@ const Attendance = () => {
   async function fetchAttendance() {
     setLoading(true)
     try {
-      const res = await fetch(`/api/attendance?month=${month}&year=${year}&limit=200`)
+      const res = await fetch(`/api/attendance?month=${month}&year=${year}&limit=5000`)
       const json = await res.json()
       if (json.success) {
         setRecords(json.data.records)

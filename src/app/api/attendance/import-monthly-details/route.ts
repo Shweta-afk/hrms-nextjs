@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { randomUUID } from 'crypto'
 
 // ── Month name → 0-indexed month number ────────────────────────────────────
 const MONTH_MAP: Record<string, number> = {
@@ -56,6 +57,19 @@ function parseDateRange(rangeStr: string) {
   const end   = parse(parts[1])
   if (!start || !end) return null
   return { start, end }
+}
+
+type PendingRecord = {
+  id: string
+  org_id: string
+  employee_id: string
+  date: Date
+  status: string
+  is_late: boolean
+  late_by_minutes: number
+  overtime_hours: number | null
+  first_in: Date | null
+  last_out: Date | null
 }
 
 export async function POST(req: NextRequest) {
@@ -146,9 +160,10 @@ export async function POST(req: NextRequest) {
       present: number; absent: number; late: number; records_saved: number
     }
 
-    let totalRecordsSaved = 0
     let totalEmployeesCreated = 0
     const importedEmployees: ImportedEmp[] = []
+    // Collect ALL records here — written to DB in one batch at the end
+    const pendingRecords: PendingRecord[] = []
 
     let i = 0
     while (i < allLines.length) {
@@ -160,7 +175,7 @@ export async function POST(req: NextRequest) {
 
       // ── Extract code & name ──
       const empCode = (cells[7] ?? '').trim()
-      const empName = (cells[19] ?? '').trim()
+      const empName = (cells[21] ?? '').trim() || (cells[19] ?? '').trim()
       if (!empCode) { i++; continue }
 
       const displayName = (empName && empName !== empCode) ? empName : ''
@@ -215,14 +230,13 @@ export async function POST(req: NextRequest) {
         colToDate.set(col, new Date(Date.UTC(yr, mon, day)))
       }
 
-      // ── Advance past Summary / Shift rows to In Time ──
-      // We scan for specific row labels
+      // ── Scan for Status, Late By, OT, In/Out Time rows ──
       let statusCols:  string[] = []
       let lateByMins:  number[] = []
       let otHours:     number[] = []
       let inTimeCols:  string[] = []
       let outTimeCols: string[] = []
-      const maxRows = 12 // employee block has at most ~10 data rows
+      const maxRows = 14 // employee block has at most ~12 data rows
 
       for (let r = 0; r < maxRows; r++) {
         i++
@@ -248,17 +262,17 @@ export async function POST(req: NextRequest) {
 
       if (statusCols.length === 0) { i++; continue }
 
-      // ── Write attendance records ──
+      // ── Collect attendance records for this employee ──
       let presentCount = 0; let absentCount = 0; let lateCount = 0; let saved = 0
 
       for (const [col, actualDate] of colToDate) {
         const rawStatus = (statusCols[col] ?? '').trim().toUpperCase()
         if (!rawStatus) continue
 
-        const late        = lateByMins[col] ?? 0
-        const ot          = otHours[col] ?? 0
-        const inTime      = toDateTime(actualDate, cleanTime(inTimeCols[col] ?? ''))
-        const outTime     = toDateTime(actualDate, cleanTime(outTimeCols[col] ?? ''))
+        const late    = lateByMins[col] ?? 0
+        const ot      = otHours[col] ?? 0
+        const inTime  = toDateTime(actualDate, cleanTime(inTimeCols[col] ?? ''))
+        const outTime = toDateTime(actualDate, cleanTime(outTimeCols[col] ?? ''))
 
         let status: string
         if (rawStatus === 'P') {
@@ -272,40 +286,21 @@ export async function POST(req: NextRequest) {
           if (status === 'absent') absentCount++
         }
 
-        await prisma.attendanceRecord.upsert({
-          where: {
-            org_id_employee_id_date: {
-              org_id: session.user.org_id,
-              employee_id: employeeId,
-              date: actualDate,
-            },
-          },
-          update: {
-            status,
-            is_late:          late > 0,
-            late_by_minutes:  late,
-            ...(ot > 0  && { overtime_hours: ot }),
-            ...(inTime  && { first_in: inTime }),
-            ...(outTime && { last_out: outTime }),
-            source:           'monthly_details_csv',
-          },
-          create: {
-            org_id:          session.user.org_id,
-            employee_id:     employeeId,
-            date:            actualDate,
-            status,
-            is_late:         late > 0,
-            late_by_minutes: late,
-            ...(ot > 0  && { overtime_hours: ot }),
-            ...(inTime  && { first_in: inTime }),
-            ...(outTime && { last_out: outTime }),
-            source:          'monthly_details_csv',
-          },
+        pendingRecords.push({
+          id:              randomUUID(),
+          org_id:          session.user.org_id,
+          employee_id:     employeeId,
+          date:            actualDate,
+          status,
+          is_late:         late > 0,
+          late_by_minutes: late,
+          overtime_hours:  ot > 0 ? ot : null,
+          first_in:        inTime,
+          last_out:        outTime,
         })
         saved++
       }
 
-      totalRecordsSaved += saved
       const empInfo = empMap.get(empCode.toUpperCase())
       const emailVal = empInfo?.email ?? null
       const hasRealEmail = emailVal && !emailVal.endsWith('@imported.local')
@@ -322,6 +317,56 @@ export async function POST(req: NextRequest) {
       })
 
       i++ // move past blank separator
+    }
+
+    // ── 5. Batch upsert ALL records in chunks of 300 ────────────────────────
+    // One SQL call per chunk instead of one per record → 100x faster
+    const CHUNK_SIZE = 300
+    let totalRecordsSaved = 0
+
+    for (let start = 0; start < pendingRecords.length; start += CHUNK_SIZE) {
+      const chunk = pendingRecords.slice(start, start + CHUNK_SIZE)
+
+      // Build parameterized VALUES list: ($1,$2,...,$12), ($13,...,$24), ...
+      const valuePlaceholders: string[] = []
+      const params: (string | number | boolean | Date | null)[] = []
+      let p = 1
+
+      for (const r of chunk) {
+        valuePlaceholders.push(
+          `($${p++},$${p++}::uuid,$${p++}::uuid,$${p++}::date,$${p++},$${p++}::boolean,$${p++}::integer,$${p++},$${p++},$${p++},${'\'monthly_details_csv\''},NOW(),NOW())`
+        )
+        params.push(
+          r.id,
+          r.org_id,
+          r.employee_id,
+          r.date,
+          r.status,
+          r.is_late,
+          r.late_by_minutes,
+          r.overtime_hours,
+          r.first_in,
+          r.last_out,
+        )
+      }
+
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO attendance_records
+          (id, org_id, employee_id, date, status, is_late, late_by_minutes,
+           overtime_hours, first_in, last_out, source, created_at, updated_at)
+        VALUES ${valuePlaceholders.join(', ')}
+        ON CONFLICT (org_id, employee_id, date) DO UPDATE SET
+          status           = EXCLUDED.status,
+          is_late          = EXCLUDED.is_late,
+          late_by_minutes  = EXCLUDED.late_by_minutes,
+          overtime_hours   = COALESCE(EXCLUDED.overtime_hours, attendance_records.overtime_hours),
+          first_in         = COALESCE(EXCLUDED.first_in, attendance_records.first_in),
+          last_out         = COALESCE(EXCLUDED.last_out, attendance_records.last_out),
+          source           = EXCLUDED.source,
+          updated_at       = NOW()
+      `, ...params)
+
+      totalRecordsSaved += chunk.length
     }
 
     return NextResponse.json({

@@ -16,11 +16,11 @@ export async function GET(req: NextRequest) {
     const year = searchParams.get('year')
     const employee_id = searchParams.get('employee_id')
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200)
-
     // Employees can only ever see their own attendance, regardless of the employee_id
     // they pass in the query. Admins can filter by any employee_id, or see all.
     const isEmployee = session.user.role === 'employee'
+    const maxLimit = isEmployee ? 200 : 5000
+    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), maxLimit)
     const scopedEmployeeId = isEmployee
       ? session.user.employee_id
       : employee_id
