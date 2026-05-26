@@ -5,24 +5,28 @@ import { prisma } from '@/lib/prisma'
 import { safeDecrypt, safeEncrypt } from '@/lib/encryption'
 import { z } from 'zod'
 const UpdateEmployeeSchema = z.object({
+  // Self-service fields (employees can edit)
   first_name: z.string().min(1).optional(),
   last_name: z.string().min(1).optional(),
   email: z.string().email().optional(),
   phone: z.string().optional(),
+  personal_info: z.record(z.string(), z.unknown()).optional(),
+  contact_info: z.record(z.string(), z.unknown()).optional(),
+  // Sensitive fields — accepted as plain objects, encrypted before storage
+  bank_details: z.record(z.string(), z.unknown()).optional(),
+  statutory_info: z.record(z.string(), z.unknown()).optional(),
+  // HR-only fields (blocked for employees in the handler below)
+  emp_code: z.string().optional(),
+  date_of_joining: z.string().optional(),
   department_id: z.string().optional(),
   designation_id: z.string().optional(),
   manager_id: z.string().optional(),
   employment_type: z.enum(['full_time', 'part_time', 'contract', 'intern']).optional(),
   status: z.enum(['active', 'on_notice', 'terminated']).optional(),
-  personal_info: z.record(z.string(), z.unknown()).optional(),
-  contact_info: z.record(z.string(), z.unknown()).optional(),
   essl_device_id: z.string().nullable().optional(),
   salary_structure_id: z.string().nullable().optional(),
   ctc_annual: z.number().optional(),
   exclude_from_payroll: z.boolean().optional(),
-  // Sensitive fields — accepted as plain objects, encrypted before storage
-  bank_details: z.record(z.string(), z.unknown()).optional(),
-  statutory_info: z.record(z.string(), z.unknown()).optional(),
 })
 
 // GET — single employee
@@ -106,7 +110,7 @@ export async function PATCH(
 
     // Employees cannot change HR-controlled fields
     if (isEmployee) {
-      const forbidden = ['department_id','designation_id','manager_id','employment_type','status','salary_structure_id','ctc_annual','essl_device_id']
+      const forbidden = ['department_id','designation_id','manager_id','employment_type','status','salary_structure_id','ctc_annual','essl_device_id','date_of_joining','emp_code','exclude_from_payroll']
       for (const f of forbidden) {
         if (f in rest) return NextResponse.json({ success: false, error: `Field '${f}' cannot be changed by employees` }, { status: 403 })
       }
