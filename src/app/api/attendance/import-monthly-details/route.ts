@@ -90,6 +90,10 @@ export async function POST(req: NextRequest) {
     const payrollMonth = end.month + 1
     const payrollYear  = end.year
 
+    // Period boundaries for holiday lookup
+    const periodStart = new Date(Date.UTC(start.year, start.month, start.day))
+    const periodEnd   = new Date(Date.UTC(end.year,   end.month,   end.day, 23, 59, 59))
+
     // ── 2. Load existing employees for this org ─────────────────────────────
     const existingEmployees = await prisma.employee.findMany({
       where: { org_id: session.user.org_id, status: 'active' },
@@ -99,12 +103,41 @@ export async function POST(req: NextRequest) {
       existingEmployees.map(e => [e.emp_code.toUpperCase(), e])
     )
 
-    // ── 3. Pull org name for display ────────────────────────────────────────
+    // ── 3. Pull org settings, name, and holidays for the period ────────────
     const org = await prisma.organisation.findUnique({
       where: { id: session.user.org_id },
       select: { name: true, settings: true },
     })
     const orgName = org?.name ?? 'Company'
+    const settings = (org?.settings ?? {}) as Record<string, unknown>
+
+    // Weekly offs from org settings (0=Sun,6=Sat). Default: Sun+Sat.
+    const workWeekDays = (settings.work_week_days as number) ?? 5
+    const weeklyOffs: number[] = Array.isArray(settings.weekly_offs)
+      ? (settings.weekly_offs as number[])
+      : workWeekDays >= 6 ? [0] : [0, 6]
+
+    // Load holidays in the period (Set of YYYY-MM-DD strings)
+    const holidays = await prisma.holiday.findMany({
+      where: { org_id: session.user.org_id, date: { gte: periodStart, lte: periodEnd } },
+      select: { date: true, type: true },
+    })
+    const holidaySet = new Set<string>()       // dates that are holidays (not working_day overrides)
+    const workingDaySet = new Set<string>()    // holiday-overrides that ARE working days
+    for (const h of holidays) {
+      const ds = new Date(h.date).toISOString().slice(0, 10)
+      if (h.type === 'working_day') workingDaySet.add(ds)
+      else holidaySet.add(ds)
+    }
+
+    // Determine the correct status for a date when the device shows 'A'
+    function resolveAbsentStatus(date: Date): string {
+      const ds = date.toISOString().slice(0, 10)
+      if (workingDaySet.has(ds)) return 'absent'   // org said this day IS working
+      if (holidaySet.has(ds))    return 'holiday'
+      if (weeklyOffs.includes(date.getUTCDay())) return 'weekly_off'
+      return 'absent'
+    }
 
     // ── 4. Parse employee blocks ─────────────────────────────────────────────
     type ImportedEmp = {
@@ -233,8 +266,10 @@ export async function POST(req: NextRequest) {
           else          { status = 'present' }
           presentCount++
         } else {
-          status = 'absent'
-          absentCount++
+          // Cross-check against org holidays & weekly offs so holidays
+          // don't count as LOP in payroll reports.
+          status = resolveAbsentStatus(actualDate)
+          if (status === 'absent') absentCount++
         }
 
         await prisma.attendanceRecord.upsert({

@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, CircleAlert,
   FileSpreadsheet, FileText, CheckCircle2, Loader2, Play, Settings2, Clock,
-  Upload, ArrowLeftRight,
+  Upload, ArrowLeftRight, Download,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -898,6 +898,28 @@ const Payroll = () => {
               title="Download Excel for offline editing. Upload the modified file back to apply adjustments."
             >
               <FileSpreadsheet className="h-4 w-4 mr-1.5 text-kpi-amber" /> Export for Review
+            </Button>
+            <Button
+              variant="outline" size="sm"
+              disabled={payslips.length === 0}
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/payroll/runs/${run.id}/attendance-report`)
+                  if (!res.ok) throw new Error('Failed')
+                  const blob = await res.blob()
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `payroll_attendance_${monthLabel.replace(' ', '_')}.xlsx`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                } catch {
+                  toast.error('Failed to generate attendance report')
+                }
+              }}
+              title="Detailed day-by-day attendance used for payroll calculation"
+            >
+              <Download className="h-4 w-4 mr-1.5 text-primary" /> Attendance Report
             </Button>
             <Button
               variant="outline" size="sm"
