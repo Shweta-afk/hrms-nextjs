@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
 import { prisma } from '@/lib/prisma'
+import { safeDecrypt } from '@/lib/encryption'
 
 export async function GET(
   req: NextRequest,
@@ -27,6 +28,8 @@ export async function GET(
         ...(isEmployee && {
           employee_id: session.user.employee_id,
           is_published: true,
+          // Employees can only view payslips that have been HR approved
+          hr_approved_at: { not: null },
         }),
       },
       include: {
@@ -38,6 +41,8 @@ export async function GET(
             emp_code: true,
             email: true,
             date_of_joining: true,
+            bank_details: true,
+            statutory_info: true,
             department: { select: { name: true } },
             designation: { select: { name: true } },
           },
@@ -52,7 +57,28 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Payslip not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ success: true, data: payslip })
+    // Decrypt bank_details and statutory_info server-side
+    const bankDetailsDecrypted = safeDecrypt(payslip.employee.bank_details) as {
+      bank_name?: string; account_number?: string; ifsc_code?: string; branch?: string
+    } | null
+    const statutoryInfoDecrypted = safeDecrypt(payslip.employee.statutory_info) as {
+      pan_number?: string; uan_number?: string; pf_number?: string; aadhar_number?: string
+    } | null
+
+    const data = {
+      ...payslip,
+      hr_approved_by: payslip.hr_approved_by,
+      hr_approved_at: payslip.hr_approved_at,
+      employee: {
+        ...payslip.employee,
+        bank_details: undefined,
+        statutory_info: undefined,
+        bank_details_decrypted: bankDetailsDecrypted,
+        statutory_info_decrypted: statutoryInfoDecrypted,
+      },
+    }
+
+    return NextResponse.json({ success: true, data })
   } catch (error) {
     return NextResponse.json({ success: false, error: 'Failed to fetch payslip' }, { status: 500 })
   }

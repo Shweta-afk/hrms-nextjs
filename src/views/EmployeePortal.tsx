@@ -13,7 +13,7 @@ import {
 import {
   Bell, CalendarDays, Download, Clock, FileText, User, HelpCircle,
   CheckCircle2, ChevronDown, LogOut, Settings, Megaphone, ArrowRight,
-  CalendarCheck, CreditCard, Shield, Loader2, X,
+  CalendarCheck, CreditCard, Shield, Loader2, X, Receipt, PlusCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { signOut, useSession } from "next-auth/react";
@@ -62,6 +62,17 @@ interface Payslip {
   is_published: boolean;
 }
 
+interface Reimbursement {
+  id: string;
+  title: string;
+  description: string | null;
+  amount: number;
+  bill_url: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  rejection_reason: string | null;
+  created_at: string;
+}
+
 const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 const formatTime = (dateStr: string | null) => {
@@ -108,6 +119,16 @@ const EmployeePortal = () => {
   const [requestSubmitting, setRequestSubmitting] = useState(false)
   const [holidays, setHolidays] = useState<{ id: string; name: string; date: string; type: string }[]>([])
 
+  // Reimbursements
+  const [reimbursements, setReimbursements] = useState<Reimbursement[]>([])
+  const [reimbModal, setReimbModal] = useState(false)
+  const [reimbTitle, setReimbTitle] = useState('')
+  const [reimbDesc, setReimbDesc] = useState('')
+  const [reimbAmount, setReimbAmount] = useState('')
+  const [reimbBillFile, setReimbBillFile] = useState<File | null>(null)
+  const [reimbSubmitting, setReimbSubmitting] = useState(false)
+  const [reimbUploading, setReimbUploading] = useState(false)
+
   const now = new Date()
   const dayName = now.toLocaleDateString('en-IN', { weekday: 'long' })
   const fullDate = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -115,11 +136,12 @@ const EmployeePortal = () => {
   async function fetchPortalData() {
     setLoading(true)
     try {
-      const [balanceRes, attendanceRes, notifRes, payslipRes] = await Promise.all([
+      const [balanceRes, attendanceRes, notifRes, payslipRes, reimbRes] = await Promise.all([
         fetch('/api/leave/balance'),
         fetch(`/api/attendance?month=${now.getMonth() + 1}&year=${now.getFullYear()}&limit=7`),
         fetch('/api/notifications'),
         fetch('/api/payroll/payslips?limit=1'),
+        fetch('/api/reimbursements'),
       ])
       // Profile completeness check
       if (session?.user?.employee_id) {
@@ -138,8 +160,8 @@ const EmployeePortal = () => {
       const holidayRes = await fetch('/api/holidays')
       const holidayJson = await holidayRes.json()
       if (holidayJson.success) setHolidays(holidayJson.data.slice(0, 3))
-      const [balanceJson, attendanceJson, notifJson, payslipJson] = await Promise.all([
-        balanceRes.json(), attendanceRes.json(), notifRes.json(), payslipRes.json(),
+      const [balanceJson, attendanceJson, notifJson, payslipJson, reimbJson] = await Promise.all([
+        balanceRes.json(), attendanceRes.json(), notifRes.json(), payslipRes.json(), reimbRes.json(),
       ])
 
       if (balanceJson.success) setLeaveBalances(balanceJson.data.filter((l: LeaveBalance) => l.is_paid && l.total > 0))
@@ -151,6 +173,7 @@ const EmployeePortal = () => {
       if (payslipJson.success && payslipJson.data.length > 0) {
         setLatestPayslip(payslipJson.data[0])
       }
+      if (reimbJson.success) setReimbursements(reimbJson.data)
     } catch {
       toast.error('Failed to load portal data')
     } finally {
@@ -194,6 +217,66 @@ const EmployeePortal = () => {
         setRequestSubmitting(false)
       }
     }
+
+  async function handleSubmitReimbursement() {
+    if (!reimbTitle.trim() || !reimbAmount) {
+      toast.error('Title and amount are required')
+      return
+    }
+    const amount = parseFloat(reimbAmount)
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Please enter a valid amount')
+      return
+    }
+    setReimbSubmitting(true)
+    try {
+      let billUrl: string | undefined
+      if (reimbBillFile) {
+        setReimbUploading(true)
+        const form = new FormData()
+        form.append('file', reimbBillFile)
+        form.append('category', 'documents')
+        form.append('sub_id', 'reimbursements')
+        form.append('doc_type', 'bill')
+        const uploadRes = await fetch('/api/upload', { method: 'POST', body: form })
+        const uploadJson = await uploadRes.json()
+        setReimbUploading(false)
+        if (!uploadJson.success) {
+          toast.error('Bill upload failed — please try again')
+          setReimbSubmitting(false)
+          return
+        }
+        billUrl = uploadJson.data.url
+      }
+      const res = await fetch('/api/reimbursements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: reimbTitle.trim(),
+          description: reimbDesc.trim() || undefined,
+          amount,
+          bill_url: billUrl,
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Reimbursement request submitted')
+        setReimbModal(false)
+        setReimbTitle('')
+        setReimbDesc('')
+        setReimbAmount('')
+        setReimbBillFile(null)
+        fetchPortalData()
+      } else {
+        toast.error(json.error ?? 'Failed to submit request')
+      }
+    } catch {
+      toast.error('Failed to submit reimbursement request')
+    } finally {
+      setReimbSubmitting(false)
+      setReimbUploading(false)
+    }
+  }
 
   const todayAttendance = attendance.find(a =>
     new Date(a.date).toDateString() === now.toDateString()
@@ -252,6 +335,7 @@ const EmployeePortal = () => {
                 { label: 'Leave', href: '/leave/apply' },
                 { label: 'Attendance', href: '/attendance' },
                 { label: 'Payslips', href: '/payslip' },
+                { label: 'Reimbursements', href: '#reimbursements' },
               ].map(l => (
                 <Link key={l.label} href={l.href}
                   className="px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
@@ -531,9 +615,143 @@ const EmployeePortal = () => {
               )}
             </section>
 
+            {/* My Reimbursements */}
+            <section id="reimbursements">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <Receipt className="h-5 w-5 text-primary" /> My Reimbursements
+                </h2>
+                <Button size="sm" variant="outline" onClick={() => setReimbModal(true)}>
+                  <PlusCircle className="h-4 w-4 mr-1.5" /> New Request
+                </Button>
+              </div>
+              <Card>
+                <CardContent className="p-0">
+                  {reimbursements.length === 0 ? (
+                    <div className="text-center py-10 text-sm text-muted-foreground">
+                      <Receipt className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p>No reimbursement requests yet</p>
+                      <p className="text-xs mt-1">Submit bills for travel, meals, or other work expenses</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/40">
+                            <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Title</th>
+                            <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Amount</th>
+                            <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date</th>
+                            <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {reimbursements.map(r => (
+                            <tr key={r.id} className="hover:bg-muted/30 transition-colors">
+                              <td className="px-4 py-3">
+                                <p className="font-medium text-foreground">{r.title}</p>
+                                {r.description && (
+                                  <p className="text-xs text-muted-foreground line-clamp-1">{r.description}</p>
+                                )}
+                                {r.rejection_reason && r.status === 'rejected' && (
+                                  <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">Reason: {r.rejection_reason}</p>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-right tabular-nums font-medium">
+                                ₹{Math.round(Number(r.amount)).toLocaleString('en-IN')}
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                                {new Date(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </td>
+                              <td className="px-4 py-3">
+                                {r.status === 'approved' && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400">
+                                    <CheckCircle2 className="h-3 w-3" /> Approved
+                                  </span>
+                                )}
+                                {r.status === 'rejected' && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400">
+                                    <X className="h-3 w-3" /> Rejected
+                                  </span>
+                                )}
+                                {r.status === 'pending' && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400">
+                                    <Clock className="h-3 w-3" /> Pending
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </section>
+
             <footer className="text-center py-4 text-xs text-muted-foreground border-t">
               © 2026 HRMS · Need help? Contact hr@company.in
             </footer>
+
+            {/* New Reimbursement Modal */}
+            <Dialog open={reimbModal} onOpenChange={v => { setReimbModal(v); if (!v) { setReimbTitle(''); setReimbDesc(''); setReimbAmount(''); setReimbBillFile(null) } }}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>New Reimbursement Request</DialogTitle>
+                  <DialogDescription>Submit a reimbursement for work-related expenses. HR will review and approve.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label>Title *</Label>
+                    <Input value={reimbTitle} onChange={e => setReimbTitle(e.target.value)} placeholder="e.g. Client visit travel expenses" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Description</Label>
+                    <Textarea value={reimbDesc} onChange={e => setReimbDesc(e.target.value)} placeholder="Optional details about the expense..." rows={3} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Amount (₹) *</Label>
+                    <Input type="number" min={1} step={0.01} value={reimbAmount} onChange={e => setReimbAmount(e.target.value)} placeholder="0.00" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Upload Bill / Receipt</Label>
+                    <div
+                      className="rounded-lg border-2 border-dashed p-4 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                      onClick={() => document.getElementById('reimb-bill-input')?.click()}
+                    >
+                      {reimbBillFile ? (
+                        <div className="text-sm">
+                          <Receipt className="h-5 w-5 mx-auto mb-1 text-primary" />
+                          <p className="font-medium">{reimbBillFile.name}</p>
+                          <p className="text-xs text-muted-foreground">{(reimbBillFile.size / 1024).toFixed(1)} KB</p>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">
+                          <Receipt className="h-5 w-5 mx-auto mb-1 opacity-40" />
+                          <p>Click to upload (PDF, JPG, PNG — max 5MB)</p>
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      id="reimb-bill-input"
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) setReimbBillFile(f); e.target.value = '' }}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setReimbModal(false)}>Cancel</Button>
+                  <Button onClick={handleSubmitReimbursement} disabled={reimbSubmitting || reimbUploading}>
+                    {reimbSubmitting || reimbUploading
+                      ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{reimbUploading ? 'Uploading...' : 'Submitting...'}</>
+                      : 'Submit Request'
+                    }
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             {/* Raise a Request Modal */}
             <Dialog open={requestModal} onOpenChange={setRequestModal}>

@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Radio,
   FileBarChart2,
+  Receipt,
 } from 'lucide-react'
 import { NavLink } from '@/components/NavLink'
 import { signOut, useSession } from 'next-auth/react'
@@ -27,12 +28,13 @@ const topNavItems = [
 ]
 
 const bottomNavItems = [
-  { title: 'Leave',       icon: CalendarDays,   path: '/leave' },
-  { title: 'Payroll',     icon: Wallet,         path: '/payroll' },
-  { title: 'Recruitment', icon: UserPlus,       path: '/recruitment' },
-  { title: 'Analytics',   icon: BarChart3,      path: '/analytics' },
-  { title: 'Settings',    icon: Settings,       path: '/settings' },
-  { title: 'Billing',     icon: CreditCard,     path: '/billing' },
+  { title: 'Leave',           icon: CalendarDays,   path: '/leave' },
+  { title: 'Payroll',         icon: Wallet,         path: '/payroll' },
+  { title: 'Reimbursements',  icon: Receipt,        path: '/reimbursements', adminOnly: true },
+  { title: 'Recruitment',     icon: UserPlus,       path: '/recruitment' },
+  { title: 'Analytics',       icon: BarChart3,      path: '/analytics' },
+  { title: 'Settings',        icon: Settings,       path: '/settings' },
+  { title: 'Billing',         icon: CreditCard,     path: '/billing' },
 ]
 
 const navLinkClass =
@@ -147,7 +149,9 @@ const AppSidebar = () => {
         </div>
 
         {/* Remaining nav items */}
-        {bottomNavItems.map((item) => (
+        {bottomNavItems
+          .filter(item => !('adminOnly' in item && item.adminOnly) || session?.user?.role === 'hr_admin')
+          .map((item) => (
           <NavLink
             key={item.path}
             to={item.path}

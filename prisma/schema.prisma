@@ -39,6 +39,7 @@ model Organisation {
   device_enrollments DeviceEnrollment[]
   api_keys           OrgApiKey[]
   shift_groups       ShiftGroup[]
+  reimbursements     Reimbursement[]
 
   @@map("organisations")
 }
@@ -65,11 +66,13 @@ model User {
   email_verification_token  String?   @unique
   email_verification_expiry DateTime?
 
-  organisation    Organisation   @relation(fields: [org_id], references: [id])
-  employee        Employee?      @relation(fields: [employee_id], references: [id])
-  notifications   Notification[]
-  approved_leaves LeaveRequest[] @relation("ApprovedBy")
-  sessions        Session[]
+  organisation         Organisation   @relation(fields: [org_id], references: [id])
+  employee             Employee?      @relation(fields: [employee_id], references: [id])
+  notifications        Notification[]
+  approved_leaves      LeaveRequest[] @relation("ApprovedBy")
+  approved_payslips    Payslip[]      @relation("PayslipApprover")
+  approved_reimbursements Reimbursement[] @relation("ReimbursementApprover")
+  sessions             Session[]
 
   @@map("users")
 }
@@ -158,6 +161,7 @@ model Employee {
   leave_requests     LeaveRequest[]
   payslips           Payslip[]
   device_enrollments DeviceEnrollment[]
+  reimbursements     Reimbursement[]
 
   @@unique([org_id, emp_code])
   @@unique([org_id, email])
@@ -369,11 +373,14 @@ model Payslip {
   original_deductions    Json?
   original_net_salary    Decimal?  @db.Decimal(10, 2)
   adjustment_note        String?
+  hr_approved_by         String?
+  hr_approved_at         DateTime?
   created_at             DateTime  @default(now())
 
   organisation Organisation @relation(fields: [org_id], references: [id])
   employee     Employee     @relation(fields: [employee_id], references: [id])
   payroll_run  PayrollRun   @relation(fields: [payroll_run_id], references: [id])
+  approver     User?        @relation("PayslipApprover", fields: [hr_approved_by], references: [id])
 
   @@unique([org_id, employee_id, month, year])
   @@map("payslips")
@@ -493,6 +500,34 @@ model RateLimitEntry {
 
   @@index([expires_at])
   @@map("rate_limit_entries")
+}
+
+// ─── API KEYS ────────────────────────────────────────────
+
+// ─── REIMBURSEMENTS ──────────────────────────────────────
+
+model Reimbursement {
+  id                String    @id @default(uuid())
+  org_id            String
+  employee_id       String
+  title             String
+  description       String?
+  amount            Decimal   @db.Decimal(10, 2)
+  bill_url          String?   // S3 key for the uploaded bill/receipt
+  status            String    @default("pending") // pending | approved | rejected
+  approved_by       String?
+  approved_at       DateTime?
+  rejection_reason  String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  organisation  Organisation @relation(fields: [org_id], references: [id])
+  employee      Employee     @relation(fields: [employee_id], references: [id])
+  approver      User?        @relation("ReimbursementApprover", fields: [approved_by], references: [id])
+
+  @@index([org_id, status])
+  @@index([employee_id, status])
+  @@map("reimbursements")
 }
 
 // ─── API KEYS ────────────────────────────────────────────

@@ -3,10 +3,11 @@ import { auth } from '@/app/api/auth/[...nextauth]/route'
 
 /**
  * bcrypt cost factor used everywhere we hash passwords.
- * 12 ≈ 250ms on modern hardware — OWASP recommendation as of 2024.
+ * 10 ≈ 65ms on modern hardware — good balance of security and speed for serverless.
  * If you change this, ALL three hashing sites (signup, reset, invite) must use the new constant.
+ * Note: existing hashes store their own cost factor so compare() still works after a change.
  */
-export const BCRYPT_COST = 12
+export const BCRYPT_COST = 10
 
 export type Role = 'hr_admin' | 'employee'
 

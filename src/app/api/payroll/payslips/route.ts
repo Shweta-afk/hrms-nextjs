@@ -22,9 +22,9 @@ export async function GET(req: NextRequest) {
       org_id: session.user.org_id,
       ...(month && { month: parseInt(month) }),
       ...(year && { year: parseInt(year) }),
-      // Employees can only see their own payslips
+      // Employees can only see their own published + hr-approved payslips
       ...(isEmployee
-        ? { employee_id: session.user.employee_id, is_published: true }
+        ? { employee_id: session.user.employee_id, is_published: true, hr_approved_at: { not: null } }
         : employee_id && { employee_id }),
       ...(payroll_run_id && { payroll_run_id }),
     }
@@ -51,6 +51,9 @@ export async function GET(req: NextRequest) {
     // Decrypt bank_details for each payslip (safe — null on failure)
     const data = payslips.map(p => ({
       ...p,
+      hr_approved_at: p.hr_approved_at,
+      hr_approved_by: p.hr_approved_by,
+      is_published: p.is_published,
       employee: {
         ...p.employee,
         bank_details: safeDecrypt(p.employee.bank_details),

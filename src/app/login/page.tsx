@@ -82,12 +82,12 @@ function LoginForm() {
   }
 
   return (
-    <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
-      <h1 className="text-2xl font-bold text-gray-900 mb-2">HRMS Login</h1>
-      <p className="text-gray-500 mb-6">Sign in to your account</p>
+    <div className="bg-card text-card-foreground p-8 rounded-lg shadow-md w-full max-w-md border border-border">
+      <h1 className="text-2xl font-bold text-foreground mb-2">HRMS Login</h1>
+      <p className="text-muted-foreground mb-6">Sign in to your account</p>
 
       {error && (
-        <div className={`${errorKind === 'unverified' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-600'} px-4 py-3 rounded mb-4 text-sm`}>
+        <div className={`${errorKind === 'unverified' ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300' : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'} px-4 py-3 rounded mb-4 text-sm`}>
           <p>{error}</p>
           {errorKind === 'unverified' && (
             <div className="mt-2 flex items-center gap-2 text-xs">
@@ -109,23 +109,23 @@ function LoginForm() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <label className="block text-sm font-medium text-foreground mb-1">Email</label>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full border border-input bg-background text-foreground rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             placeholder="admin@demo.com"
             required
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+          <label className="block text-sm font-medium text-foreground mb-1">Password</label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full border border-input bg-background text-foreground rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             placeholder="••••••••"
             required
           />
@@ -145,15 +145,15 @@ function LoginForm() {
       </form>
 
       {/* Employee note */}
-      <div className="mt-5 rounded-md bg-indigo-50 border border-indigo-100 px-4 py-3">
-        <p className="text-xs font-semibold text-indigo-800 mb-0.5">Employee?</p>
-        <p className="text-xs text-indigo-700">
+      <div className="mt-5 rounded-md bg-indigo-50 border border-indigo-100 px-4 py-3 dark:bg-indigo-900/20 dark:border-indigo-800">
+        <p className="text-xs font-semibold text-indigo-800 dark:text-indigo-300 mb-0.5">Employee?</p>
+        <p className="text-xs text-indigo-700 dark:text-indigo-400">
           Use the <strong>same login page</strong> with the email and password sent by your HR admin.
           You'll be taken to your employee portal automatically after signing in.
         </p>
       </div>
 
-      <p className="text-xs text-center text-gray-400 mt-4">
+      <p className="text-xs text-center text-muted-foreground mt-4">
         Don't have an account?{' '}
         <Link href="/signup" className="text-indigo-600 hover:underline font-medium">
           Create one free
@@ -165,7 +165,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-background">
       <Suspense fallback={<div className="animate-pulse h-96 w-full max-w-md bg-white rounded-lg shadow-md" />}>
         <LoginForm />
       </Suspense>
