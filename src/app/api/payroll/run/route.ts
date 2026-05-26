@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
     const [hCut, mCut] = halfDayCutoffStr.split(':').map(Number)
 
     const employees = await prisma.employee.findMany({
-      where: { org_id: session.user.org_id, status: 'active' },
+      where: { org_id: session.user.org_id, status: 'active', exclude_from_payroll: false },
       select: {
         id: true,
         first_name: true,

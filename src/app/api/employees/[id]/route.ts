@@ -19,6 +19,7 @@ const UpdateEmployeeSchema = z.object({
   essl_device_id: z.string().optional(),
   salary_structure_id: z.string().optional(),
   ctc_annual: z.number().optional(),
+  exclude_from_payroll: z.boolean().optional(),
   // Sensitive fields — accepted as plain objects, encrypted before storage
   bank_details: z.record(z.string(), z.unknown()).optional(),
   statutory_info: z.record(z.string(), z.unknown()).optional(),

@@ -127,8 +127,9 @@ model Employee {
   designation_id      String?
   manager_id          String?
   date_of_joining     DateTime
-  employment_type     String   @default("full_time")
-  ctc_annual          Decimal? @db.Decimal(12, 2)
+  employment_type        String   @default("full_time")
+  exclude_from_payroll   Boolean  @default(false) // visitors, contractors, etc.
+  ctc_annual             Decimal? @db.Decimal(12, 2)
   salary_structure_id String?
   salary_structure    SalaryStructure? @relation("EmployeeSalaryStructure", fields: [salary_structure_id], references: [id])
   status              String   @default("active")

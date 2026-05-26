@@ -37,6 +37,7 @@ interface Employee {
   email: string;
   status: string;
   employment_type: string;
+  exclude_from_payroll: boolean;
   date_of_joining: string;
   department: { id: string; name: string } | null;
   designation: { id: string; name: string } | null;
@@ -125,6 +126,27 @@ const Employees = () => {
       toast.error('Failed to load employees')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleTogglePayroll(emp: Employee) {
+    try {
+      const res = await fetch(`/api/employees/${emp.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exclude_from_payroll: !emp.exclude_from_payroll }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(emp.exclude_from_payroll
+          ? `${emp.first_name} included in payroll`
+          : `${emp.first_name} excluded from payroll`)
+        fetchEmployees()
+      } else {
+        toast.error(json.error ?? 'Failed to update')
+      }
+    } catch {
+      toast.error('Failed to update payroll setting')
     }
   }
 
@@ -433,9 +455,16 @@ const Employees = () => {
                         {formatDate(emp.date_of_joining)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={(statusVariantMap[emp.status] as any) ?? 'secondary'}>
-                          {formatStatus(emp.status)}
-                        </Badge>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant={(statusVariantMap[emp.status] as any) ?? 'secondary'}>
+                            {formatStatus(emp.status)}
+                          </Badge>
+                          {emp.exclude_from_payroll && (
+                            <Badge className="bg-muted text-muted-foreground text-[10px]">
+                              No Payroll
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -455,6 +484,15 @@ const Employees = () => {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => { setTransferModal(emp); setTransferDept(''); setTransferReason('') }}>
                                   <ArrowRightLeft className="h-4 w-4" /> Transfer
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="gap-2 cursor-pointer"
+                                  onClick={() => handleTogglePayroll(emp)}
+                                >
+                                  {emp.exclude_from_payroll
+                                    ? <><ArrowRightLeft className="h-4 w-4 text-green-600" /> Include in Payroll</>
+                                    : <><ArrowRightLeft className="h-4 w-4 text-amber-600" /> Exclude from Payroll</>
+                                  }
                                 </DropdownMenuItem>
                                 <DropdownMenuItem className="gap-2 cursor-pointer text-destructive" onClick={() => setDeactivateModal(emp)}>
                                   <UserX className="h-4 w-4" /> Terminate
