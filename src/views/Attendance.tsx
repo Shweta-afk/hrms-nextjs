@@ -897,7 +897,7 @@ const Attendance = () => {
                     dept: r.employee.department?.name ?? '—',
                     days: new Map(),
                   })
-                  const d = new Date(r.date).getUTCDate()
+                  const d = parseInt((r.date as string).split('T')[0].split('-')[2])
                   map.get(key)!.days.set(d, r)
                 }
                 return [...map.values()].sort((a, b) => a.emp_code.localeCompare(b.emp_code))

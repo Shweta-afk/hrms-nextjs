@@ -14,6 +14,7 @@ import {
   Bell, CalendarDays, Download, Clock, FileText, User, HelpCircle,
   CheckCircle2, ChevronDown, LogOut, Settings, Megaphone, ArrowRight,
   CalendarCheck, CreditCard, Shield, Loader2, X, Receipt, PlusCircle,
+  Home, Menu,
 } from "lucide-react";
 import { toast } from "sonner";
 import { signOut, useSession } from "next-auth/react";
@@ -333,9 +334,9 @@ const EmployeePortal = () => {
               {[
                 { label: 'Home', href: '/portal' },
                 { label: 'Leave', href: '/leave/apply' },
-                { label: 'Attendance', href: '/attendance' },
+                { label: 'Attendance', href: '/portal/attendance' },
                 { label: 'Payslips', href: '/payslip' },
-                { label: 'Reimbursements', href: '#reimbursements' },
+                { label: 'Profile', href: '/portal/profile' },
               ].map(l => (
                 <Link key={l.label} href={l.href}
                   className="px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
@@ -416,7 +417,26 @@ const EmployeePortal = () => {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6 space-y-6">
+      {/* Mobile Bottom Nav */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur md:hidden">
+        <div className="flex items-center justify-around py-2 px-2">
+          {[
+            { label: 'Home',       icon: Home,        href: '/portal' },
+            { label: 'Leave',      icon: CalendarDays, href: '/leave/apply' },
+            { label: 'Attendance', icon: Clock,        href: '/portal/attendance' },
+            { label: 'Payslips',   icon: Download,    href: '/payslip' },
+            { label: 'Profile',    icon: User,        href: '/portal/profile' },
+          ].map(item => (
+            <Link key={item.label} href={item.href}
+              className="flex flex-col items-center gap-0.5 min-w-[56px] py-1 text-muted-foreground hover:text-foreground transition-colors">
+              <item.icon className="h-5 w-5" />
+              <span className="text-[10px] font-medium">{item.label}</span>
+            </Link>
+          ))}
+        </div>
+      </nav>
+
+      <main className="mx-auto max-w-6xl px-4 py-6 pb-24 md:pb-6 space-y-6">
 
         {loading ? (
           <div className="flex justify-center py-20">
@@ -479,20 +499,26 @@ const EmployeePortal = () => {
             <section>
               <h2 className="text-lg font-semibold text-foreground mb-3">Quick Actions</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                {quickActions.map(a => (
-                  <div key={a.label} onClick={() => a.href === '#request' ? setRequestModal(true) : null}>
-                    <Link href={a.href === '#request' ? '#' : a.href}>
-                      <Card className={`h-full border hover:shadow-md transition-shadow cursor-pointer group ring-1 ${a.ring} border-transparent`}>
-                        <CardContent className="p-4 flex flex-col items-center text-center gap-3">
-                          <div className={`h-12 w-12 rounded-xl ${a.color} flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                            <a.icon className={`h-6 w-6 ${a.iconColor}`} />
-                          </div>
-                          <span className="text-sm font-medium text-foreground leading-tight">{a.label}</span>
-                        </CardContent>
-                      </Card>
-                    </Link>
-                  </div>
-                ))}
+                {quickActions.map(a => {
+                  const inner = (
+                    <Card className={`h-full border hover:shadow-md transition-shadow cursor-pointer group ring-1 ${a.ring} border-transparent`}>
+                      <CardContent className="p-4 flex flex-col items-center text-center gap-3">
+                        <div className={`h-12 w-12 rounded-xl ${a.color} flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                          <a.icon className={`h-6 w-6 ${a.iconColor}`} />
+                        </div>
+                        <span className="text-sm font-medium text-foreground leading-tight">{a.label}</span>
+                      </CardContent>
+                    </Card>
+                  )
+                  if (a.href === '#request') {
+                    return (
+                      <button key={a.label} className="text-left w-full" onClick={() => setRequestModal(true)}>
+                        {inner}
+                      </button>
+                    )
+                  }
+                  return <Link key={a.label} href={a.href}>{inner}</Link>
+                })}
               </div>
             </section>
 

@@ -292,7 +292,7 @@ export default function PortalProfilePage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-6 space-y-6">
+      <main className="mx-auto max-w-3xl px-4 py-6 pb-8 space-y-6">
         {loading ? (
           <div className="flex justify-center py-20">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -330,7 +330,7 @@ export default function PortalProfilePage() {
 
             {/* Tabs */}
             <Tabs defaultValue="personal">
-              <TabsList className="w-full grid grid-cols-4">
+              <TabsList className="w-full grid grid-cols-4 h-auto">
                 <TabsTrigger value="personal" className="flex items-center gap-1.5 text-xs">
                   <User className="h-3.5 w-3.5" />Personal
                 </TabsTrigger>
@@ -557,6 +557,7 @@ export default function PortalProfilePage() {
                               <SelectContent>
                                 <SelectItem value="savings">Savings</SelectItem>
                                 <SelectItem value="current">Current</SelectItem>
+                                <SelectItem value="salary">Salary Account</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>

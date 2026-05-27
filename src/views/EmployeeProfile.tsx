@@ -141,8 +141,8 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   const [personalDraft, setPersonalDraft] = useState<Partial<Employee>>({})
   const [empDraft, setEmpDraft] = useState<{
     department_id: string; employment_type: string
-    ctc_annual: string; salary_structure_id: string
-  }>({ department_id: '', employment_type: '', ctc_annual: '', salary_structure_id: '' })
+    ctc_annual: string; salary_structure_id: string; date_of_joining: string
+  }>({ department_id: '', employment_type: '', ctc_annual: '', salary_structure_id: '', date_of_joining: '' })
   const [transferDept, setTransferDept] = useState('')
 
   const fetchEmployee = useCallback(async () => {
@@ -325,6 +325,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
       employment_type: empDraft.employment_type || undefined,
       ctc_annual: empDraft.ctc_annual ? parseFloat(empDraft.ctc_annual) : undefined,
       salary_structure_id: empDraft.salary_structure_id || undefined,
+      date_of_joining: empDraft.date_of_joining || undefined,
     })
     if (ok) setEditEmployment(false)
   }
@@ -610,6 +611,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                     employment_type: employee.employment_type,
                     ctc_annual: employee.ctc_annual ? String(employee.ctc_annual) : '',
                     salary_structure_id: employee.salary_structure_id || '',
+                    date_of_joining: employee.date_of_joining ? employee.date_of_joining.split('T')[0] : '',
                   })
                 }}>
                   <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
@@ -657,6 +659,14 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                         {salaryStructures.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Date of Joining</Label>
+                    <Input
+                      type="date"
+                      value={empDraft.date_of_joining}
+                      onChange={e => setEmpDraft(p => ({ ...p, date_of_joining: e.target.value }))}
+                    />
                   </div>
                   <div className="flex gap-2 justify-end">
                     <Button variant="outline" onClick={() => setEditEmployment(false)}>Cancel</Button>
