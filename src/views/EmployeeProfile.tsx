@@ -83,15 +83,19 @@ interface EmployeeDoc {
 }
 
 const DOC_LABELS: Record<string, string> = {
-  photo:               'Profile Photo',
-  aadhaar:             'Aadhaar Card',
-  pan:                 'PAN Card',
-  address_proof:       'Address Proof',
-  resume:              'Resume / CV',
-  leaving_certificate: 'Leaving Certificate',
-  offer_letter:        'Offer Letter',
-  pcc:                 'PCC Certificate',
-  education_certificate: 'Education Certificate',
+  photo:                        'Profile Photo',
+  aadhaar:                      'Aadhaar Card',
+  pan:                          'PAN Card',
+  address_proof:                'Address Proof',
+  passbook_or_cancelled_cheque: 'Passbook / Cancelled Cheque',
+  resume:                       'Resume / CV',
+  leaving_certificate:          'Leaving Certificate',
+  offer_letter:                 'Offer Letter',
+  salary_slips:                 'Last 3-Month Salary Slips',
+  bank_statement:               'Bank Statement (3 months)',
+  pcc:                          'PCC Certificate',
+  education_certificate:        'Education Certificate',
+  dra_certificate:              'DRA Certificate',
 }
 
 interface DeviceEnrollmentData {

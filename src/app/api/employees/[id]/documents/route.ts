@@ -7,6 +7,7 @@ const VALID_TYPES = [
   'aadhaar', 'pan', 'address_proof', 'resume',
   'leaving_certificate', 'offer_letter', 'pcc',
   'education_certificate', 'photo',
+  'dra_certificate', 'passbook_or_cancelled_cheque', 'salary_slips', 'bank_statement',
 ]
 
 // GET — list all documents for this employee (with fresh signed download URLs)

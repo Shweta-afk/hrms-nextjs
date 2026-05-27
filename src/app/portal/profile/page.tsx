@@ -43,15 +43,19 @@ const BLOOD_GROUPS = ['A+', 'A−', 'B+', 'B−', 'AB+', 'AB−', 'O+', 'O−']
 const RELATIONSHIPS = ['Spouse', 'Parent', 'Sibling', 'Child', 'Friend', 'Other']
 
 const DOCUMENT_TYPES = [
-  { key: 'photo',               label: 'Profile Photo',            note: 'Recent passport-size photo' },
-  { key: 'aadhaar',             label: 'Aadhaar Card',             note: 'Front & back in one scan' },
-  { key: 'pan',                 label: 'PAN Card',                 note: 'Clear scan or photo' },
-  { key: 'address_proof',       label: 'Address Proof',            note: 'Utility bill, bank statement, or govt ID' },
-  { key: 'resume',              label: 'Resume / CV',              note: 'Most recent version (PDF preferred)' },
-  { key: 'leaving_certificate', label: 'Leaving Certificate',      note: 'Relieving letter from previous employer' },
-  { key: 'offer_letter',        label: 'Offer Letter',             note: 'Offer letter from your last company' },
-  { key: 'pcc',                 label: 'PCC Certificate',          note: 'Police Clearance Certificate — or upload pending application' },
-  { key: 'education_certificate', label: 'Education Certificate',  note: 'Last qualification certificate or marksheet' },
+  { key: 'photo',                       label: 'Profile Photo',                   note: 'Recent passport-size photo' },
+  { key: 'aadhaar',                     label: 'Aadhaar Card',                    note: 'Front & back in one scan' },
+  { key: 'pan',                         label: 'PAN Card',                        note: 'Clear scan or photo' },
+  { key: 'address_proof',               label: 'Address Proof',                   note: 'Utility bill, bank statement, or govt ID' },
+  { key: 'passbook_or_cancelled_cheque', label: 'Passbook / Cancelled Cheque',    note: 'Bank passbook front page or cancelled cheque' },
+  { key: 'resume',                      label: 'Resume / CV',                     note: 'Most recent version (PDF preferred)' },
+  { key: 'leaving_certificate',         label: 'Leaving Certificate',             note: 'Relieving letter from previous employer' },
+  { key: 'offer_letter',                label: 'Offer Letter',                    note: 'Offer letter from your last company' },
+  { key: 'salary_slips',                label: 'Last 3-Month Salary Slips',       note: 'Payslips from previous employer (last 3 months)' },
+  { key: 'bank_statement',              label: 'Bank Statement (3 months)',       note: 'Last 3 months bank statement from salary account' },
+  { key: 'pcc',                         label: 'PCC Certificate',                 note: 'Police Clearance Certificate — or upload pending application' },
+  { key: 'education_certificate',       label: 'Education Certificate',           note: 'Last qualification certificate or marksheet' },
+  { key: 'dra_certificate',             label: 'DRA Certificate',                 note: 'Debt Recovery Agent Certificate (if applicable)' },
 ] as const
 
 interface EmployeeDoc {

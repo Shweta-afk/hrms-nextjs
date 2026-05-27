@@ -314,7 +314,7 @@ const EmployeePortal = () => {
   }
 
   const quickActions = [
-    { label: 'Apply for Leave', icon: CalendarDays, href: '/leave/apply', color: 'bg-blue-50 dark:bg-blue-900/20', iconColor: 'text-blue-600 dark:text-blue-400', ring: 'ring-blue-200 dark:ring-blue-800' },
+    { label: 'Apply for Leave', icon: CalendarDays, href: '/portal/leave', color: 'bg-blue-50 dark:bg-blue-900/20', iconColor: 'text-blue-600 dark:text-blue-400', ring: 'ring-blue-200 dark:ring-blue-800' },
     { label: 'Download Payslip', icon: Download, href: '/payslip', color: 'bg-green-50 dark:bg-green-900/20', iconColor: 'text-green-600 dark:text-green-400', ring: 'ring-green-200 dark:ring-green-800' },
     { label: 'View Attendance', icon: Clock, href: '/portal/attendance', color: 'bg-indigo-50 dark:bg-indigo-900/20', iconColor: 'text-indigo-600 dark:text-indigo-400', ring: 'ring-indigo-200 dark:ring-indigo-800' },
     { label: 'Company Policies', icon: FileText, href: '/portal/policy', color: 'bg-orange-50 dark:bg-orange-900/20', iconColor: 'text-orange-600 dark:text-orange-400', ring: 'ring-orange-200 dark:ring-orange-800' },
@@ -339,7 +339,7 @@ const EmployeePortal = () => {
             <nav className="hidden md:flex items-center gap-1">
               {[
                 { label: 'Home', href: '/portal' },
-                { label: 'Leave', href: '/leave/apply' },
+                { label: 'Leave', href: '/portal/leave' },
                 { label: 'Attendance', href: '/portal/attendance' },
                 { label: 'Payslips', href: '/payslip' },
                 { label: 'Profile', href: '/portal/profile' },
@@ -428,7 +428,7 @@ const EmployeePortal = () => {
         <div className="flex items-center justify-around py-2 px-2">
           {[
             { label: 'Home',       icon: Home,        href: '/portal' },
-            { label: 'Leave',      icon: CalendarDays, href: '/leave/apply' },
+            { label: 'Leave',      icon: CalendarDays, href: '/portal/leave' },
             { label: 'Attendance', icon: Clock,        href: '/portal/attendance' },
             { label: 'Payslips',   icon: Download,    href: '/payslip' },
             { label: 'Profile',    icon: User,        href: '/portal/profile' },
