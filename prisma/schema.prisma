@@ -41,6 +41,7 @@ model Organisation {
   shift_groups       ShiftGroup[]
   reimbursements     Reimbursement[]
   employee_documents EmployeeDocument[]
+  hr_requests        HRRequest[]
 
   @@map("organisations")
 }
@@ -165,6 +166,7 @@ model Employee {
   device_enrollments DeviceEnrollment[]
   reimbursements     Reimbursement[]
   documents          EmployeeDocument[]
+  hr_requests        HRRequest[]
 
   @@unique([org_id, emp_code])
   @@unique([org_id, email])
@@ -562,6 +564,28 @@ model EmployeeDocument {
   @@index([org_id, employee_id])
   @@index([employee_id, type])
   @@map("employee_documents")
+}
+
+model HRRequest {
+  id          String    @id @default(uuid())
+  org_id      String
+  employee_id String
+  type        String    // salary | document | general | attendance | other
+  subject     String
+  description String
+  status      String    @default("open")   // open | in_progress | resolved | closed
+  reply       String?
+  replied_by  String?
+  replied_at  DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  organisation Organisation @relation(fields: [org_id], references: [id])
+  employee     Employee     @relation(fields: [employee_id], references: [id])
+
+  @@index([org_id, status])
+  @@index([employee_id, created_at(sort: Desc)])
+  @@map("hr_requests")
 }
 
 model OrgApiKey {

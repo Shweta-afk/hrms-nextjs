@@ -16,6 +16,7 @@ import {
   Radio,
   FileBarChart2,
   Receipt,
+  Inbox,
 } from 'lucide-react'
 import { NavLink } from '@/components/NavLink'
 import { signOut, useSession } from 'next-auth/react'
@@ -29,6 +30,7 @@ const topNavItems = [
 
 const bottomNavItems = [
   { title: 'Leave',           icon: CalendarDays,   path: '/leave' },
+  { title: 'Requests',        icon: Inbox,          path: '/requests', adminOnly: true },
   { title: 'Payroll',         icon: Wallet,         path: '/payroll' },
   { title: 'Reimbursements',  icon: Receipt,        path: '/reimbursements', adminOnly: true },
   { title: 'Recruitment',     icon: UserPlus,       path: '/recruitment' },
@@ -48,11 +50,19 @@ const AppSidebar = () => {
 
   const isOnAttendance = Boolean(pathname?.startsWith('/attendance'))
   const [attendanceOpen, setAttendanceOpen] = useState(isOnAttendance)
+  const [openRequests, setOpenRequests] = useState(0)
 
-  // Auto-expand when navigating to any attendance page
   useEffect(() => {
     if (pathname?.startsWith('/attendance')) setAttendanceOpen(true)
   }, [pathname])
+
+  useEffect(() => {
+    if (session?.user?.role !== 'hr_admin') return
+    fetch('/api/requests?status=open&limit=1')
+      .then(r => r.json())
+      .then(j => { if (j.success) setOpenRequests(j.data.total) })
+      .catch(() => {})
+  }, [session?.user?.role])
 
   const initials = session?.user?.email
     ? session.user.email.substring(0, 2).toUpperCase()
@@ -159,7 +169,12 @@ const AppSidebar = () => {
             activeClassName={navLinkActive}
           >
             <item.icon className="h-[18px] w-[18px] shrink-0" />
-            <span>{item.title}</span>
+            <span className="flex-1">{item.title}</span>
+            {item.path === '/requests' && openRequests > 0 && (
+              <span className="ml-auto text-[10px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full leading-none">
+                {openRequests > 99 ? '99+' : openRequests}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

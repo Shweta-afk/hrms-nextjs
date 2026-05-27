@@ -123,6 +123,9 @@ const EmployeePortal = () => {
   // Reimbursements
   const [reimbursements, setReimbursements] = useState<Reimbursement[]>([])
   const [reimbModal, setReimbModal] = useState(false)
+
+  // My HR Requests
+  const [myRequests, setMyRequests] = useState<{ id: string; type: string; subject: string; status: string; reply: string | null; created_at: string }[]>([])
   const [reimbTitle, setReimbTitle] = useState('')
   const [reimbDesc, setReimbDesc] = useState('')
   const [reimbAmount, setReimbAmount] = useState('')
@@ -137,12 +140,13 @@ const EmployeePortal = () => {
   async function fetchPortalData() {
     setLoading(true)
     try {
-      const [balanceRes, attendanceRes, notifRes, payslipRes, reimbRes] = await Promise.all([
+      const [balanceRes, attendanceRes, notifRes, payslipRes, reimbRes, reqRes] = await Promise.all([
         fetch('/api/leave/balance'),
         fetch(`/api/attendance?month=${now.getMonth() + 1}&year=${now.getFullYear()}&limit=7`),
         fetch('/api/notifications'),
         fetch('/api/payroll/payslips?limit=1'),
         fetch('/api/reimbursements'),
+        fetch('/api/requests?limit=20'),
       ])
       // Profile completeness check
       if (session?.user?.employee_id) {
@@ -161,8 +165,8 @@ const EmployeePortal = () => {
       const holidayRes = await fetch('/api/holidays')
       const holidayJson = await holidayRes.json()
       if (holidayJson.success) setHolidays(holidayJson.data.slice(0, 3))
-      const [balanceJson, attendanceJson, notifJson, payslipJson, reimbJson] = await Promise.all([
-        balanceRes.json(), attendanceRes.json(), notifRes.json(), payslipRes.json(), reimbRes.json(),
+      const [balanceJson, attendanceJson, notifJson, payslipJson, reimbJson, reqJson] = await Promise.all([
+        balanceRes.json(), attendanceRes.json(), notifRes.json(), payslipRes.json(), reimbRes.json(), reqRes.json(),
       ])
 
       if (balanceJson.success) setLeaveBalances(balanceJson.data.filter((l: LeaveBalance) => l.is_paid && l.total > 0))
@@ -175,6 +179,7 @@ const EmployeePortal = () => {
         setLatestPayslip(payslipJson.data[0])
       }
       if (reimbJson.success) setReimbursements(reimbJson.data)
+      if (reqJson.success) setMyRequests(reqJson.data.requests)
     } catch {
       toast.error('Failed to load portal data')
     } finally {
@@ -209,6 +214,7 @@ const EmployeePortal = () => {
           setRequestType('')
           setRequestSubject('')
           setRequestDesc('')
+          fetch('/api/requests?limit=20').then(r => r.json()).then(j => { if (j.success) setMyRequests(j.data.requests) }).catch(() => {})
         } else {
           toast.error('Failed to submit request')
         }
@@ -715,6 +721,54 @@ const EmployeePortal = () => {
               </Card>
             </section>
 
+            {/* My Requests */}
+            <section id="my-requests">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <HelpCircle className="h-5 w-5 text-primary" /> My Requests
+                </h2>
+                <Button size="sm" variant="outline" onClick={() => setRequestModal(true)}>
+                  <PlusCircle className="h-4 w-4 mr-1.5" /> New Request
+                </Button>
+              </div>
+              <Card>
+                <CardContent className="p-0">
+                  {myRequests.length === 0 ? (
+                    <div className="text-center py-10 text-sm text-muted-foreground">
+                      <HelpCircle className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p>No requests yet</p>
+                      <p className="text-xs mt-1">Raise a request for salary queries, documents, or anything else</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {myRequests.map(r => (
+                        <div key={r.id} className="p-4 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium text-sm">{r.subject}</p>
+                            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                              r.status === 'open'        ? 'bg-blue-100 text-blue-700' :
+                              r.status === 'in_progress' ? 'bg-amber-100 text-amber-700' :
+                              r.status === 'resolved'    ? 'bg-green-100 text-green-700' :
+                                                           'bg-muted text-muted-foreground'
+                            }`}>
+                              {r.status.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground capitalize">{r.type.replace('_', ' ')}</p>
+                          {r.reply && (
+                            <div className="mt-2 rounded bg-muted/50 px-3 py-2 text-sm">
+                              <p className="text-xs font-semibold text-primary mb-0.5">HR Reply</p>
+                              <p className="text-muted-foreground">{r.reply}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </section>
+
             <footer className="text-center py-4 text-xs text-muted-foreground border-t">
               © 2026 HRMS · Need help? Contact hr@company.in
             </footer>
@@ -792,12 +846,11 @@ const EmployeePortal = () => {
                     <Select value={requestType} onValueChange={setRequestType}>
                       <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Salary Query">Salary Query</SelectItem>
-                        <SelectItem value="Leave Query">Leave Query</SelectItem>
-                        <SelectItem value="Document Request">Document Request</SelectItem>
-                        <SelectItem value="IT Declaration">IT Declaration Help</SelectItem>
-                        <SelectItem value="Policy Query">Policy Query</SelectItem>
-                        <SelectItem value="Other">Other</SelectItem>
+                        <SelectItem value="salary">Salary Query</SelectItem>
+                        <SelectItem value="attendance">Attendance Correction</SelectItem>
+                        <SelectItem value="document">Document Request</SelectItem>
+                        <SelectItem value="general">General / Policy Query</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
