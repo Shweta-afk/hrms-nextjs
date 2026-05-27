@@ -126,6 +126,8 @@ const EmployeePortal = () => {
 
   // My HR Requests
   const [myRequests, setMyRequests] = useState<{ id: string; type: string; subject: string; status: string; reply: string | null; created_at: string }[]>([])
+  const [employeeName, setEmployeeName] = useState('')
+  const [empInitials, setEmpInitials] = useState('')
   const [reimbTitle, setReimbTitle] = useState('')
   const [reimbDesc, setReimbDesc] = useState('')
   const [reimbAmount, setReimbAmount] = useState('')
@@ -140,34 +142,23 @@ const EmployeePortal = () => {
   async function fetchPortalData() {
     setLoading(true)
     try {
-      const [balanceRes, attendanceRes, notifRes, payslipRes, reimbRes, reqRes] = await Promise.all([
+      // Fire everything in parallel — no sequential waterfalls
+      const hasEmpId = !!session?.user?.employee_id
+      const responses = await Promise.all([
         fetch('/api/leave/balance'),
         fetch(`/api/attendance?month=${now.getMonth() + 1}&year=${now.getFullYear()}&limit=7`),
         fetch('/api/notifications'),
         fetch('/api/payroll/payslips?limit=1'),
         fetch('/api/reimbursements'),
         fetch('/api/requests?limit=20'),
+        fetch('/api/holidays'),
+        ...(hasEmpId ? [fetch(`/api/employees/${session!.user.employee_id}`)] : []),
       ])
-      // Profile completeness check
-      if (session?.user?.employee_id) {
-        try {
-          const empRes = await fetch(`/api/employees/${session.user.employee_id}`)
-          const empJson = await empRes.json()
-          if (empJson.success) {
-            const missing: string[] = []
-            if (!empJson.data.bank_details?.account_number) missing.push('Bank details')
-            if (!empJson.data.statutory_info?.pan) missing.push('PAN / Statutory info')
-            if (!empJson.data.phone) missing.push('Phone number')
-            setProfileIncomplete(missing)
-          }
-        } catch { /* non-critical */ }
-      }
-      const holidayRes = await fetch('/api/holidays')
-      const holidayJson = await holidayRes.json()
-      if (holidayJson.success) setHolidays(holidayJson.data.slice(0, 3))
-      const [balanceJson, attendanceJson, notifJson, payslipJson, reimbJson, reqJson] = await Promise.all([
-        balanceRes.json(), attendanceRes.json(), notifRes.json(), payslipRes.json(), reimbRes.json(), reqRes.json(),
-      ])
+
+      const [
+        balanceJson, attendanceJson, notifJson, payslipJson,
+        reimbJson, reqJson, holidayJson, empJson,
+      ] = await Promise.all(responses.map(r => r.json()))
 
       if (balanceJson.success) setLeaveBalances(balanceJson.data.filter((l: LeaveBalance) => l.is_paid && l.total > 0))
       if (attendanceJson.success) setAttendance(attendanceJson.data.records.slice(0, 7))
@@ -175,11 +166,22 @@ const EmployeePortal = () => {
         setNotifications(notifJson.data.notifications)
         setUnreadCount(notifJson.data.unread_count)
       }
-      if (payslipJson.success && payslipJson.data.length > 0) {
-        setLatestPayslip(payslipJson.data[0])
-      }
+      if (payslipJson.success && payslipJson.data.length > 0) setLatestPayslip(payslipJson.data[0])
       if (reimbJson.success) setReimbursements(reimbJson.data)
       if (reqJson.success) setMyRequests(reqJson.data.requests)
+      if (holidayJson.success) setHolidays(holidayJson.data.slice(0, 3))
+      if (empJson?.success) {
+        const emp = empJson.data
+        const fn: string = emp.first_name ?? ''
+        const ln: string = emp.last_name ?? ''
+        setEmployeeName(fn)
+        setEmpInitials((fn[0] ?? '') + (ln[0] ?? ''))
+        const missing: string[] = []
+        if (!emp.bank_details?.account_number) missing.push('Bank details')
+        if (!emp.statutory_info?.pan) missing.push('PAN / Statutory info')
+        if (!emp.phone) missing.push('Phone number')
+        setProfileIncomplete(missing)
+      }
     } catch {
       toast.error('Failed to load portal data')
     } finally {
@@ -187,7 +189,10 @@ const EmployeePortal = () => {
     }
   }
 
-  useEffect(() => { fetchPortalData() }, [])
+  useEffect(() => {
+    if (session?.user) fetchPortalData()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.employee_id])
 
   async function markAllRead() {
     await fetch('/api/notifications', { method: 'PATCH' })
@@ -322,11 +327,8 @@ const EmployeePortal = () => {
     { label: 'Raise a Request', icon: HelpCircle, href: '#request', color: 'bg-muted', iconColor: 'text-muted-foreground', ring: 'ring-border' },
   ]
 
-  const userInitials = session?.user?.email
-    ? session.user.email.substring(0, 2).toUpperCase()
-    : 'HR'
-
-  const userName = session?.user?.email?.split('@')[0] ?? 'User'
+  const userInitials = (empInitials || (session?.user?.email?.substring(0, 2) ?? 'U')).toUpperCase()
+  const displayName = employeeName || session?.user?.email?.split('@')[0] || 'there'
 
   return (
     <div className="min-h-screen bg-muted/40">
@@ -406,13 +408,18 @@ const EmployeePortal = () => {
                   <Avatar className="h-7 w-7">
                     <AvatarFallback className="text-[11px] font-bold bg-primary/10 text-primary">{userInitials}</AvatarFallback>
                   </Avatar>
-                  <span className="text-sm font-medium text-foreground hidden sm:inline capitalize">{userName}</span>
+                  <span className="text-sm font-medium text-foreground hidden sm:inline capitalize">{displayName}</span>
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => router.push('/dashboard')}>
-                  <Settings className="mr-2 h-4 w-4" /> HR Dashboard
+                {session?.user?.role === 'admin' && (
+                  <DropdownMenuItem onClick={() => router.push('/dashboard')}>
+                    <Settings className="mr-2 h-4 w-4" /> HR Dashboard
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => router.push('/portal/profile')}>
+                  <User className="mr-2 h-4 w-4" /> My Profile
                 </DropdownMenuItem>
                 <DropdownMenuItem className="text-destructive" onClick={() => signOut({ callbackUrl: '/login' })}>
                   <LogOut className="mr-2 h-4 w-4" /> Log Out
@@ -456,7 +463,7 @@ const EmployeePortal = () => {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <h1 className="text-2xl font-bold text-foreground">
-                      Good {now.getHours() < 12 ? 'morning' : now.getHours() < 17 ? 'afternoon' : 'evening'}, {userName} 👋
+                      Good {now.getHours() < 12 ? 'morning' : now.getHours() < 17 ? 'afternoon' : 'evening'}, {displayName} 👋
                     </h1>
                     <p className="text-sm text-muted-foreground mt-1">
                       {dayName}, {fullDate}

@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select'
 import {
   ArrowLeft, Loader2, Save, Lock, CheckCircle2, Eye, EyeOff,
-  ShieldCheck, User, Phone, Landmark, FileText, Upload, ExternalLink,
+  User, Phone, Landmark, FileText, Upload, ExternalLink,
   AlertCircle, Trash2, FolderOpen,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -394,14 +394,6 @@ export default function PortalProfilePage() {
                 </Badge>
               </CardContent>
             </Card>
-
-            {/* Encryption notice */}
-            <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
-              <ShieldCheck className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-              <p className="text-muted-foreground">
-                Your bank and statutory details are <strong className="text-foreground">encrypted with AES-256</strong> before storage. HR cannot see your raw account number or Aadhaar — only the last 4 digits are displayed.
-              </p>
-            </div>
 
             {/* Tabs */}
             <Tabs defaultValue="personal">
