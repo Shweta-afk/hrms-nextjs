@@ -1,104 +1,100 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { processPunch } from '@/lib/punch-processor'
 
 /**
- * ZKTeco / ESSL standard ADMS push endpoint.
- * Devices (AiFace Magnum, F18, MB20, uFace series, etc.) push here by default.
+ * ZKTeco / ESSL / AiFace ADMS attendance push endpoint.
  *
- * GET  /iclock/cdata?SN=<serial>          — heartbeat / device check-in
- * POST /iclock/cdata                       — attendance log push (ATTLOG)
+ * Devices POST to: /iclock/cdata?SN=SERIAL&table=ATTLOG&Stamp=...
+ * Body (application/x-www-form-urlencoded): data=EMP\tDATETIME\tSTATUS\tVERIFY\r\n...
  *
- * Device is identified by its serial number (SN param), NOT a token.
- * The SN is matched against Device.serial_no in the database.
- * If no match, a new device record is auto-created for the org (first org fallback).
+ * IMPORTANT: SN and table come from QUERY PARAMS, not the body.
+ * Device is identified by serial_no — set it in Settings → Biometric Devices.
  */
 
-async function resolveDeviceBySN(sn: string) {
-  // Try to find by serial number
-  let device = await prisma.device.findFirst({ where: { serial_no: sn } })
-  if (device) return device
-
-  // Auto-register: find first org and create/reuse a device entry
-  const firstOrg = await prisma.organisation.findFirst({ select: { id: true } })
-  if (!firstOrg) return null
-
-  // Check if a device with this SN already exists (race-safe)
-  device = await prisma.device.upsert({
-    where: { push_token: `sn-${sn}` }, // use sn- prefix as unique placeholder
-    update: { serial_no: sn, last_heartbeat: new Date(), status: 'online' },
-    create: {
-      org_id:     firstOrg.id,
-      name:       `ESSL Device (${sn})`,
-      ip_address: '0.0.0.0',
-      port:       4370,
-      serial_no:  sn,
-      push_token: `sn-${sn}`,
-      location:   'Auto-registered',
-      status:     'online',
-    },
-  })
-  return device
-}
-
-// GET — device heartbeat / check-in
-export async function GET(req: NextRequest) {
+/** Convert device local time string → UTC Date using device's configured timezone */
+function parseDeviceTime(datetimeStr: string, timezone: string): Date {
+  const normalized = datetimeStr.trim().replace(' ', 'T')
   try {
-    const { searchParams } = new URL(req.url)
-    const sn = searchParams.get('SN') ?? searchParams.get('sn') ?? ''
-
-    if (!sn) return new Response('OK', { status: 200 })
-
-    const device = await resolveDeviceBySN(sn)
-    if (device) {
-      await prisma.device.update({
-        where: { id: device.id },
-        data: { last_heartbeat: new Date(), status: 'online' },
-      })
-    }
-
-    // ZKTeco expects plain text "OK" for heartbeat
-    return new Response('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } })
+    const naiveUtc = new Date(normalized + 'Z')
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    })
+    const parts   = formatter.formatToParts(naiveUtc)
+    const get     = (t: string) => parts.find(p => p.type === t)?.value ?? '0'
+    const localStr = `${get('year')}-${get('month')}-${get('day')}T${get('hour').padStart(2,'0')}:${get('minute')}:${get('second')}Z`
+    const offsetMs = new Date(localStr).getTime() - naiveUtc.getTime()
+    return new Date(naiveUtc.getTime() - offsetMs)
   } catch {
-    return new Response('OK', { status: 200 })
+    return new Date(normalized)
   }
 }
 
-// POST — attendance data push
+// GET — heartbeat (device checks server is alive)
+export async function GET(req: NextRequest) {
+  const sn = req.nextUrl.searchParams.get('SN') ?? req.nextUrl.searchParams.get('sn') ?? ''
+  if (sn) {
+    const device = await prisma.device.findFirst({ where: { serial_no: sn } }).catch(() => null)
+    if (device) {
+      prisma.device.update({
+        where: { id: device.id },
+        data:  { last_heartbeat: new Date(), status: 'online' },
+      }).catch(() => {})
+    }
+  }
+  return new Response('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } })
+}
+
+// POST — attendance data push from device
 export async function POST(req: NextRequest) {
   try {
-    const text = await req.text()
+    // SN and table are QUERY PARAMS — not in the body
+    const sn    = req.nextUrl.searchParams.get('SN') ?? req.nextUrl.searchParams.get('sn') ?? ''
+    const table = req.nextUrl.searchParams.get('table') ?? ''
+
+    // Parse body for the actual punch data
+    const text = await req.text().catch(() => '')
     const body = new URLSearchParams(text)
+    const data = body.get('data') ?? ''
 
-    const sn    = body.get('SN') ?? body.get('sn') ?? ''
-    const table = body.get('table') ?? ''
-    const data  = body.get('data') ?? ''
+    if (!sn) return new Response('OK: 0', { status: 200, headers: { 'Content-Type': 'text/plain' } })
 
-    const device = sn ? await resolveDeviceBySN(sn) : null
+    // Look up device by serial number
+    const device = await prisma.device.findFirst({ where: { serial_no: sn } }).catch(() => null)
 
+    // Update heartbeat regardless
     if (device) {
-      await prisma.device.update({
+      prisma.device.update({
         where: { id: device.id },
-        data: { last_heartbeat: new Date(), status: 'online' },
-      })
+        data:  { last_heartbeat: new Date(), status: 'online' },
+      }).catch(() => {})
+    } else {
+      // Serial not registered — log and acknowledge so device doesn't retry-storm
+      console.warn(`[iclock/cdata] Unregistered device SN: ${sn} — add serial in Settings → Biometric Devices`)
+      return new Response('OK: 0', { status: 200, headers: { 'Content-Type': 'text/plain' } })
     }
 
-    // Only process attendance logs
-    if (table !== 'ATTLOG' || !data.trim() || !device) {
-      return new Response('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } })
+    // Only process ATTLOG; ignore OPERLOG, photos, etc.
+    if (table !== 'ATTLOG' || !data.trim()) {
+      return new Response('OK: 0', { status: 200, headers: { 'Content-Type': 'text/plain' } })
     }
 
     const lines = data.split(/\r?\n/).filter(l => l.trim())
     let processed = 0
+    let skipped   = 0
 
     for (const line of lines) {
       const fields = line.split('\t')
-      if (fields.length < 3) continue
+      if (fields.length < 2) { skipped++; continue }
 
       const [empCode, datetimeStr, stateStr] = fields
-      const state = parseInt(stateStr ?? '0', 10)
-      const punchTime = new Date(datetimeStr.replace(' ', 'T'))
-      if (isNaN(punchTime.getTime())) continue
+      const state     = parseInt(stateStr ?? '0', 10)
+      // Use device timezone for correct IST → UTC conversion
+      const punchTime = parseDeviceTime(datetimeStr, device.timezone ?? 'Asia/Kolkata')
+      if (isNaN(punchTime.getTime())) { skipped++; continue }
 
       const direction: 'IN' | 'OUT' = [0, 4].includes(state) ? 'IN' : 'OUT'
 
@@ -112,21 +108,26 @@ export async function POST(req: NextRequest) {
           direction,
           raw_data:    `SN=${sn}&${line}`,
         })
-        if (!result.skipped) processed++
-      } catch { /* skip bad records */ }
+        result.skipped ? skipped++ : processed++
+      } catch {
+        skipped++
+      }
     }
 
     if (processed > 0) {
-      await prisma.device.update({
+      prisma.device.update({
         where: { id: device.id },
-        data: { total_punches: { increment: processed } },
-      })
+        data:  { total_punches: { increment: processed } },
+      }).catch(() => {})
     }
 
-    // ZKTeco standard response — plain text "OK"
-    return new Response('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } })
-  } catch (error) {
-    console.error('/iclock/cdata error:', error)
-    return new Response('OK', { status: 200 })
+    return new Response(`OK: ${processed}`, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain' },
+    })
+  } catch (err) {
+    console.error('/iclock/cdata error:', err)
+    // Always return OK — device must not get stuck in retry loop
+    return new Response('OK: 0', { status: 200, headers: { 'Content-Type': 'text/plain' } })
   }
 }
