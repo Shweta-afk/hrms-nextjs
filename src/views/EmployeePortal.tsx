@@ -335,7 +335,11 @@ const EmployeePortal = () => {
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-6">
-            <span className="text-lg font-bold tracking-tight text-foreground">HRMS Portal</span>
+            <img 
+              src="/axiotta.png" 
+              alt="Axiotta" 
+              className="h-10 w-auto"
+            />
             <nav className="hidden md:flex items-center gap-1">
               {[
                 { label: 'Home', href: '/portal' },
