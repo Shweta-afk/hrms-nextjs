@@ -26,7 +26,7 @@ import {
 import {
   Pencil, MoreHorizontal, ArrowRightLeft, UserX, Copy, Loader2,
   ShieldCheck, AlertTriangle, Fingerprint, CheckCircle2, XCircle,
-  AlertCircle, RefreshCw, Wifi, WifiOff, Send,
+  AlertCircle, RefreshCw, Wifi, WifiOff, Send, FolderOpen, ExternalLink, Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -74,6 +74,24 @@ interface Employee {
   attendance: AttendanceRecord[]
   leave_requests: LeaveRequest[]
   payslips: Payslip[]
+}
+
+interface EmployeeDoc {
+  id: string; type: string; file_name: string; file_size: number | null
+  notes: string | null; is_verified: boolean; url: string | null
+  created_at: string; uploaded_by: string
+}
+
+const DOC_LABELS: Record<string, string> = {
+  photo:               'Profile Photo',
+  aadhaar:             'Aadhaar Card',
+  pan:                 'PAN Card',
+  address_proof:       'Address Proof',
+  resume:              'Resume / CV',
+  leaving_certificate: 'Leaving Certificate',
+  offer_letter:        'Offer Letter',
+  pcc:                 'PCC Certificate',
+  education_certificate: 'Education Certificate',
 }
 
 interface DeviceEnrollmentData {
@@ -125,6 +143,12 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   const [savingEssl, setSavingEssl] = useState(false)
   const [syncingDevice, setSyncingDevice] = useState<string | null>(null)
   const [syncAllLoading, setSyncAllLoading] = useState(false)
+
+  // Documents
+  const [documents, setDocuments] = useState<EmployeeDoc[]>([])
+  const [docsLoading, setDocsLoading] = useState(false)
+  const [verifyingDoc, setVerifyingDoc] = useState<string | null>(null)
+  const [deletingDoc, setDeletingDoc] = useState<string | null>(null)
 
   const [saving, setSaving] = useState(false)
   const [editPersonal, setEditPersonal] = useState(false)
@@ -184,6 +208,43 @@ const EmployeeProfile = ({ employeeId }: Props) => {
       setEnrollmentsLoading(false)
     }
   }, [employeeId])
+
+  const fetchDocuments = useCallback(async () => {
+    setDocsLoading(true)
+    try {
+      const res = await fetch(`/api/employees/${employeeId}/documents`)
+      const json = await res.json()
+      if (json.success) setDocuments(json.data)
+    } catch { /* non-critical */ }
+    finally { setDocsLoading(false) }
+  }, [employeeId])
+
+  async function handleVerifyDoc(docId: string, verify: boolean) {
+    setVerifyingDoc(docId)
+    try {
+      const res = await fetch(`/api/employees/${employeeId}/documents/${docId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_verified: verify }),
+      })
+      const json = await res.json()
+      if (json.success) { toast.success(verify ? 'Document verified' : 'Verification removed'); fetchDocuments() }
+      else toast.error(json.error ?? 'Failed')
+    } catch { toast.error('Failed') }
+    finally { setVerifyingDoc(null) }
+  }
+
+  async function handleDeleteDoc(docId: string) {
+    if (!confirm('Delete this document?')) return
+    setDeletingDoc(docId)
+    try {
+      const res = await fetch(`/api/employees/${employeeId}/documents/${docId}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (json.success) { toast.success('Document deleted'); fetchDocuments() }
+      else toast.error(json.error ?? 'Failed')
+    } catch { toast.error('Failed') }
+    finally { setDeletingDoc(null) }
+  }
 
   const syncToDevice = async (deviceId: string) => {
     setSyncingDevice(deviceId)
@@ -270,7 +331,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
     }
   }
 
-  useEffect(() => { fetchEmployee(); fetchEnrollments() }, [fetchEmployee, fetchEnrollments])
+  useEffect(() => { fetchEmployee(); fetchEnrollments(); fetchDocuments() }, [fetchEmployee, fetchEnrollments, fetchDocuments])
 
   // ── end fetch ──
 
@@ -475,6 +536,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
             { value: 'leave', label: 'Leave' },
             { value: 'payroll', label: 'Payroll' },
             { value: 'biometrics', label: 'Biometrics' },
+            { value: 'documents', label: `Documents${documents.length > 0 ? ` (${documents.length})` : ''}` },
           ].map(t => (
             <TabsTrigger key={t.value} value={t.value} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               {t.label}
@@ -1014,6 +1076,110 @@ const EmployeeProfile = ({ employeeId }: Props) => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ── Documents ── */}
+        <TabsContent value="documents">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <FolderOpen className="h-4 w-4 text-primary" /> Employee Documents
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Documents uploaded by the employee. Verify each one after checking the original.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={fetchDocuments} disabled={docsLoading}>
+                  {docsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Refresh'}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {docsLoading ? (
+                <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+              ) : (
+                <div className="space-y-2">
+                  {Object.entries(DOC_LABELS).map(([key, label]) => {
+                    const doc = documents.find(d => d.type === key)
+                    return (
+                      <div key={key} className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${doc ? (doc.is_verified ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-900/10' : 'border-border') : 'border-dashed border-muted-foreground/30'}`}>
+                        {/* Status icon */}
+                        <div className="shrink-0">
+                          {doc?.is_verified
+                            ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            : doc
+                            ? <AlertCircle className="h-4 w-4 text-amber-500" />
+                            : <XCircle className="h-4 w-4 text-muted-foreground/40" />
+                          }
+                        </div>
+
+                        {/* Label + filename */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground">{label}</p>
+                          {doc ? (
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <p className="text-xs text-muted-foreground truncate max-w-[180px]">{doc.file_name}</p>
+                              {doc.notes && <p className="text-xs text-muted-foreground italic">"{doc.notes}"</p>}
+                              <p className="text-[10px] text-muted-foreground">
+                                {new Date(doc.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground/60">Not submitted</p>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        {doc && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            {doc.url && (
+                              <a href={doc.url} target="_blank" rel="noopener noreferrer">
+                                <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1">
+                                  <ExternalLink className="h-3 w-3" /> View
+                                </Button>
+                              </a>
+                            )}
+                            <Button
+                              variant={doc.is_verified ? 'outline' : 'default'}
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={verifyingDoc === doc.id}
+                              onClick={() => handleVerifyDoc(doc.id, !doc.is_verified)}
+                            >
+                              {verifyingDoc === doc.id
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : doc.is_verified ? 'Unverify' : 'Verify'
+                              }
+                            </Button>
+                            <Button
+                              variant="ghost" size="sm"
+                              className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                              disabled={deletingDoc === doc.id}
+                              onClick={() => handleDeleteDoc(doc.id)}
+                            >
+                              {deletingDoc === doc.id ? <Loader2 className="h-3 w-3 animate-spin" /> : '✕'}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Summary */}
+              {!docsLoading && (
+                <div className="mt-4 flex items-center gap-4 text-xs text-muted-foreground border-t pt-3 flex-wrap">
+                  <span className="text-emerald-600 font-medium">{documents.filter(d => d.is_verified).length} verified</span>
+                  <span className="text-amber-600 font-medium">{documents.filter(d => !d.is_verified).length} uploaded, pending review</span>
+                  <span className="text-muted-foreground/60">{Object.keys(DOC_LABELS).length - documents.length} not submitted</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
       </Tabs>
 
       {/* Transfer Modal */}

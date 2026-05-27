@@ -40,6 +40,7 @@ model Organisation {
   api_keys           OrgApiKey[]
   shift_groups       ShiftGroup[]
   reimbursements     Reimbursement[]
+  employee_documents EmployeeDocument[]
 
   @@map("organisations")
 }
@@ -163,6 +164,7 @@ model Employee {
   payslips           Payslip[]
   device_enrollments DeviceEnrollment[]
   reimbursements     Reimbursement[]
+  documents          EmployeeDocument[]
 
   @@unique([org_id, emp_code])
   @@unique([org_id, email])
@@ -534,6 +536,33 @@ model Reimbursement {
 }
 
 // ─── API KEYS ────────────────────────────────────────────
+
+// ─── EMPLOYEE DOCUMENTS ──────────────────────────────────
+
+model EmployeeDocument {
+  id          String    @id @default(uuid())
+  org_id      String
+  employee_id String
+  type        String    // aadhaar | pan | address_proof | resume | leaving_certificate | offer_letter | pcc | education_certificate | photo
+  file_key    String    // S3 / R2 key — permanent reference
+  file_name   String
+  file_size   Int?
+  mime_type   String?
+  notes       String?   // e.g. "PCC application submitted 2026-05-01"
+  is_verified Boolean   @default(false)
+  verified_by String?
+  verified_at DateTime?
+  uploaded_by String    // user_id
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  employee     Employee     @relation(fields: [employee_id], references: [id])
+  organisation Organisation @relation(fields: [org_id], references: [id])
+
+  @@index([org_id, employee_id])
+  @@index([employee_id, type])
+  @@map("employee_documents")
+}
 
 model OrgApiKey {
   id         String    @id @default(uuid())

@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/select'
 import {
   ArrowLeft, Loader2, Save, Lock, CheckCircle2, Eye, EyeOff,
-  ShieldCheck, User, Phone, Landmark, FileText,
+  ShieldCheck, User, Phone, Landmark, FileText, Upload, ExternalLink,
+  AlertCircle, Trash2, FolderOpen,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -40,6 +41,23 @@ interface Employee {
 
 const BLOOD_GROUPS = ['A+', 'A−', 'B+', 'B−', 'AB+', 'AB−', 'O+', 'O−']
 const RELATIONSHIPS = ['Spouse', 'Parent', 'Sibling', 'Child', 'Friend', 'Other']
+
+const DOCUMENT_TYPES = [
+  { key: 'photo',               label: 'Profile Photo',            note: 'Recent passport-size photo' },
+  { key: 'aadhaar',             label: 'Aadhaar Card',             note: 'Front & back in one scan' },
+  { key: 'pan',                 label: 'PAN Card',                 note: 'Clear scan or photo' },
+  { key: 'address_proof',       label: 'Address Proof',            note: 'Utility bill, bank statement, or govt ID' },
+  { key: 'resume',              label: 'Resume / CV',              note: 'Most recent version (PDF preferred)' },
+  { key: 'leaving_certificate', label: 'Leaving Certificate',      note: 'Relieving letter from previous employer' },
+  { key: 'offer_letter',        label: 'Offer Letter',             note: 'Offer letter from your last company' },
+  { key: 'pcc',                 label: 'PCC Certificate',          note: 'Police Clearance Certificate — or upload pending application' },
+  { key: 'education_certificate', label: 'Education Certificate',  note: 'Last qualification certificate or marksheet' },
+] as const
+
+interface EmployeeDoc {
+  id: string; type: string; file_name: string; file_size: number | null
+  notes: string | null; is_verified: boolean; url: string | null; created_at: string
+}
 
 function SectionSave({ saving, onSave, onCancel }: { saving: boolean; onSave: () => void; onCancel: () => void }) {
   return (
@@ -104,6 +122,58 @@ export default function PortalProfilePage() {
   const [uan, setUan] = useState('')
   const [esiNumber, setEsiNumber] = useState('')
 
+  // Documents state
+  const [documents, setDocuments] = useState<EmployeeDoc[]>([])
+  const [docsLoading, setDocsLoading] = useState(false)
+  const [uploadingType, setUploadingType] = useState<string | null>(null)
+  const [docNotes, setDocNotes] = useState<Record<string, string>>({})
+
+  async function fetchDocuments(empId: string) {
+    setDocsLoading(true)
+    try {
+      const res = await fetch(`/api/employees/${empId}/documents`)
+      const json = await res.json()
+      if (json.success) setDocuments(json.data)
+    } catch { /* silent */ }
+    finally { setDocsLoading(false) }
+  }
+
+  async function handleUploadDoc(type: string, file: File) {
+    if (!employee) return
+    setUploadingType(type)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('category', 'documents')
+      form.append('sub_id', employee.id)
+      form.append('doc_type', type)
+      const uploadRes = await fetch('/api/upload', { method: 'POST', body: form })
+      const uploadJson = await uploadRes.json()
+      if (!uploadJson.success) { toast.error('Upload failed — ' + (uploadJson.error ?? '')); return }
+      const { key } = uploadJson.data
+      const saveRes = await fetch(`/api/employees/${employee.id}/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type,
+          file_key:  key,
+          file_name: file.name,
+          file_size: file.size,
+          mime_type: file.type,
+          notes:     docNotes[type] || undefined,
+        }),
+      })
+      const saveJson = await saveRes.json()
+      if (saveJson.success) {
+        toast.success('Document uploaded')
+        fetchDocuments(employee.id)
+      } else {
+        toast.error(saveJson.error ?? 'Failed to save document')
+      }
+    } catch { toast.error('Upload failed') }
+    finally { setUploadingType(null) }
+  }
+
   async function fetchProfile() {
     if (!session?.user?.employee_id) return
     setLoading(true)
@@ -113,6 +183,7 @@ export default function PortalProfilePage() {
       if (json.success) {
         const emp: Employee = json.data
         setEmployee(emp)
+        fetchDocuments(emp.id)
         // Populate personal
         setPhone(emp.phone ?? '')
         setDob(emp.personal_info?.date_of_birth ?? '')
@@ -330,22 +401,26 @@ export default function PortalProfilePage() {
 
             {/* Tabs */}
             <Tabs defaultValue="personal">
-              <TabsList className="w-full grid grid-cols-4 h-auto">
-                <TabsTrigger value="personal" className="flex items-center gap-1.5 text-xs">
-                  <User className="h-3.5 w-3.5" />Personal
+              <TabsList className="w-full grid grid-cols-5 h-auto">
+                <TabsTrigger value="personal" className="flex items-center gap-1 text-xs px-1">
+                  <User className="h-3.5 w-3.5 shrink-0" /><span className="hidden sm:inline">Personal</span><span className="sm:hidden">Info</span>
                 </TabsTrigger>
-                <TabsTrigger value="emergency" className="flex items-center gap-1.5 text-xs">
-                  <Phone className="h-3.5 w-3.5" />Emergency
+                <TabsTrigger value="emergency" className="flex items-center gap-1 text-xs px-1">
+                  <Phone className="h-3.5 w-3.5 shrink-0" /><span className="hidden sm:inline">Emergency</span><span className="sm:hidden">SOS</span>
                 </TabsTrigger>
-                <TabsTrigger value="bank" className="flex items-center gap-1.5 text-xs">
-                  <Landmark className="h-3.5 w-3.5" />
-                  Bank
-                  {bankFilled && <CheckCircle2 className="h-3 w-3 text-kpi-green ml-0.5" />}
+                <TabsTrigger value="bank" className="flex items-center gap-1 text-xs px-1">
+                  <Landmark className="h-3.5 w-3.5 shrink-0" />Bank
+                  {bankFilled && <CheckCircle2 className="h-3 w-3 text-kpi-green ml-0.5 shrink-0" />}
                 </TabsTrigger>
-                <TabsTrigger value="statutory" className="flex items-center gap-1.5 text-xs">
-                  <FileText className="h-3.5 w-3.5" />
-                  Statutory
-                  {statFilled && <CheckCircle2 className="h-3 w-3 text-kpi-green ml-0.5" />}
+                <TabsTrigger value="statutory" className="flex items-center gap-1 text-xs px-1">
+                  <FileText className="h-3.5 w-3.5 shrink-0" /><span className="hidden sm:inline">Statutory</span><span className="sm:hidden">Tax</span>
+                  {statFilled && <CheckCircle2 className="h-3 w-3 text-kpi-green ml-0.5 shrink-0" />}
+                </TabsTrigger>
+                <TabsTrigger value="documents" className="flex items-center gap-1 text-xs px-1">
+                  <FolderOpen className="h-3.5 w-3.5 shrink-0" />Docs
+                  {documents.length === DOCUMENT_TYPES.length && (
+                    <CheckCircle2 className="h-3 w-3 text-kpi-green ml-0.5 shrink-0" />
+                  )}
                 </TabsTrigger>
               </TabsList>
 
@@ -701,6 +776,115 @@ export default function PortalProfilePage() {
                   </CardContent>
                 </Card>
               </TabsContent>
+              {/* ── Documents ── */}
+              <TabsContent value="documents" className="mt-4 space-y-3">
+                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm flex gap-3">
+                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-amber-800 dark:text-amber-300">
+                    All 9 documents below are <strong>mandatory</strong>. Upload them so HR can verify your profile and process your salary.
+                    For PCC, upload the certificate or your application acknowledgement if the certificate is pending.
+                  </p>
+                </div>
+
+                {docsLoading ? (
+                  <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+                ) : (
+                  <div className="space-y-2">
+                    {DOCUMENT_TYPES.map(dt => {
+                      const uploaded = documents.find(d => d.type === dt.key)
+                      return (
+                        <Card key={dt.key} className={uploaded ? 'border-emerald-200 dark:border-emerald-800' : 'border-border'}>
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-sm font-medium text-foreground">{dt.label}</p>
+                                  {uploaded ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+                                      <CheckCircle2 className="h-3 w-3" />
+                                      {uploaded.is_verified ? 'Verified' : 'Uploaded'}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/20 text-red-600">
+                                      <AlertCircle className="h-3 w-3" /> Required
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5">{dt.note}</p>
+                                {uploaded && (
+                                  <div className="flex items-center gap-3 mt-2 flex-wrap">
+                                    <p className="text-xs text-muted-foreground truncate max-w-[200px]">{uploaded.file_name}</p>
+                                    {uploaded.url && (
+                                      <a href={uploaded.url} target="_blank" rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                                        <ExternalLink className="h-3 w-3" /> View
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+                                {/* Notes field for PCC */}
+                                {dt.key === 'pcc' && !uploaded && (
+                                  <div className="mt-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Note: e.g. 'Applied on 01 May 2026, awaiting'"
+                                      value={docNotes['pcc'] ?? ''}
+                                      onChange={e => setDocNotes(p => ({ ...p, pcc: e.target.value }))}
+                                      className="text-xs border border-border rounded px-2 py-1 w-full bg-background"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="shrink-0">
+                                <label className="cursor-pointer">
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    className="hidden"
+                                    disabled={uploadingType === dt.key}
+                                    onChange={e => {
+                                      const f = e.target.files?.[0]
+                                      if (f) handleUploadDoc(dt.key, f)
+                                      e.target.value = ''
+                                    }}
+                                  />
+                                  <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border transition-colors ${
+                                    uploaded
+                                      ? 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                                      : 'border-primary text-primary hover:bg-primary/5'
+                                  }`}>
+                                    {uploadingType === dt.key
+                                      ? <><Loader2 className="h-3 w-3 animate-spin" /> Uploading…</>
+                                      : <><Upload className="h-3 w-3" />{uploaded ? 'Replace' : 'Upload'}</>
+                                    }
+                                  </span>
+                                </label>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Submission progress */}
+                <div className="flex items-center gap-3 rounded-lg border px-4 py-3 bg-muted/30">
+                  <div className="flex-1">
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>Documents submitted</span>
+                      <span>{documents.length} / {DOCUMENT_TYPES.length}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${(documents.length / DOCUMENT_TYPES.length) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+
             </Tabs>
           </>
         )}
