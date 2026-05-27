@@ -1,0 +1,13 @@
+{
+  "name": "zk-bridge",
+  "version": "1.0.0",
+  "description": "Pulls attendance from ZKTeco/AiFace device and syncs to HRMS",
+  "main": "sync.js",
+  "scripts": {
+    "start": "node sync.js",
+    "full": "node sync.js --full"
+  },
+  "dependencies": {
+    "node-zklib": "^1.0.1"
+  }
+}
