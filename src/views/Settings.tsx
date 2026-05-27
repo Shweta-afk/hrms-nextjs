@@ -21,12 +21,9 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   Building2, FileText, DollarSign, Clock, LayoutGrid, CalendarDays,
   Users, Plug, CreditCard, Save, CheckCircle2, Circle, Plus, Trash2,
-  Loader2, Star, Cpu, Wifi, WifiOff, RefreshCw, Copy, AlertCircle, Pencil,
+  Loader2, Star, Cpu, Wifi, WifiOff, Copy, AlertCircle, Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -1744,27 +1741,6 @@ const Settings = () => {
                           <Users className="h-3.5 w-3.5" />
                           View People
                         </Button>
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                size="sm" variant="outline" className="gap-1.5 text-xs"
-                                onClick={() => handleSyncDevice(device.id)}
-                                disabled={deviceSyncing === device.id}
-                              >
-                                {deviceSyncing === device.id
-                                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  : <RefreshCw className="h-3.5 w-3.5" />
-                                }
-                                Sync Now
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs text-xs">
-                              Pull sync requires the server to be on the same network as the device.
-                              On cloud deployments, configure the device to use the Push URL instead.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
                         <Button
                           size="sm" variant="ghost"
                           className="gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
