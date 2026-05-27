@@ -82,12 +82,25 @@ const Attendance = () => {
 
   // Import modal
   const [importModal, setImportModal] = useState(false)
-  const [importTab, setImportTab] = useState<'smartoffice' | 'essl' | 'monthly'>('monthly')
+  const [importTab, setImportTab] = useState<'smartoffice' | 'essl' | 'monthly' | 'biometric'>('monthly')
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<any>(null)
   const xlsxRef = useRef<HTMLInputElement>(null)
   const csvRef = useRef<HTMLInputElement>(null)
   const monthlyRef = useRef<HTMLInputElement>(null)
+
+  // Biometric API Pull state
+  const [bioApiUrl, setBioApiUrl] = useState('')
+  const [bioApiKey, setBioApiKey] = useState('')
+  const [bioAccountName, setBioAccountName] = useState('')
+  const [bioFromDate, setBioFromDate] = useState('')
+  const [bioToDate, setBioToDate] = useState('')
+  const [bioPulling, setBioPulling] = useState(false)
+  const [bioPullResult, setBioPullResult] = useState<{
+    fetched: number; processed: number; skipped: number;
+    unmatched: string[]; errors: string[]
+  } | null>(null)
+  const [bioSettingsSaved, setBioSettingsSaved] = useState(false)
 
   // Monthly Details import result & email sending
   const [monthlyResult, setMonthlyResult] = useState<{
@@ -241,6 +254,77 @@ const Attendance = () => {
       }
     } catch { toast.error('Import failed') }
     finally { setImporting(false) }
+  }
+
+  // Load saved biometric API config from org settings
+  async function loadBiometricConfig() {
+    try {
+      const res  = await fetch('/api/org/settings')
+      const json = await res.json()
+      if (json.success && json.data?.biometric) {
+        const b = json.data.biometric as Record<string, string>
+        if (b.api_url)      setBioApiUrl(b.api_url)
+        if (b.api_key)      setBioApiKey(b.api_key)
+        if (b.account_name) setBioAccountName(b.account_name)
+      }
+    } catch { /* non-critical */ }
+  }
+
+  // Save biometric API config to org settings
+  async function handleSaveBioSettings() {
+    try {
+      const res = await fetch('/api/org/settings', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ biometric: { api_url: bioApiUrl, api_key: bioApiKey, account_name: bioAccountName } }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setBioSettingsSaved(true)
+        toast.success('Biometric API settings saved')
+        setTimeout(() => setBioSettingsSaved(false), 3000)
+      } else {
+        toast.error('Failed to save settings')
+      }
+    } catch { toast.error('Failed to save settings') }
+  }
+
+  // Pull attendance from biometric API
+  async function handleBiometricPull() {
+    if (!bioFromDate || !bioToDate) {
+      toast.error('Please select a date range')
+      return
+    }
+    setBioPulling(true)
+    setBioPullResult(null)
+    try {
+      const res  = await fetch('/api/attendance/biometric-pull', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          from_date:    bioFromDate,
+          to_date:      bioToDate,
+          api_url:      bioApiUrl  || undefined,
+          api_key:      bioApiKey  || undefined,
+          account_name: bioAccountName || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setBioPullResult(json.data)
+        if (json.data.processed > 0) {
+          toast.success(`Pulled ${json.data.processed} attendance records`)
+          fetchAttendance()
+        } else if (json.data.fetched === 0) {
+          toast.info('No records found in that date range')
+        } else {
+          toast.warning('Records fetched but none matched — check Employee Codes')
+        }
+      } else {
+        toast.error(json.error ?? 'Pull failed')
+      }
+    } catch { toast.error('Failed to pull from biometric API') }
+    finally  { setBioPulling(false) }
   }
 
   // Send welcome emails to imported employees
@@ -435,7 +519,7 @@ const Attendance = () => {
               <BarChart3 className="h-4 w-4 mr-2" />
               Year Overview
             </Button>
-            <Button variant="outline" size="sm" onClick={() => { setImportModal(true); setImportResult(null) }}>
+            <Button variant="outline" size="sm" onClick={() => { setImportModal(true); setImportResult(null); loadBiometricConfig() }}>
               <Upload className="h-4 w-4 mr-2" /> Import Report
             </Button>
             <Button variant="outline" size="sm" onClick={handleDownloadReport}>
@@ -674,7 +758,7 @@ const Attendance = () => {
                 </div>
                 <Button
                   className="w-full" size="sm"
-                  onClick={() => { setImportModal(true); setImportResult(null) }}
+                  onClick={() => { setImportModal(true); setImportResult(null); loadBiometricConfig() }}
                 >
                   <Upload className="h-4 w-4 mr-2" /> Import Report
                 </Button>
@@ -1077,6 +1161,13 @@ const Attendance = () => {
             >
               ESSL CSV
             </button>
+            <button
+              className={`flex-1 py-2 px-2 transition-colors ${importTab === 'biometric' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-muted'}`}
+              onClick={() => { setImportTab('biometric'); setImportResult(null); setMonthlyResult(null); setBioPullResult(null) }}
+            >
+              <Wifi className="h-3.5 w-3.5 inline mr-1 -mt-0.5" />
+              Live API Pull
+            </button>
           </div>
 
           <div className="overflow-y-auto flex-1 space-y-4 pr-1">
@@ -1262,6 +1353,135 @@ const Attendance = () => {
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleEsslImport(f) }}
                 />
               </div>
+            </div>
+          )}
+
+          {/* ── Biometric API Pull tab ── */}
+          {importTab === 'biometric' && (
+            <div className="space-y-5">
+              {/* API Config */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">API Configuration</p>
+                  <button
+                    onClick={handleSaveBioSettings}
+                    className="text-xs text-primary hover:underline font-medium"
+                  >
+                    {bioSettingsSaved ? '✓ Saved' : 'Save for future use'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">API Endpoint URL</Label>
+                    <Input
+                      value={bioApiUrl}
+                      onChange={e => setBioApiUrl(e.target.value)}
+                      placeholder="https://sohcm.com/SmartApp_ess/api/SwipeDetails/GetDeviceLogs"
+                      className="text-xs font-mono"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key</Label>
+                      <Input
+                        value={bioApiKey}
+                        onChange={e => setBioApiKey(e.target.value)}
+                        placeholder="200111012629"
+                        className="text-xs font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Account Name <span className="text-muted-foreground">(optional)</span></Label>
+                      <Input
+                        value={bioAccountName}
+                        onChange={e => setBioAccountName(e.target.value)}
+                        placeholder="Dynavac"
+                        className="text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Date Range */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date Range</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">From Date</Label>
+                    <Input type="date" value={bioFromDate} onChange={e => setBioFromDate(e.target.value)} className="text-sm" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">To Date</Label>
+                    <Input type="date" value={bioToDate} onChange={e => setBioToDate(e.target.value)} className="text-sm" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Info box */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-xs space-y-1">
+                <p className="font-semibold text-blue-900 dark:text-blue-300">How it works</p>
+                <p className="text-blue-800 dark:text-blue-300">• Pulls swipe logs from your biometric device API in real-time</p>
+                <p className="text-blue-800 dark:text-blue-300">• First swipe of the day = Check-In, last swipe = Check-Out</p>
+                <p className="text-blue-800 dark:text-blue-300">• Matches <strong>UserId</strong> from device to <strong>Employee Code</strong> in HRMS</p>
+                <p className="text-blue-800 dark:text-blue-300">• Unmatched User IDs are listed below so you can fix the mapping</p>
+              </div>
+
+              <Button
+                className="w-full"
+                onClick={handleBiometricPull}
+                disabled={bioPulling || !bioApiUrl || !bioApiKey || !bioFromDate || !bioToDate}
+              >
+                {bioPulling
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Pulling data…</>
+                  : <><Wifi className="h-4 w-4 mr-2" /> Pull Attendance from Biometric API</>
+                }
+              </Button>
+
+              {/* Pull Result */}
+              {bioPullResult && (
+                <div className={`border rounded-lg p-4 space-y-3 ${bioPullResult.processed > 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'}`}>
+                  <p className={`font-semibold text-sm ${bioPullResult.processed > 0 ? 'text-green-800 dark:text-green-300' : 'text-amber-800 dark:text-amber-300'}`}>
+                    {bioPullResult.processed > 0 ? '✓ Sync Complete' : '⚠ Sync Complete — No Records Matched'}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-card rounded p-2 border">
+                      <p className="text-lg font-bold">{bioPullResult.fetched}</p>
+                      <p className="text-xs text-muted-foreground">Raw Swipes</p>
+                    </div>
+                    <div className="bg-card rounded p-2 border">
+                      <p className="text-lg font-bold text-green-600">{bioPullResult.processed}</p>
+                      <p className="text-xs text-muted-foreground">Records Saved</p>
+                    </div>
+                    <div className="bg-card rounded p-2 border">
+                      <p className="text-lg font-bold text-amber-600">{bioPullResult.skipped}</p>
+                      <p className="text-xs text-muted-foreground">Skipped</p>
+                    </div>
+                  </div>
+                  {bioPullResult.unmatched.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        Unmatched UserIds — set matching Employee Code in each employee's profile:
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {bioPullResult.unmatched.map(uid => (
+                          <span key={uid} className="font-mono text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-700">
+                            {uid}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {bioPullResult.errors.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold text-destructive">Other errors:</p>
+                      {bioPullResult.errors.map((e, i) => (
+                        <p key={i} className="text-xs text-destructive">{e}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
