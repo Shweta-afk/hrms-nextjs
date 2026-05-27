@@ -1072,7 +1072,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                       <li>Scan their fingerprint or face 3 times to complete enrollment</li>
                     </ol>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      ⓘ Biometric data (fingerprint / face) is stored on the device only — never in KYZEN Pro.
+                      ⓘ Biometric data (fingerprint / face) is stored on the device only — never in Axiotta HRMS.
                     </p>
                   </div>
                 </>

@@ -3,8 +3,8 @@ import './globals.css'
 import Providers from '@/components/Providers'
 
 export const metadata: Metadata = {
-  title: 'HRMS',
-  description: 'HR Management System',
+  title: 'Axiotta HRMS',
+  description: 'Axiotta Technologies HR Management System',
 }
 
 export default function RootLayout({

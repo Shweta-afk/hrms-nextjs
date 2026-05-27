@@ -71,11 +71,8 @@ const AppSidebar = () => {
   return (
     <aside className="hidden md:flex flex-col w-60 min-h-screen bg-sidebar text-sidebar-foreground shrink-0">
       {/* Logo */}
-      <div className="flex items-center gap-2 px-5 h-16 border-b border-sidebar-border">
-        <span className="text-xl font-bold tracking-tight">KYZEN</span>
-        <span className="text-[10px] font-semibold bg-primary px-1.5 py-0.5 rounded text-primary-foreground uppercase tracking-wider">
-          Pro
-        </span>
+      <div className="flex items-center px-4 h-16 border-b border-sidebar-border">
+        <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain" />
       </div>
 
       {/* Nav */}

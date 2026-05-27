@@ -83,8 +83,10 @@ function LoginForm() {
 
   return (
     <div className="bg-card text-card-foreground p-8 rounded-lg shadow-md w-full max-w-md border border-border">
-      <h1 className="text-2xl font-bold text-foreground mb-2">HRMS Login</h1>
-      <p className="text-muted-foreground mb-6">Sign in to your account</p>
+      <div className="flex justify-center mb-5">
+        <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain" />
+      </div>
+      <p className="text-muted-foreground mb-6 text-center">Sign in to your account</p>
 
       {error && (
         <div className={`${errorKind === 'unverified' ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300' : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'} px-4 py-3 rounded mb-4 text-sm`}>

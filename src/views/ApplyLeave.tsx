@@ -173,7 +173,7 @@ const ApplyLeave = () => {
       {/* Top nav */}
       <header className="sticky top-0 z-30 bg-card border-b shadow-sm">
         <div className="max-w-7xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
-          <span className="text-lg font-bold tracking-tight text-foreground">KYZEN</span>
+          <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-7 w-auto object-contain" />
           <nav className="hidden sm:flex items-center gap-6 text-sm font-medium text-muted-foreground">
             <Link href="/portal" className="hover:text-foreground transition-colors flex items-center gap-1">
               <Home className="h-4 w-4" /> Portal

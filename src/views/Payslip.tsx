@@ -226,7 +226,7 @@ const Payslip = () => {
       {/* Top Nav */}
       <header className="no-print sticky top-0 z-30 border-b bg-background">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
-          <span className="text-lg font-bold tracking-tight text-foreground">HRMS</span>
+          <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-7 w-auto object-contain" />
           <span className="text-sm text-muted-foreground">
             {payslip ? `${payslip.employee.first_name} ${payslip.employee.last_name}` : 'Loading...'}
           </span>

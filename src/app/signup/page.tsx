@@ -97,7 +97,7 @@ export default function SignupPage() {
       <div className="w-full max-w-lg">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">HRMS</h1>
+          <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain mx-auto mb-2" />
           <p className="text-gray-500 mt-2">Set up your company's HR platform in 2 minutes</p>
         </div>
 
