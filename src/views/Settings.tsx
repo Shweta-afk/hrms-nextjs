@@ -26,7 +26,7 @@ import {
 import {
   Building2, FileText, DollarSign, Clock, LayoutGrid, CalendarDays,
   Users, Plug, CreditCard, Save, CheckCircle2, Circle, Plus, Trash2,
-  Loader2, Star, Cpu, Wifi, WifiOff, RefreshCw, Copy, AlertCircle,
+  Loader2, Star, Cpu, Wifi, WifiOff, RefreshCw, Copy, AlertCircle, Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -148,6 +148,10 @@ const Settings = () => {
   const [deptLoading, setDeptLoading] = useState(false)
   const [newDeptName, setNewDeptName] = useState("")
   const [newDeptCode, setNewDeptCode] = useState("")
+  const [editingDept, setEditingDept] = useState<Department | null>(null)
+  const [editDeptName, setEditDeptName] = useState("")
+  const [editDeptCode, setEditDeptCode] = useState("")
+  const [deletingDept, setDeletingDept] = useState<string | null>(null)
 
   // Holidays
   const [holidays, setHolidays] = useState<Holiday[]>([])
@@ -630,6 +634,36 @@ const Settings = () => {
         fetchDepartments()
       }
     } catch { toast.error('Failed to add department') }
+  }
+
+  async function handleSaveDept() {
+    if (!editingDept) return
+    try {
+      const res = await fetch(`/api/departments/${editingDept.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editDeptName, code: editDeptCode }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Department updated')
+        setEditingDept(null)
+        fetchDepartments()
+      } else toast.error(json.error ?? 'Failed to update')
+    } catch { toast.error('Failed to update department') }
+  }
+
+  async function handleDeleteDept(id: string) {
+    setDeletingDept(id)
+    try {
+      const res = await fetch(`/api/departments/${id}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Department deleted')
+        fetchDepartments()
+      } else toast.error(json.error ?? 'Failed to delete')
+    } catch { toast.error('Failed to delete department') }
+    finally { setDeletingDept(null) }
   }
 
   async function handleAddHoliday() {
@@ -1389,7 +1423,7 @@ const Settings = () => {
 
     // ── DEPARTMENTS ──
     if (activeTab === 'departments') return (
-      <div className="space-y-6">
+      <><div className="space-y-6">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Add Department</CardTitle>
@@ -1422,7 +1456,7 @@ const Settings = () => {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Code</TableHead>
-                    <TableHead>Created</TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1430,7 +1464,21 @@ const Settings = () => {
                     <TableRow key={d.id}>
                       <TableCell className="font-medium">{d.name}</TableCell>
                       <TableCell><Badge variant="secondary">{d.code}</Badge></TableCell>
-                      <TableCell className="text-sm text-muted-foreground">—</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-7 w-7"
+                            onClick={() => { setEditingDept(d); setEditDeptName(d.name); setEditDeptCode(d.code) }}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            disabled={deletingDept === d.id}
+                            onClick={() => handleDeleteDept(d.id)}>
+                            {deletingDept === d.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1439,6 +1487,30 @@ const Settings = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Edit Department Dialog */}
+      <Dialog open={!!editingDept} onOpenChange={open => !open && setEditingDept(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Department</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Name</label>
+              <Input value={editDeptName} onChange={e => setEditDeptName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Code</label>
+              <Input value={editDeptCode} onChange={e => setEditDeptCode(e.target.value.toUpperCase())} className="uppercase" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingDept(null)}>Cancel</Button>
+            <Button onClick={handleSaveDept}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      </>
     )
 
     // ── HOLIDAYS ──
