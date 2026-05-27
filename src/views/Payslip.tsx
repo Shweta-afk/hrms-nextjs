@@ -296,7 +296,7 @@ const Payslip = () => {
     win.document.write(html)
     win.document.close()
     win.focus()
-    setTimeout(() => { win.print(); win.close() }, 600)
+    setTimeout(() => { win.print() }, 600)
     toast.success('Opening payslip for download')
   }
 
