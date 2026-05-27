@@ -268,79 +268,225 @@ const Payroll = () => {
   function handleViewPayslip(payslipId: string) {
     const payslip = payslips.find(p => p.id === payslipId)
     if (!payslip) return
+
     const f = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN")
-    const earningRows = Object.entries(payslip.earnings)
-      .map(([l, a]) => `<tr><td>${l}</td><td style="text-align:right">${f(a)}</td></tr>`).join('')
-    const deductionRows = Object.entries(payslip.deductions)
-      .map(([l, a]) => `<tr><td>${l}</td><td style="text-align:right">${f(a)}</td></tr>`).join('')
     const co = orgInfo
+    const emp = payslip.employee
+    const bank = emp.bank_details_decrypted ?? emp.bank_details
+    const statutory = emp.statutory_info_decrypted
+    const lopDays = Math.max(0, payslip.working_days - Number(payslip.present_days))
+
+    // Number to words
+    function numWords(n: number): string {
+      const ones = ["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine",
+        "Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"]
+      const tens = ["","","Twenty","Thirty","Forty","Fifty","Sixty","Seventy","Eighty","Ninety"]
+      if (n === 0) return "Zero"
+      const cv = (num: number): string => {
+        if (num < 20) return ones[num]
+        if (num < 100) return tens[Math.floor(num/10)] + (num%10 ? " "+ones[num%10] : "")
+        if (num < 1000) return ones[Math.floor(num/100)] + " Hundred" + (num%100 ? " "+cv(num%100) : "")
+        if (num < 100000) return cv(Math.floor(num/1000)) + " Thousand" + (num%1000 ? " "+cv(num%1000) : "")
+        if (num < 10000000) return cv(Math.floor(num/100000)) + " Lakh" + (num%100000 ? " "+cv(num%100000) : "")
+        return cv(Math.floor(num/10000000)) + " Crore" + (num%10000000 ? " "+cv(num%10000000) : "")
+      }
+      return cv(Math.round(n)) + " Rupees Only"
+    }
+
     const draftBanner = !isApproved
-      ? `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:8px 16px;margin-bottom:16px;text-align:center;font-size:12px;font-weight:bold;color:#92400e">DRAFT — This payslip has not been approved yet and is subject to change</div>`
+      ? `<div style="background:#fef3c7;border:1px solid #f59e0b;padding:8px 16px;margin-bottom:12px;text-align:center;font-size:12px;font-weight:bold;color:#92400e">⚠ DRAFT — This payslip has not been approved yet and is subject to change</div>`
       : ''
+
     const logoHtml = co.logo_url
-      ? `<img src="${co.logo_url}" style="height:64px;width:auto;object-fit:contain;display:block;margin:0 auto 6px" />`
+      ? `<img src="${co.logo_url}" style="height:56px;width:auto;object-fit:contain" />`
       : ''
-    const companyMeta = [
-      co.address    ? `<p style="margin:2px 0;font-size:11px;color:#666">${co.address}</p>` : '',
-      co.phone      ? `<p style="margin:2px 0;font-size:11px;color:#666">📞 ${co.phone}</p>` : '',
-      co.gst_number ? `<p style="margin:2px 0;font-size:11px;color:#666">GSTIN: ${co.gst_number}</p>` : '',
-      co.tan_number ? `<p style="margin:2px 0;font-size:11px;color:#666">TAN: ${co.tan_number}</p>` : '',
-    ].filter(Boolean).join('')
-    // Use bank_details_decrypted if available, else fall back to bank_details
-    const bank = payslip.employee.bank_details_decrypted ?? payslip.employee.bank_details
-    const statutory = payslip.employee.statutory_info_decrypted
-    const statutoryRow = (statutory?.pan_number || statutory?.uan_number || statutory?.pf_number)
-      ? `<div class="row" style="font-size:11px;color:#666;margin-top:4px">
-          <span>PAN: ${statutory?.pan_number ?? '—'}</span>
-          <span>UAN: ${statutory?.uan_number ?? '—'}</span>
-          <span>PF: ${statutory?.pf_number ?? '—'}</span>
-        </div>`
+
+    const metaParts = [
+      co.phone      ? `Tel: ${co.phone}`        : '',
+      co.gst_number ? `GSTIN: ${co.gst_number}` : '',
+      co.tan_number ? `TAN: ${co.tan_number}`   : '',
+    ].filter(Boolean).join('  |  ')
+
+    // Zip earnings & deductions side by side
+    const earningsArr = Object.entries(payslip.earnings)
+    const deductionsArr = Object.entries(payslip.deductions)
+    const maxRows = Math.max(earningsArr.length, deductionsArr.length)
+    const combinedRows = Array.from({ length: maxRows }, (_, i) => {
+      const [el, ea] = earningsArr[i] ?? ['', null]
+      const [dl, da] = deductionsArr[i] ?? ['', null]
+      return `<tr>
+        <td style="border:1px solid #ccc;padding:5px 8px">${el}</td>
+        <td style="border:1px solid #ccc;padding:5px 8px;text-align:right;border-right:2px solid #999">${ea !== null ? f(ea as number) : ''}</td>
+        <td style="border:1px solid #ccc;padding:5px 8px">${dl}</td>
+        <td style="border:1px solid #ccc;padding:5px 8px;text-align:right">${da !== null ? f(da as number) : ''}</td>
+      </tr>`
+    }).join('')
+
+    const doiStr = emp.date_of_joining
+      ? new Date(emp.date_of_joining).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })
+      : '—'
+
+    const bankRow = bank
+      ? `<tr>
+          <td style="background:#eef2f8;color:#555;font-size:10px;width:20%;border:1px solid #bbb;padding:5px 8px">Bank</td>
+          <td style="font-size:11px;border:1px solid #bbb;padding:5px 8px;width:30%">${bank.bank_name ?? '—'}${bank.ifsc_code ? ` (${bank.ifsc_code})` : ''}</td>
+          <td style="background:#eef2f8;color:#555;font-size:10px;width:20%;border:1px solid #bbb;padding:5px 8px">Account No.</td>
+          <td style="font-size:11px;border:1px solid #bbb;padding:5px 8px;width:30%">${bank.account_number ?? '—'}</td>
+        </tr>`
       : ''
-    const html = `<!DOCTYPE html><html><head><title>Payslip — ${co.name || 'Company'}</title>
-    <style>body{font-family:Arial,sans-serif;font-size:13px;margin:32px}h1{text-align:center;font-size:20px;margin:0}.sub{text-align:center;color:#555;margin:4px 0 16px}hr{border:none;border-top:1px solid #ddd;margin:16px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin:16px 0}.row{display:flex;justify-content:space-between;padding:4px 0}.label{color:#555}table{width:100%;border-collapse:collapse}table td{padding:7px 8px;border-bottom:1px solid #eee;font-size:12px}table td:last-child{text-align:right}.total td{font-weight:bold;background:#f5f5ff;border-top:2px solid #1e1b4b}.two-col{display:grid;grid-template-columns:1fr 1fr;border:1px solid #ddd;border-radius:6px;overflow:hidden}.col:first-child{border-right:1px solid #ddd}.col-hdr{background:#f5f5f5;padding:8px 12px;font-size:11px;font-weight:bold;text-transform:uppercase;color:#555}.net{text-align:center;border:2px solid #16a34a;border-radius:8px;padding:16px;margin:16px 0;background:#f0fdf4}.net-amt{font-size:28px;font-weight:bold;color:#16a34a}.footer{text-align:center;font-size:11px;color:#888;margin-top:24px}@media print{button{display:none}}</style>
-    </head><body>${draftBanner}
-    <button onclick="window.print()" style="float:right;padding:8px 16px;background:#4f46e5;color:white;border:none;border-radius:6px;cursor:pointer">🖨 Print / Save PDF</button>
-    <div style="text-align:center;margin-bottom:12px">${logoHtml}<h1>${co.name || 'Company'}</h1>${companyMeta}</div>
-    <p class="sub">Payslip for ${monthLabel}</p><hr>
-    <div class="grid">
-      <div>
-        <div class="row"><span class="label">Name</span><span>${payslip.employee.first_name} ${payslip.employee.last_name}</span></div>
-        <div class="row"><span class="label">Employee ID</span><span>${payslip.employee.emp_code}</span></div>
-        <div class="row"><span class="label">Department</span><span>${payslip.employee.department?.name ?? '—'}</span></div>
-        <div class="row"><span class="label">Designation</span><span>${payslip.employee.designation?.name ?? '—'}</span></div>
-        ${payslip.employee.date_of_joining ? `<div class="row"><span class="label">Date of Joining</span><span>${new Date(payslip.employee.date_of_joining).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span></div>` : ''}
-        ${statutoryRow}
-      </div>
-      <div>
-        <div class="row"><span class="label">Pay Period</span><span>${monthLabel}</span></div>
-        <div class="row"><span class="label">Working Days</span><span>${payslip.working_days}</span></div>
-        <div class="row"><span class="label">Days Present</span><span>${payslip.present_days}</span></div>
-        <div class="row"><span class="label">LOP Days</span><span>${Math.max(0, payslip.working_days - Number(payslip.present_days))}</span></div>
-      </div>
-    </div><hr>
-    <div class="two-col">
-      <div class="col"><div class="col-hdr">Earnings</div>
-        <table><tbody>${earningRows}</tbody><tfoot><tr class="total"><td>Total Earnings</td><td style="text-align:right">${f(payslip.gross_salary)}</td></tr></tfoot></table>
-      </div>
-      <div class="col"><div class="col-hdr">Deductions</div>
-        <table><tbody>${deductionRows}</tbody><tfoot><tr class="total"><td>Total Deductions</td><td style="text-align:right">${f(payslip.total_deductions)}</td></tr></tfoot></table>
-      </div>
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Payslip — ${co.name || 'Company'} — ${monthLabel}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 12px; color: #000; background: #fff; }
+    .page { width: 210mm; margin: 0 auto; padding: 12mm; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .hdr { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #1a3a6b; padding-bottom: 10px; margin-bottom: 10px; }
+    .co-name { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #1a3a6b; }
+    .co-meta { font-size: 10px; color: #444; margin-top: 3px; }
+    .banner { background: #1a3a6b; color: #fff; text-align: center; padding: 6px 8px; font-size: 13px; font-weight: bold; letter-spacing: 1.5px; margin-bottom: 10px; }
+    .lbl { background: #eef2f8; color: #555; font-size: 10px; padding: 5px 8px; border: 1px solid #bbb; }
+    .val { font-size: 11px; padding: 5px 8px; border: 1px solid #bbb; }
+    .sec-hdr { background: #dce6f1; font-weight: bold; font-size: 11px; text-align: center; letter-spacing: 0.5px; padding: 6px; border: 1px solid #bbb; }
+    .col-hdr { background: #f0f4fb; font-size: 10px; font-weight: bold; text-align: center; padding: 5px 8px; border: 1px solid #bbb; }
+    .net-wrap { border: 2px solid #1a3a6b; margin: 10px 0; }
+    .net-title { background: #1a3a6b; color: #fff; font-weight: bold; font-size: 12px; text-align: center; padding: 10px; letter-spacing: 1px; }
+    .net-amt { font-size: 24px; font-weight: bold; color: #1a3a6b; text-align: right; padding: 8px 16px; }
+    .net-words { font-size: 10px; color: #444; font-style: italic; padding: 5px 12px 8px; border-top: 1px solid #c8d8f0; background: #f5f8ff; }
+    .footer { border-top: 1px solid #bbb; padding-top: 10px; margin-top: 12px; display: flex; justify-content: space-between; align-items: flex-end; }
+    .footer-note { font-size: 10px; color: #666; font-style: italic; }
+    @media print { body { margin: 0; } .page { padding: 10mm; } button { display: none !important; } }
+  </style>
+</head>
+<body>
+<div class="page">
+  <button onclick="window.print()" style="float:right;padding:6px 16px;background:#1a3a6b;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:10px">🖨 Print / Save PDF</button>
+
+  ${draftBanner}
+
+  <!-- Company Header -->
+  <div class="hdr">
+    ${logoHtml}
+    <div style="flex:1;text-align:center">
+      <div class="co-name">${co.name || 'Company'}</div>
+      ${co.address ? `<div class="co-meta">${co.address}</div>` : ''}
+      ${metaParts ? `<div class="co-meta">${metaParts}</div>` : ''}
     </div>
-    <div class="net"><div style="font-size:12px;color:#555;margin-bottom:4px">NET SALARY</div>
-      <div class="net-amt">${f(payslip.net_salary)}</div>
+  </div>
+
+  <!-- Pay Slip Banner -->
+  <div class="banner">PAY SLIP FOR THE MONTH OF ${monthLabel.toUpperCase()}</div>
+
+  <!-- Employee Info -->
+  <table style="margin-bottom:10px">
+    <tbody>
+      <tr>
+        <td class="lbl" style="width:20%">Employee Code</td>
+        <td class="val" style="width:30%">${emp.emp_code}</td>
+        <td class="lbl" style="width:20%">Department</td>
+        <td class="val" style="width:30%">${emp.department?.name ?? '—'}</td>
+      </tr>
+      <tr>
+        <td class="lbl">Employee Name</td>
+        <td class="val" style="font-weight:bold">${emp.first_name} ${emp.last_name}</td>
+        <td class="lbl">Designation</td>
+        <td class="val">${emp.designation?.name ?? '—'}</td>
+      </tr>
+      <tr>
+        <td class="lbl">Date of Joining</td>
+        <td class="val">${doiStr}</td>
+        <td class="lbl">Pay Period</td>
+        <td class="val">${monthLabel}</td>
+      </tr>
+      <tr>
+        <td class="lbl">UAN No.</td>
+        <td class="val">${statutory?.uan_number ?? '—'}</td>
+        <td class="lbl">PF No.</td>
+        <td class="val">${statutory?.pf_number ?? '—'}</td>
+      </tr>
+      <tr>
+        <td class="lbl">PAN No.</td>
+        <td class="val">${statutory?.pan_number ?? '—'}</td>
+        <td class="lbl">Aadhaar No.</td>
+        <td class="val">${statutory?.aadhar_number ?? '—'}</td>
+      </tr>
+      ${bankRow}
+    </tbody>
+  </table>
+
+  <!-- Attendance Summary -->
+  <table style="margin-bottom:10px">
+    <thead>
+      <tr><th class="sec-hdr" colspan="5">ATTENDANCE SUMMARY</th></tr>
+      <tr>
+        <th class="col-hdr">Days in Month</th>
+        <th class="col-hdr">Days Paid</th>
+        <th class="col-hdr">Days Present</th>
+        <th class="col-hdr">Week Off / Holidays</th>
+        <th class="col-hdr">LWP / Absent</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="text-align:center">
+        <td style="border:1px solid #bbb;padding:6px">${payslip.working_days}</td>
+        <td style="border:1px solid #bbb;padding:6px">${payslip.present_days}</td>
+        <td style="border:1px solid #bbb;padding:6px">${payslip.present_days}</td>
+        <td style="border:1px solid #bbb;padding:6px">—</td>
+        <td style="border:1px solid #bbb;padding:6px">${lopDays}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Earnings & Deductions -->
+  <table style="margin-bottom:10px">
+    <thead>
+      <tr>
+        <th class="sec-hdr" colspan="2" style="border-right:2px solid #999">EARNINGS</th>
+        <th class="sec-hdr" colspan="2">DEDUCTIONS</th>
+      </tr>
+      <tr>
+        <th class="col-hdr" style="width:30%">Component</th>
+        <th class="col-hdr" style="width:20%;text-align:right;border-right:2px solid #999">Amount</th>
+        <th class="col-hdr" style="width:30%">Component</th>
+        <th class="col-hdr" style="width:20%;text-align:right">Amount</th>
+      </tr>
+    </thead>
+    <tbody>${combinedRows}</tbody>
+    <tfoot>
+      <tr>
+        <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8">Total Earnings</td>
+        <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8;text-align:right;border-right:2px solid #999">${f(payslip.gross_salary)}</td>
+        <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8">Total Deductions</td>
+        <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8;text-align:right">${f(payslip.total_deductions)}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <!-- Net Pay -->
+  <div class="net-wrap">
+    <div style="display:flex;align-items:center">
+      <div class="net-title" style="width:35%">NET PAY</div>
+      <div class="net-amt" style="flex:1">${f(payslip.net_salary)}</div>
     </div>
-    ${bank ? `<div style="background:#f8faff;border:1px solid #e0e7ff;border-radius:6px;padding:12px 16px;margin:12px 0;font-size:12px">
-      <div style="font-weight:bold;margin-bottom:6px;color:#1e1b4b;text-transform:uppercase;font-size:11px;letter-spacing:.05em">Bank Details</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-        ${bank.bank_name ? `<div><span style="color:#555">Bank:</span> ${bank.bank_name}</div>` : ''}
-        ${bank.account_number ? `<div><span style="color:#555">Account No:</span> ${bank.account_number}</div>` : ''}
-        ${bank.ifsc_code ? `<div><span style="color:#555">IFSC:</span> ${bank.ifsc_code}</div>` : ''}
-        ${bank.branch ? `<div><span style="color:#555">Branch:</span> ${bank.branch}</div>` : ''}
-      </div>
-    </div>` : ''}
-    <hr>
-    <div class="footer"><p>This is a computer-generated payslip and does not require a signature.</p></div>
-    </body></html>`
+    <div class="net-words">Amount in Words: ${numWords(payslip.net_salary)}</div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <p class="footer-note">This is a Computer Generated Payslip and does not require a signature.</p>
+    <div style="text-align:right;font-size:10px;color:#555">
+      <div style="margin-bottom:24px">&nbsp;</div>
+      <div>Authorised Signatory</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>`
+
     const win = window.open('', '_blank')
     if (!win) { toast.error('Please allow popups'); return }
     win.document.write(html)
