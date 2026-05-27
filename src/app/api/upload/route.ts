@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     // Build org-scoped S3 key
     const key = buildS3Key(
       session.user.org_id,
-      category as any,
+      (category as import('@/lib/s3').FileCategory),
       sub_id || 'general',
       `${doc_type || 'document'}-${Date.now()}.${file.name.split('.').pop()}`
     )
