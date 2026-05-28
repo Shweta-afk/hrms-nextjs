@@ -17,7 +17,7 @@ const DEVICE_IP     = '192.168.1.201'
 const DEVICE_PORT   = 4370
 const DEVICE_SERIAL = 'YOUR_DEVICE_SERIAL'          // must match Settings → Biometric Devices in HRMS
 const HRMS_URL      = 'https://YOUR-APP.vercel.app' // your Vercel URL, no trailing slash
-const BATCH_SIZE    = 400                            // records per request (keep under Vercel limit)
+const BATCH_SIZE    = 50                             // records per request (keep under Vercel timeout)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LAST_SYNC_FILE = path.join(__dirname, '.last_sync')
