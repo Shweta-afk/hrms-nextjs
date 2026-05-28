@@ -34,10 +34,11 @@ export async function GET(req: NextRequest) {
       candidateCounts,
       lateEmployees,
     ] = await Promise.all([
-      prisma.employee.count({ where: { org_id, status: 'active' } }),
+      prisma.employee.count({ where: { org_id, status: 'active', exclude_from_payroll: false } }),
       prisma.employee.count({
         where: {
           org_id,
+          exclude_from_payroll: false,
           date_of_joining: {
             gte: new Date(currentYear, Math.floor(currentMonth / 3) * 3, 1),
           },
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
       }),
       prisma.employee.groupBy({
         by: ['department_id'],
-        where: { org_id, status: 'active' },
+        where: { org_id, status: 'active', exclude_from_payroll: false },
         _count: { id: true },
       }),
       prisma.leaveType.findMany({

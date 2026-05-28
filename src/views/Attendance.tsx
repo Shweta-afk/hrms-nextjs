@@ -4,8 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, Download, Upload, Users, UserX,
   CalendarDays, Clock, Home, Wifi, Loader2, BarChart3, FileSpreadsheet,
-  Mail, CheckCircle2, UserPlus,
+  Mail, CheckCircle2, UserPlus, Filter,
 } from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import AppLayout from "@/components/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -115,6 +118,15 @@ const Attendance = () => {
   const [sendingEmails, setSendingEmails] = useState(false)
   const [emailsSent, setEmailsSent] = useState(false)
 
+  // All active employees — for "today" view (show absent employees too)
+  const [activeEmployees, setActiveEmployees] = useState<Array<{
+    id: string; first_name: string; last_name: string; emp_code: string;
+    department: { name: string } | null;
+  }>>([])
+
+  // Reports: filter by employee
+  const [reportEmpFilter, setReportEmpFilter] = useState<string>('all')
+
   // Year overview
   const [showYearView, setShowYearView] = useState(false)
   const [yearSummary, setYearSummary] = useState<MonthSummary[]>([])
@@ -165,6 +177,14 @@ const Attendance = () => {
   useEffect(() => { fetchAttendance() }, [monthOffset])
   useEffect(() => { if (showYearView) fetchYearSummary() }, [showYearView, yearOffset])
 
+  // Fetch all active employees once so we can show absent ones in today view
+  useEffect(() => {
+    fetch('/api/employees?status=active&limit=500')
+      .then(r => r.json())
+      .then(j => { if (j.success) setActiveEmployees(j.data.employees ?? j.data ?? []) })
+      .catch(() => {})
+  }, [])
+
   // Heatmap
   const heatmap: Record<number, string> = {}
   records.forEach(r => {
@@ -178,6 +198,25 @@ const Attendance = () => {
 
   const todayStr = new Date().toDateString()
   const lateToday = records.filter(r => new Date(r.date).toDateString() === todayStr && r.is_late)
+
+  // Today-only view: all employees with their today status (present/late/absent)
+  const todayRecordsOnly = records.filter(r => new Date(r.date).toDateString() === todayStr)
+  const todayRecordByEmpId = new Map(todayRecordsOnly.map(r => [r.employee.id, r]))
+  // Employees with no record today show as absent
+  const todayAbsentRows: AttendanceRecord[] = activeEmployees
+    .filter(e => !todayRecordByEmpId.has(e.id))
+    .map(e => ({
+      id: `absent-${e.id}`,
+      date: new Date().toISOString(),
+      first_in: null, last_out: null, total_hours: null, overtime_hours: null,
+      status: 'absent', is_late: false, late_by_minutes: 0, is_corrected: false, source: 'device',
+      employee: { id: e.id, first_name: e.first_name, last_name: e.last_name, emp_code: e.emp_code, department: e.department },
+    }))
+  // Combine: present/late first, then absent — sorted by name within each group
+  const todayAllRows: AttendanceRecord[] = [
+    ...todayRecordsOnly.sort((a, b) => `${a.employee.first_name} ${a.employee.last_name}`.localeCompare(`${b.employee.first_name} ${b.employee.last_name}`)),
+    ...todayAbsentRows.sort((a, b) => `${a.employee.first_name} ${a.employee.last_name}`.localeCompare(`${b.employee.first_name} ${b.employee.last_name}`)),
+  ]
 
   // Smart Office XLSX import
   async function handleSmartOfficeImport(file: File) {
@@ -428,9 +467,11 @@ const Attendance = () => {
 
   interface EmpKey { id: string; name: string; emp_code: string; dept: string }
 
+  const filteredRecords = reportEmpFilter === 'all' ? records : records.filter(r => r.employee.id === reportEmpFilter)
+
   const absentReport = (() => {
     const map = new Map<string, EmpKey & { days: number; dates: string[] }>()
-    for (const r of records) {
+    for (const r of filteredRecords) {
       if (r.status !== 'absent') continue
       const key = r.employee.id
       if (!map.has(key)) map.set(key, { id: key, name: `${r.employee.first_name} ${r.employee.last_name}`, emp_code: r.employee.emp_code, dept: r.employee.department?.name ?? '—', days: 0, dates: [] })
@@ -443,7 +484,7 @@ const Attendance = () => {
 
   const lateReport = (() => {
     const map = new Map<string, EmpKey & { count: number; totalMins: number; maxMins: number; worstDate: string }>()
-    for (const r of records) {
+    for (const r of filteredRecords) {
       if (!r.is_late) continue
       const key = r.employee.id
       if (!map.has(key)) map.set(key, { id: key, name: `${r.employee.first_name} ${r.employee.last_name}`, emp_code: r.employee.emp_code, dept: r.employee.department?.name ?? '—', count: 0, totalMins: 0, maxMins: 0, worstDate: '' })
@@ -457,7 +498,7 @@ const Attendance = () => {
 
   const otReport = (() => {
     const map = new Map<string, EmpKey & { days: number; totalHours: number }>()
-    for (const r of records) {
+    for (const r of filteredRecords) {
       const ot = r.overtime_hours ? parseFloat(r.overtime_hours) : 0
       if (ot <= 0) continue
       const key = r.employee.id
@@ -629,7 +670,7 @@ const Attendance = () => {
           <Card className="lg:col-span-3">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">
-                {monthOffset === 0 ? "Today's Attendance" : `Attendance — ${monthLabel}`}
+                {monthOffset === 0 ? `Today's Attendance (${todayAllRows.length} employees)` : `Attendance — ${monthLabel}`}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
@@ -637,68 +678,72 @@ const Attendance = () => {
                 <div className="flex justify-center py-12">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-              ) : records.length === 0 ? (
+              ) : (monthOffset === 0 ? todayAllRows : records).length === 0 ? (
                 <div className="text-center py-12 text-sm text-muted-foreground">
                   No attendance records for this period
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Dept</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>In</TableHead>
-                      <TableHead>Out</TableHead>
-                      <TableHead>Hours</TableHead>
-                      <TableHead>Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {records.map((r) => (
-                      <TableRow key={r.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Avatar className="h-7 w-7">
-                              <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
-                                {r.employee.first_name[0]}{r.employee.last_name[0]}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="text-sm font-medium">
-                              {r.employee.first_name} {r.employee.last_name}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-xs">
-                          {r.employee.department?.name ?? '—'}
-                        </TableCell>
-                        <TableCell>
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusStyle[r.is_late ? 'late' : r.status] || statusStyle.present}`}>
-                            {r.is_late ? 'Late' : r.status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-sm">{formatTime(r.first_in)}</TableCell>
-                        <TableCell className="text-sm">{formatTime(r.last_out)}</TableCell>
-                        <TableCell className="text-sm font-medium">
-                          {r.total_hours ? `${parseFloat(r.total_hours).toFixed(1)}h` : '—'}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {r.is_corrected && (
-                              <Badge variant="notice" className="text-[10px]">Corrected</Badge>
-                            )}
-                            <button
-                              className="text-xs font-medium text-primary hover:underline"
-                              onClick={() => openCorrection(r)}
-                            >
-                              Correct
-                            </button>
-                          </div>
-                        </TableCell>
+                <div className="overflow-auto max-h-[480px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Employee</TableHead>
+                        <TableHead>Dept</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>In</TableHead>
+                        <TableHead>Out</TableHead>
+                        <TableHead>Hours</TableHead>
+                        <TableHead>Action</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {(monthOffset === 0 ? todayAllRows : records).map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Avatar className="h-7 w-7">
+                                <AvatarFallback className={`text-[10px] ${r.status === 'absent' ? 'bg-kpi-red/10 text-kpi-red' : 'bg-primary/10 text-primary'}`}>
+                                  {r.employee.first_name[0]}{r.employee.last_name[0]}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="text-sm font-medium">
+                                {r.employee.first_name} {r.employee.last_name}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-xs">
+                            {r.employee.department?.name ?? '—'}
+                          </TableCell>
+                          <TableCell>
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusStyle[r.is_late ? 'late' : r.status] || statusStyle.present}`}>
+                              {r.is_late ? 'Late' : r.status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm">{formatTime(r.first_in)}</TableCell>
+                          <TableCell className="text-sm">{formatTime(r.last_out)}</TableCell>
+                          <TableCell className="text-sm font-medium">
+                            {r.total_hours ? `${parseFloat(r.total_hours).toFixed(1)}h` : '—'}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {r.is_corrected && (
+                                <Badge variant="notice" className="text-[10px]">Corrected</Badge>
+                              )}
+                              {!r.id.startsWith('absent-') && (
+                                <button
+                                  className="text-xs font-medium text-primary hover:underline"
+                                  onClick={() => openCorrection(r)}
+                                >
+                                  Correct
+                                </button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -772,7 +817,24 @@ const Attendance = () => {
           <CardHeader className="pb-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <CardTitle className="text-base">Detailed Reports — {monthLabel}</CardTitle>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Employee filter */}
+                <Select value={reportEmpFilter} onValueChange={setReportEmpFilter}>
+                  <SelectTrigger className="h-8 text-xs w-44 gap-1">
+                    <Filter className="h-3 w-3 shrink-0" />
+                    <SelectValue placeholder="All employees" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All employees</SelectItem>
+                    {[...new Map(records.map(r => [r.employee.id, r.employee])).values()]
+                      .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`))
+                      .map(e => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.first_name} {e.last_name} ({e.emp_code})
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
                 {/* Tab switcher */}
                 <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
                   {([
@@ -972,7 +1034,7 @@ const Attendance = () => {
                   id: string; name: string; emp_code: string; dept: string;
                   days: Map<number, AttendanceRecord>
                 }>()
-                for (const r of records) {
+                for (const r of filteredRecords) {
                   const key = r.employee.id
                   if (!map.has(key)) map.set(key, {
                     id: key,

@@ -37,8 +37,8 @@ export async function GET(req: NextRequest) {
       recentPunches,
       devices,
     ] = await Promise.all([
-      // Total active headcount
-      prisma.employee.count({ where: { org_id, status: 'active' } }),
+      // Total active headcount (exclude payroll-excluded contractors/visitors)
+      prisma.employee.count({ where: { org_id, status: 'active', exclude_from_payroll: false } }),
 
       // All attendance records for today
       prisma.attendanceRecord.findMany({
@@ -57,11 +57,11 @@ export async function GET(req: NextRequest) {
         },
       }),
 
-      // Last 20 punch logs across all devices, with employee lookup
+      // All punch logs for today (up to 500), newest first — full day history
       prisma.punchLog.findMany({
         where: { org_id, punch_time: { gte: todayStart, lt: todayEnd } },
         orderBy: { punch_time: 'desc' },
-        take: 20,
+        take: 500,
       }),
 
       // All devices with heartbeat for online/offline status
@@ -99,9 +99,9 @@ export async function GET(req: NextRequest) {
 
     const currentlyInsideCount = currentlyInsideRecords.length
 
-    // Not yet arrived: active employees with no attendance record today
+    // Not yet arrived: active payroll employees with no attendance record today
     const allActiveEmployees = await prisma.employee.findMany({
-      where: { org_id, status: 'active' },
+      where: { org_id, status: 'active', exclude_from_payroll: false },
       select: {
         id:          true,
         first_name:  true,
