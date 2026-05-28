@@ -37,25 +37,23 @@ export async function GET(req: NextRequest) {
 
     const currentYear = new Date().getFullYear()
 
-    // Get all leave types for the org
-    const leaveTypes = await prisma.leaveType.findMany({
-      where: { org_id: session.user.org_id },
-    })
-
-    // Get approved leaves taken this year per type
-    const takenLeaves = await prisma.leaveRequest.groupBy({
-      by: ['leave_type_id'],
-      where: {
-        org_id: session.user.org_id,
-        employee_id: empId,
-        status: 'approved',
-        from_date: {
-          gte: new Date(`${currentYear}-01-01`),
-          lte: new Date(`${currentYear}-12-31`),
+    // Run both independent queries in parallel
+    const [leaveTypes, takenLeaves] = await Promise.all([
+      prisma.leaveType.findMany({ where: { org_id: session.user.org_id } }),
+      prisma.leaveRequest.groupBy({
+        by: ['leave_type_id'],
+        where: {
+          org_id: session.user.org_id,
+          employee_id: empId,
+          status: 'approved',
+          from_date: {
+            gte: new Date(`${currentYear}-01-01`),
+            lte: new Date(`${currentYear}-12-31`),
+          },
         },
-      },
-      _sum: { total_days: true },
-    })
+        _sum: { total_days: true },
+      }),
+    ])
 
     const takenMap = Object.fromEntries(
       takenLeaves.map(t => [t.leave_type_id, Number(t._sum.total_days ?? 0)])

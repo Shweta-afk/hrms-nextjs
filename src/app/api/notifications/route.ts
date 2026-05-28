@@ -13,22 +13,15 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const notifications = await prisma.notification.findMany({
-      where: {
-        org_id: session.user.org_id,
-        user_id: session.user.id,
-      },
-      orderBy: { created_at: 'desc' },
-      take: 20,
-    })
-
-    const unread_count = await prisma.notification.count({
-      where: {
-        org_id: session.user.org_id,
-        user_id: session.user.id,
-        is_read: false,
-      },
-    })
+    const where = { org_id: session.user.org_id, user_id: session.user.id }
+    const [notifications, unread_count] = await Promise.all([
+      prisma.notification.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        take: 20,
+      }),
+      prisma.notification.count({ where: { ...where, is_read: false } }),
+    ])
 
     return NextResponse.json({
       success: true,

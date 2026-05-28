@@ -142,44 +142,31 @@ const EmployeePortal = () => {
   async function fetchPortalData() {
     setLoading(true)
     try {
-      // Fire everything in parallel — no sequential waterfalls
-      const hasEmpId = !!session?.user?.employee_id
-      const responses = await Promise.all([
-        fetch('/api/leave/balance'),
-        fetch(`/api/attendance?month=${now.getMonth() + 1}&year=${now.getFullYear()}&limit=7`),
-        fetch('/api/notifications'),
-        fetch('/api/payroll/payslips?limit=1'),
-        fetch('/api/reimbursements'),
-        fetch('/api/requests?limit=20'),
-        fetch('/api/holidays'),
-        ...(hasEmpId ? [fetch(`/api/employees/${session!.user.employee_id}`)] : []),
-      ])
+      // Single request — all portal data in one serverless invocation
+      const res = await fetch('/api/portal/summary')
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
 
-      const [
-        balanceJson, attendanceJson, notifJson, payslipJson,
-        reimbJson, reqJson, holidayJson, empJson,
-      ] = await Promise.all(responses.map(r => r.json()))
+      const { leaveBalances, attendance, notifications, payslip,
+              reimbursements, requests, holidays, employee } = json.data
 
-      if (balanceJson.success) setLeaveBalances(balanceJson.data.filter((l: LeaveBalance) => l.is_paid && l.total > 0))
-      if (attendanceJson.success) setAttendance(attendanceJson.data.records.slice(0, 7))
-      if (notifJson.success) {
-        setNotifications(notifJson.data.notifications)
-        setUnreadCount(notifJson.data.unread_count)
-      }
-      if (payslipJson.success && payslipJson.data.length > 0) setLatestPayslip(payslipJson.data[0])
-      if (reimbJson.success) setReimbursements(reimbJson.data)
-      if (reqJson.success) setMyRequests(reqJson.data.requests)
-      if (holidayJson.success) setHolidays(holidayJson.data.slice(0, 3))
-      if (empJson?.success) {
-        const emp = empJson.data
-        const fn: string = emp.first_name ?? ''
-        const ln: string = emp.last_name ?? ''
+      setLeaveBalances(leaveBalances)
+      setAttendance(attendance.slice(0, 7))
+      setNotifications(notifications.list)
+      setUnreadCount(notifications.unread_count)
+      if (payslip) setLatestPayslip(payslip)
+      setReimbursements(reimbursements)
+      setMyRequests(requests)
+      setHolidays(holidays)
+      if (employee) {
+        const fn: string = employee.first_name ?? ''
+        const ln: string = employee.last_name ?? ''
         setEmployeeName(fn)
         setEmpInitials((fn[0] ?? '') + (ln[0] ?? ''))
         const missing: string[] = []
-        if (!emp.bank_details?.account_number) missing.push('Bank details')
-        if (!emp.statutory_info?.pan) missing.push('PAN / Statutory info')
-        if (!emp.phone) missing.push('Phone number')
+        if (!employee.bank_details?.account_number) missing.push('Bank details')
+        if (!employee.statutory_info?.pan) missing.push('PAN / Statutory info')
+        if (!employee.phone) missing.push('Phone number')
         setProfileIncomplete(missing)
       }
     } catch {
