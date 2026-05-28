@@ -22,10 +22,24 @@ const HRMS_URL      = 'https://YOUR-APP.vercel.app' // your Vercel URL, no trail
 const LAST_SYNC_FILE = path.join(__dirname, '.last_sync')
 const fullSync       = process.argv.includes('--full')
 
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
 function connectDevice () {
   return new Promise((resolve, reject) => {
-    const device = new ZKLib({ ip: DEVICE_IP, port: DEVICE_PORT, inport: 5200, timeout: 10000 })
+    const device = new ZKLib({ ip: DEVICE_IP, port: DEVICE_PORT, inport: 5200, timeout: 60000 })
     device.connect(err => err ? reject(err) : resolve(device))
+  })
+}
+
+function disableDevice (device) {
+  return new Promise((resolve) => {
+    try { device.disableDevice(err => resolve()) } catch { resolve() }
+  })
+}
+
+function enableDevice (device) {
+  return new Promise((resolve) => {
+    try { device.enableDevice(err => resolve()) } catch { resolve() }
   })
 }
 
@@ -33,7 +47,6 @@ function getAttendance (device) {
   return new Promise((resolve, reject) => {
     device.getAttendance(function (err, data) {
       if (err) return reject(err)
-      // zklib may return array directly or wrapped in { data: [...] }
       const records = Array.isArray(data) ? data : (data && data.data ? data.data : [])
       resolve(records)
     })
@@ -68,6 +81,14 @@ async function main () {
     device = await connectDevice()
     console.log(' Connected!')
 
+    // Small pause — let the device settle after connection
+    await sleep(1000)
+
+    // ── Disable device (required before reading data) ──────────────────
+    console.log(' Disabling device input (required for data pull)...')
+    await disableDevice(device)
+    await sleep(500)
+
     // ── Determine sync window ──────────────────────────────────────────
     let lastSync = null
     if (!fullSync && fs.existsSync(LAST_SYNC_FILE)) {
@@ -78,13 +99,13 @@ async function main () {
     }
 
     // ── Pull logs ──────────────────────────────────────────────────────
-    console.log(' Pulling attendance logs from device...')
+    console.log(' Pulling attendance logs... (may take 30-60s for large logs)')
     const records = await getAttendance(device)
     console.log(` Total records on device: ${records.length}`)
 
     if (records.length === 0) {
       console.log('\n No records found on device.')
-      console.log(' Check that employees are enrolled and have punched in/out.')
+      console.log(' Check that employees have punched in/out on the device.')
       return
     }
 
@@ -92,7 +113,6 @@ async function main () {
     console.log('\n Raw sample record:', JSON.stringify(records[0]))
 
     // Filter to only new records
-    // zklib uses r.time as the timestamp field
     const getTime = r => r.time || r.attTime || r.timestamp
     const toSync  = lastSync
       ? records.filter(r => new Date(getTime(r)) > lastSync)
@@ -104,16 +124,16 @@ async function main () {
     }
     console.log(` New records to sync: ${toSync.length}`)
 
-    // Show a few samples so user can verify employee IDs
+    // Show samples so user can verify employee IDs match HRMS
     console.log('\n Sample records (first 3):')
     toSync.slice(0, 3).forEach(r => {
-      const empId = r.id || r.userId || r.deviceUserId || r.uid
+      const empId = r.id || r.userId || r.deviceUserId || String(r.uid)
       const time  = new Date(getTime(r)).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
       const state = r.state !== undefined ? r.state : (r.inOutStatus !== undefined ? r.inOutStatus : '?')
       console.log(`   EmpID=${empId}  Time=${time}  State=${state}`)
     })
 
-    // ── Format as ZKTeco ADMS and POST ────────────────────────────────
+    // ── Format as ZKTeco ADMS and POST to HRMS ────────────────────────
     const lines = toSync.map(r => {
       const empId  = r.id || r.userId || r.deviceUserId || String(r.uid)
       const d      = new Date(getTime(r))
@@ -138,8 +158,8 @@ async function main () {
 
       console.log(`\n ✓ Sync complete — ${processed} punch(es) recorded in HRMS`)
       if (processed === 0 && toSync.length > 0) {
-        console.log('\n NOTE: Records were sent but 0 matched to employees.')
-        console.log(' The EmpID above must match the Employee Code in HRMS.')
+        console.log('\n NOTE: Records sent but 0 matched to employees.')
+        console.log(' The EmpID shown above must match the Employee Code in HRMS.')
         console.log(' Go to HRMS → Employees and check the Employee Code column.')
       }
     } else {
@@ -151,9 +171,13 @@ async function main () {
     console.error('\n ERROR:', msg)
     if (msg.includes('ECONNREFUSED')) console.error(' → Make sure this PC is on the same network as the device.')
     if (msg.includes('ETIMEDOUT'))    console.error(' → Device not responding. Check IP and that device is on.')
+    if (msg.includes('Invalid'))      console.error(' → Device busy from a previous connection. Wait 60 seconds and try again.')
     process.exit(1)
   } finally {
-    if (device) await disconnectDevice(device)
+    if (device) {
+      await enableDevice(device)   // always re-enable the device
+      await disconnectDevice(device)
+    }
     console.log('\n========================================\n')
   }
 }
