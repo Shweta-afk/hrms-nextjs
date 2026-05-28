@@ -12,17 +12,17 @@ const http  = require('http')
 const fs    = require('fs')
 const path  = require('path')
 
-// ─── CONFIG — edit these values ─────────────────────────────────────────────
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
 const DEVICE_IP     = '192.168.1.201'
 const DEVICE_PORT   = 4370
 const DEVICE_SERIAL = 'YOUR_DEVICE_SERIAL'          // must match Settings → Biometric Devices in HRMS
 const HRMS_URL      = 'https://YOUR-APP.vercel.app' // your Vercel URL, no trailing slash
+const BATCH_SIZE    = 400                            // records per request (keep under Vercel limit)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LAST_SYNC_FILE = path.join(__dirname, '.last_sync')
 const fullSync       = process.argv.includes('--full')
-
-const sleep = ms => new Promise(r => setTimeout(r, ms))
+const sleep          = ms => new Promise(r => setTimeout(r, ms))
 
 function connectDevice () {
   return new Promise((resolve, reject) => {
@@ -30,19 +30,12 @@ function connectDevice () {
     device.connect(err => err ? reject(err) : resolve(device))
   })
 }
-
 function disableDevice (device) {
-  return new Promise((resolve) => {
-    try { device.disableDevice(err => resolve()) } catch { resolve() }
-  })
+  return new Promise(resolve => { try { device.disableDevice(() => resolve()) } catch { resolve() } })
 }
-
 function enableDevice (device) {
-  return new Promise((resolve) => {
-    try { device.enableDevice(err => resolve()) } catch { resolve() }
-  })
+  return new Promise(resolve => { try { device.enableDevice(() => resolve()) } catch { resolve() } })
 }
-
 function getAttendance (device) {
   return new Promise((resolve, reject) => {
     device.getAttendance(function (err, data) {
@@ -52,9 +45,35 @@ function getAttendance (device) {
     })
   })
 }
-
 function disconnectDevice (device) {
   return new Promise(resolve => { try { device.disconnect(resolve) } catch { resolve() } })
+}
+
+/** Assign IN/OUT direction per employee per day (alternating).
+ *  AiFace devices don't track direction — every punch is state 15.
+ *  Strategy: within each employee+day, first punch = IN, next = OUT, next = IN... */
+function assignDirections (records) {
+  // Sort by time first
+  const sorted = [...records].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+
+  // Group by empId + date
+  const dayMap = {}
+  for (const r of sorted) {
+    const empId = String(r.id || r.uid)
+    const date  = new Date(r.timestamp).toISOString().slice(0, 10)
+    const key   = `${empId}_${date}`
+    if (!dayMap[key]) dayMap[key] = []
+    dayMap[key].push(r)
+  }
+
+  // Assign direction index for each record
+  const dirMap = new Map()
+  for (const [, group] of Object.entries(dayMap)) {
+    group.forEach((r, idx) => {
+      dirMap.set(r, idx % 2 === 0 ? 0 : 1) // 0 = IN, 1 = OUT
+    })
+  }
+  return { sorted, dirMap }
 }
 
 async function main () {
@@ -64,10 +83,10 @@ async function main () {
   console.log(`========================================`)
 
   if (DEVICE_SERIAL === 'YOUR_DEVICE_SERIAL') {
-    console.error('\n ERROR: Set DEVICE_SERIAL at the top of sync.js first.\n'); process.exit(1)
+    console.error('\n ERROR: Set DEVICE_SERIAL in sync.js first.\n'); process.exit(1)
   }
   if (HRMS_URL.includes('YOUR-APP')) {
-    console.error('\n ERROR: Set HRMS_URL at the top of sync.js first.\n'); process.exit(1)
+    console.error('\n ERROR: Set HRMS_URL in sync.js first.\n'); process.exit(1)
   }
 
   console.log(`\n Device : ${DEVICE_IP}:${DEVICE_PORT}`)
@@ -76,20 +95,16 @@ async function main () {
 
   let device = null
   try {
-    // ── Connect ────────────────────────────────────────────────────────
     console.log('\n Connecting to device...')
     device = await connectDevice()
     console.log(' Connected!')
-
-    // Small pause — let the device settle after connection
     await sleep(1000)
 
-    // ── Disable device (required before reading data) ──────────────────
     console.log(' Disabling device input (required for data pull)...')
     await disableDevice(device)
     await sleep(500)
 
-    // ── Determine sync window ──────────────────────────────────────────
+    // Sync window
     let lastSync = null
     if (!fullSync && fs.existsSync(LAST_SYNC_FILE)) {
       lastSync = new Date(fs.readFileSync(LAST_SYNC_FILE, 'utf8').trim())
@@ -98,84 +113,99 @@ async function main () {
       console.log(fullSync ? ' Mode: FULL sync (all records)' : ' Mode: First run — pulling all records')
     }
 
-    // ── Pull logs ──────────────────────────────────────────────────────
-    console.log(' Pulling attendance logs... (may take 30-60s for large logs)')
-    const records = await getAttendance(device)
-    console.log(` Total records on device: ${records.length}`)
+    // Pull
+    console.log(' Pulling attendance logs... (may take 1-3 min for large logs)')
+    const allRecords = await getAttendance(device)
+    console.log(` Total records on device: ${allRecords.length}`)
 
-    if (records.length === 0) {
-      console.log('\n No records found on device.')
-      console.log(' Check that employees have punched in/out on the device.')
-      return
-    }
-
-    // Show first raw record so we can verify field names
-    console.log('\n Raw sample record:', JSON.stringify(records[0]))
-
-    // Filter to only new records
-    const getTime = r => r.time || r.attTime || r.timestamp
-    const toSync  = lastSync
-      ? records.filter(r => new Date(getTime(r)) > lastSync)
-      : records
+    const toSync = lastSync
+      ? allRecords.filter(r => new Date(r.timestamp) > lastSync)
+      : allRecords
 
     if (toSync.length === 0) {
       console.log(' Nothing new to sync. Already up to date.')
       return
     }
-    console.log(` New records to sync: ${toSync.length}`)
+    console.log(` Records to sync: ${toSync.length}`)
 
-    // Show samples so user can verify employee IDs match HRMS
-    console.log('\n Sample records (first 3):')
-    toSync.slice(0, 3).forEach(r => {
-      const empId = r.id || r.userId || r.deviceUserId || String(r.uid)
-      const time  = new Date(getTime(r)).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
-      const state = r.state !== undefined ? r.state : (r.inOutStatus !== undefined ? r.inOutStatus : '?')
-      console.log(`   EmpID=${empId}  Time=${time}  State=${state}`)
+    // Assign IN/OUT directions (device sends state=15 for all — no direction info)
+    console.log(' Calculating IN/OUT direction per employee per day...')
+    const { sorted, dirMap } = assignDirections(toSync)
+
+    // Show sample
+    console.log('\n Sample (first 3):')
+    sorted.slice(0, 3).forEach(r => {
+      const dir = dirMap.get(r) === 0 ? 'IN' : 'OUT'
+      console.log(`   EmpID=${r.id}  Time=${new Date(r.timestamp).toLocaleString('en-IN')}  Direction=${dir}`)
     })
 
-    // ── Format as ZKTeco ADMS and POST to HRMS ────────────────────────
-    const lines = toSync.map(r => {
-      const empId  = r.id || r.userId || r.deviceUserId || String(r.uid)
-      const d      = new Date(getTime(r))
-      const pad    = n => String(n).padStart(2, '0')
-      const dt     = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-      const state  = r.state !== undefined ? r.state : (r.inOutStatus || 0)
-      const verify = r.type  !== undefined ? r.type  : (r.verifyMethod || 1)
-      return `${empId}\t${dt}\t${state}\t${verify}`
-    })
+    // Batch and send
+    const batches    = Math.ceil(sorted.length / BATCH_SIZE)
+    let totalProcessed = 0
+    let totalSkipped   = 0
 
-    const body    = `data=${encodeURIComponent(lines.join('\r\n'))}`
-    const pushUrl = `${HRMS_URL}/iclock/cdata?SN=${encodeURIComponent(DEVICE_SERIAL)}&table=ATTLOG`
+    console.log(`\n Sending in ${batches} batches of ${BATCH_SIZE}...\n`)
 
-    console.log(`\n Sending to HRMS...`)
-    const response = await postData(pushUrl, body)
-    console.log(` HRMS response: ${response.trim()}`)
+    for (let i = 0; i < batches; i++) {
+      const batch = sorted.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
+      const lines = batch.map(r => {
+        const empId  = String(r.id || r.uid)
+        const d      = new Date(r.timestamp)
+        const pad    = n => String(n).padStart(2, '0')
+        const dt     = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+        const state  = dirMap.get(r) ?? 0    // 0=IN, 1=OUT
+        return `${empId}\t${dt}\t${state}\t1`
+      })
 
-    if (response.trim().startsWith('OK')) {
-      const processed = parseInt(response.trim().split(':')[1] ?? '0', 10)
-      const latestMs  = Math.max(...toSync.map(r => new Date(getTime(r)).getTime()))
-      fs.writeFileSync(LAST_SYNC_FILE, new Date(latestMs).toISOString())
+      const body    = `data=${encodeURIComponent(lines.join('\r\n'))}`
+      const pushUrl = `${HRMS_URL}/iclock/cdata?SN=${encodeURIComponent(DEVICE_SERIAL)}&table=ATTLOG`
+      const pct     = Math.round(((i + 1) / batches) * 100)
 
-      console.log(`\n ✓ Sync complete — ${processed} punch(es) recorded in HRMS`)
-      if (processed === 0 && toSync.length > 0) {
-        console.log('\n NOTE: Records sent but 0 matched to employees.')
-        console.log(' The EmpID shown above must match the Employee Code in HRMS.')
-        console.log(' Go to HRMS → Employees and check the Employee Code column.')
+      process.stdout.write(`\r Batch ${i+1}/${batches} (${pct}%)...`)
+
+      try {
+        const response = await postData(pushUrl, body)
+        const resp     = response.trim()
+        if (resp.startsWith('OK')) {
+          const n = parseInt(resp.split(':')[1] ?? '0', 10)
+          totalProcessed += n
+          totalSkipped   += (batch.length - n)
+        } else {
+          console.error(`\n Batch ${i+1} unexpected response: ${resp}`)
+        }
+      } catch (e) {
+        console.error(`\n Batch ${i+1} error: ${e.message}`)
       }
-    } else {
-      console.error('\n Unexpected response — check HRMS URL and device serial.')
+
+      // Small pause to avoid overwhelming the server
+      if (i < batches - 1) await sleep(200)
+    }
+
+    // Save last sync time
+    const latestMs = Math.max(...sorted.map(r => new Date(r.timestamp).getTime()))
+    fs.writeFileSync(LAST_SYNC_FILE, new Date(latestMs).toISOString())
+
+    console.log(`\n\n ✓ All done!`)
+    console.log(`   Sent    : ${sorted.length}`)
+    console.log(`   Matched : ${totalProcessed}`)
+    console.log(`   Skipped : ${totalSkipped}`)
+
+    if (totalProcessed === 0) {
+      console.log('\n NOTE: 0 records matched employees in HRMS.')
+      console.log(` The device EmpID (e.g. ${sorted[0] ? String(sorted[0].id) : '?'}) must match the`)
+      console.log(' Employee Code in HRMS → Employees → Employee Code column.')
     }
 
   } catch (err) {
     const msg = err && err.message ? err.message : String(err)
     console.error('\n ERROR:', msg)
     if (msg.includes('ECONNREFUSED')) console.error(' → Make sure this PC is on the same network as the device.')
-    if (msg.includes('ETIMEDOUT'))    console.error(' → Device not responding. Check IP and that device is on.')
-    if (msg.includes('Invalid'))      console.error(' → Device busy from a previous connection. Wait 60 seconds and try again.')
+    if (msg.includes('ETIMEDOUT'))    console.error(' → Device not responding. Check IP and that it is powered on.')
+    if (msg.includes('Invalid'))      console.error(' → Device busy. Wait 60 seconds and try again.')
     process.exit(1)
   } finally {
     if (device) {
-      await enableDevice(device)   // always re-enable the device
+      await enableDevice(device)
       await disconnectDevice(device)
     }
     console.log('\n========================================\n')
@@ -201,7 +231,7 @@ function postData (url, body) {
       let data = ''; res.on('data', c => data += c); res.on('end', () => resolve(data))
     })
     req.on('error', reject)
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error('HRMS request timed out')) })
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('HRMS request timed out')) })
     req.write(body); req.end()
   })
 }
