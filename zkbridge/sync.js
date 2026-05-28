@@ -26,7 +26,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 function connectDevice () {
   return new Promise((resolve, reject) => {
-    const device = new ZKLib({ ip: DEVICE_IP, port: DEVICE_PORT, inport: 5200, timeout: 60000 })
+    const device = new ZKLib({ ip: DEVICE_IP, port: DEVICE_PORT, inport: 5200, timeout: 180000 })
     device.connect(err => err ? reject(err) : resolve(device))
   })
 }
