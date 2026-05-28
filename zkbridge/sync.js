@@ -15,7 +15,7 @@ const path  = require('path')
 // ─── CONFIG — edit these values ─────────────────────────────────────────────
 const DEVICE_IP     = '192.168.1.201'
 const DEVICE_PORT   = 4370
-const DEVICE_SERIAL = 'YOUR_DEVICE_SERIAL'        // must match Settings → Biometric Devices in HRMS
+const DEVICE_SERIAL = 'YOUR_DEVICE_SERIAL'          // must match Settings → Biometric Devices in HRMS
 const HRMS_URL      = 'https://YOUR-APP.vercel.app' // your Vercel URL, no trailing slash
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -25,26 +25,23 @@ const fullSync       = process.argv.includes('--full')
 function connectDevice () {
   return new Promise((resolve, reject) => {
     const device = new ZKLib({ ip: DEVICE_IP, port: DEVICE_PORT, inport: 5200, timeout: 10000 })
-    device.connect(err => {
-      if (err) reject(err)
-      else     resolve(device)
-    })
+    device.connect(err => err ? reject(err) : resolve(device))
   })
 }
 
-function getAttendances (device) {
+function getAttendance (device) {
   return new Promise((resolve, reject) => {
-    device.getAttendances(false, (err, data) => {
-      if (err) reject(err)
-      else     resolve(data.data || [])
+    device.getAttendance(function (err, data) {
+      if (err) return reject(err)
+      // zklib may return array directly or wrapped in { data: [...] }
+      const records = Array.isArray(data) ? data : (data && data.data ? data.data : [])
+      resolve(records)
     })
   })
 }
 
 function disconnectDevice (device) {
-  return new Promise(resolve => {
-    try { device.disconnect(resolve) } catch { resolve() }
-  })
+  return new Promise(resolve => { try { device.disconnect(resolve) } catch { resolve() } })
 }
 
 async function main () {
@@ -54,12 +51,10 @@ async function main () {
   console.log(`========================================`)
 
   if (DEVICE_SERIAL === 'YOUR_DEVICE_SERIAL') {
-    console.error('\n ERROR: Set DEVICE_SERIAL at the top of sync.js first.\n')
-    process.exit(1)
+    console.error('\n ERROR: Set DEVICE_SERIAL at the top of sync.js first.\n'); process.exit(1)
   }
   if (HRMS_URL.includes('YOUR-APP')) {
-    console.error('\n ERROR: Set HRMS_URL at the top of sync.js first.\n')
-    process.exit(1)
+    console.error('\n ERROR: Set HRMS_URL at the top of sync.js first.\n'); process.exit(1)
   }
 
   console.log(`\n Device : ${DEVICE_IP}:${DEVICE_PORT}`)
@@ -83,8 +78,8 @@ async function main () {
     }
 
     // ── Pull logs ──────────────────────────────────────────────────────
-    console.log(' Pulling attendance logs...')
-    const records = await getAttendances(device)
+    console.log(' Pulling attendance logs from device...')
+    const records = await getAttendance(device)
     console.log(` Total records on device: ${records.length}`)
 
     if (records.length === 0) {
@@ -93,9 +88,14 @@ async function main () {
       return
     }
 
+    // Show first raw record so we can verify field names
+    console.log('\n Raw sample record:', JSON.stringify(records[0]))
+
     // Filter to only new records
-    const toSync = lastSync
-      ? records.filter(r => new Date(r.time) > lastSync)
+    // zklib uses r.time as the timestamp field
+    const getTime = r => r.time || r.attTime || r.timestamp
+    const toSync  = lastSync
+      ? records.filter(r => new Date(getTime(r)) > lastSync)
       : records
 
     if (toSync.length === 0) {
@@ -104,18 +104,24 @@ async function main () {
     }
     console.log(` New records to sync: ${toSync.length}`)
 
-    // Show a sample so user can verify employee IDs
+    // Show a few samples so user can verify employee IDs
     console.log('\n Sample records (first 3):')
     toSync.slice(0, 3).forEach(r => {
-      console.log(`   EmpID=${r.id}  Time=${new Date(r.time).toLocaleString('en-IN')}  State=${r.state}`)
+      const empId = r.id || r.userId || r.deviceUserId || r.uid
+      const time  = new Date(getTime(r)).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+      const state = r.state !== undefined ? r.state : (r.inOutStatus !== undefined ? r.inOutStatus : '?')
+      console.log(`   EmpID=${empId}  Time=${time}  State=${state}`)
     })
 
     // ── Format as ZKTeco ADMS and POST ────────────────────────────────
     const lines = toSync.map(r => {
-      const d   = new Date(r.time)
-      const pad = n => String(n).padStart(2, '0')
-      const dt  = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-      return `${r.id}\t${dt}\t${r.state}\t${r.type || 1}`
+      const empId  = r.id || r.userId || r.deviceUserId || String(r.uid)
+      const d      = new Date(getTime(r))
+      const pad    = n => String(n).padStart(2, '0')
+      const dt     = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+      const state  = r.state !== undefined ? r.state : (r.inOutStatus || 0)
+      const verify = r.type  !== undefined ? r.type  : (r.verifyMethod || 1)
+      return `${empId}\t${dt}\t${state}\t${verify}`
     })
 
     const body    = `data=${encodeURIComponent(lines.join('\r\n'))}`
@@ -127,26 +133,24 @@ async function main () {
 
     if (response.trim().startsWith('OK')) {
       const processed = parseInt(response.trim().split(':')[1] ?? '0', 10)
-      const latestMs  = Math.max(...toSync.map(r => new Date(r.time).getTime()))
+      const latestMs  = Math.max(...toSync.map(r => new Date(getTime(r)).getTime()))
       fs.writeFileSync(LAST_SYNC_FILE, new Date(latestMs).toISOString())
 
       console.log(`\n ✓ Sync complete — ${processed} punch(es) recorded in HRMS`)
       if (processed === 0 && toSync.length > 0) {
-        console.log('\n NOTE: Records were sent but 0 were matched to employees.')
-        console.log(' The EmpID shown above must match the Employee Code in HRMS.')
+        console.log('\n NOTE: Records were sent but 0 matched to employees.')
+        console.log(' The EmpID above must match the Employee Code in HRMS.')
         console.log(' Go to HRMS → Employees and check the Employee Code column.')
       }
     } else {
-      console.error('\n Unexpected response — check your HRMS URL and device serial.')
+      console.error('\n Unexpected response — check HRMS URL and device serial.')
     }
 
   } catch (err) {
-    console.error('\n ERROR:', err.message || err)
-    if ((err.message || err).toString().includes('ECONNREFUSED')) {
-      console.error(' → Cannot reach device. Make sure this PC is on the same network (WiFi/LAN) as the device.')
-    } else if ((err.message || err).toString().includes('ETIMEDOUT')) {
-      console.error(' → Device not responding. Check the IP address and that the device is powered on.')
-    }
+    const msg = err && err.message ? err.message : String(err)
+    console.error('\n ERROR:', msg)
+    if (msg.includes('ECONNREFUSED')) console.error(' → Make sure this PC is on the same network as the device.')
+    if (msg.includes('ETIMEDOUT'))    console.error(' → Device not responding. Check IP and that device is on.')
     process.exit(1)
   } finally {
     if (device) await disconnectDevice(device)
@@ -170,14 +174,11 @@ function postData (url, body) {
       },
     }
     const req = lib.request(opts, res => {
-      let data = ''
-      res.on('data',  chunk => data += chunk)
-      res.on('end',   ()    => resolve(data))
+      let data = ''; res.on('data', c => data += c); res.on('end', () => resolve(data))
     })
     req.on('error', reject)
     req.setTimeout(15000, () => { req.destroy(); reject(new Error('HRMS request timed out')) })
-    req.write(body)
-    req.end()
+    req.write(body); req.end()
   })
 }
 
