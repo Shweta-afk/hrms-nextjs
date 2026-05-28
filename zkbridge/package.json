@@ -8,6 +8,6 @@
     "full": "node sync.js --full"
   },
   "dependencies": {
-    "node-zklib": "^1.0.1"
+    "zklib": "^0.5.6"
   }
 }

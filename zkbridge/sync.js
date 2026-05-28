@@ -4,25 +4,48 @@
  *
  * First run:  node sync.js --full    (pulls ALL records from device)
  * Normal run: node sync.js           (pulls only new records since last sync)
- *
- * Schedule with Windows Task Scheduler to run every 5 minutes.
  */
 
-const ZKLib  = require('node-zklib')
-const https  = require('https')
-const http   = require('http')
-const fs     = require('fs')
-const path   = require('path')
+const ZKLib = require('zklib')
+const https = require('https')
+const http  = require('http')
+const fs    = require('fs')
+const path  = require('path')
 
-// ─── CONFIG — edit these two values ────────────────────────────────────────
+// ─── CONFIG — edit these values ─────────────────────────────────────────────
 const DEVICE_IP     = '192.168.1.201'
 const DEVICE_PORT   = 4370
-const DEVICE_SERIAL = 'YOUR_DEVICE_SERIAL'   // must match Settings → Biometric Devices in HRMS
-const HRMS_URL      = 'https://YOUR-APP.vercel.app'  // your Vercel app URL, no trailing slash
-// ────────────────────────────────────────────────────────────────────────────
+const DEVICE_SERIAL = 'YOUR_DEVICE_SERIAL'        // must match Settings → Biometric Devices in HRMS
+const HRMS_URL      = 'https://YOUR-APP.vercel.app' // your Vercel URL, no trailing slash
+// ─────────────────────────────────────────────────────────────────────────────
 
 const LAST_SYNC_FILE = path.join(__dirname, '.last_sync')
 const fullSync       = process.argv.includes('--full')
+
+function connectDevice () {
+  return new Promise((resolve, reject) => {
+    const device = new ZKLib({ ip: DEVICE_IP, port: DEVICE_PORT, inport: 5200, timeout: 10000 })
+    device.connect(err => {
+      if (err) reject(err)
+      else     resolve(device)
+    })
+  })
+}
+
+function getAttendances (device) {
+  return new Promise((resolve, reject) => {
+    device.getAttendances(false, (err, data) => {
+      if (err) reject(err)
+      else     resolve(data.data || [])
+    })
+  })
+}
+
+function disconnectDevice (device) {
+  return new Promise(resolve => {
+    try { device.disconnect(resolve) } catch { resolve() }
+  })
+}
 
 async function main () {
   const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
@@ -30,7 +53,7 @@ async function main () {
   console.log(`  ZK Bridge  —  ${timestamp}`)
   console.log(`========================================`)
 
-  if (!DEVICE_SERIAL || DEVICE_SERIAL === 'YOUR_DEVICE_SERIAL') {
+  if (DEVICE_SERIAL === 'YOUR_DEVICE_SERIAL') {
     console.error('\n ERROR: Set DEVICE_SERIAL at the top of sync.js first.\n')
     process.exit(1)
   }
@@ -43,31 +66,36 @@ async function main () {
   console.log(` HRMS   : ${HRMS_URL}`)
   console.log(` Serial : ${DEVICE_SERIAL}`)
 
-  // ── Connect to device ──────────────────────────────────────────────────
-  console.log('\n Connecting to device...')
-  const zk = new ZKLib(DEVICE_IP, DEVICE_PORT, 10, 4000)
-
+  let device = null
   try {
-    await zk.createSocket()
+    // ── Connect ────────────────────────────────────────────────────────
+    console.log('\n Connecting to device...')
+    device = await connectDevice()
     console.log(' Connected!')
 
-    // ── Pull attendance logs ───────────────────────────────────────────
+    // ── Determine sync window ──────────────────────────────────────────
     let lastSync = null
     if (!fullSync && fs.existsSync(LAST_SYNC_FILE)) {
       lastSync = new Date(fs.readFileSync(LAST_SYNC_FILE, 'utf8').trim())
-      console.log(` Last sync: ${lastSync.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
+      console.log(` Last sync : ${lastSync.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
     } else {
       console.log(fullSync ? ' Mode: FULL sync (all records)' : ' Mode: First run — pulling all records')
     }
 
-    process.stdout.write(' Pulling logs from device')
-    const result  = await zk.getAttendances(() => process.stdout.write('.'))
-    const records = result.data || []
-    console.log(`\n Total records on device: ${records.length}`)
+    // ── Pull logs ──────────────────────────────────────────────────────
+    console.log(' Pulling attendance logs...')
+    const records = await getAttendances(device)
+    console.log(` Total records on device: ${records.length}`)
+
+    if (records.length === 0) {
+      console.log('\n No records found on device.')
+      console.log(' Check that employees are enrolled and have punched in/out.')
+      return
+    }
 
     // Filter to only new records
     const toSync = lastSync
-      ? records.filter(r => new Date(r.attTime) > lastSync)
+      ? records.filter(r => new Date(r.time) > lastSync)
       : records
 
     if (toSync.length === 0) {
@@ -76,45 +104,52 @@ async function main () {
     }
     console.log(` New records to sync: ${toSync.length}`)
 
+    // Show a sample so user can verify employee IDs
+    console.log('\n Sample records (first 3):')
+    toSync.slice(0, 3).forEach(r => {
+      console.log(`   EmpID=${r.id}  Time=${new Date(r.time).toLocaleString('en-IN')}  State=${r.state}`)
+    })
+
     // ── Format as ZKTeco ADMS and POST ────────────────────────────────
     const lines = toSync.map(r => {
-      const d   = new Date(r.attTime)
+      const d   = new Date(r.time)
       const pad = n => String(n).padStart(2, '0')
       const dt  = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-      return `${r.deviceUserId}\t${dt}\t${r.inOutStatus}\t${r.verifyMethod}`
+      return `${r.id}\t${dt}\t${r.state}\t${r.type || 1}`
     })
 
     const body    = `data=${encodeURIComponent(lines.join('\r\n'))}`
     const pushUrl = `${HRMS_URL}/iclock/cdata?SN=${encodeURIComponent(DEVICE_SERIAL)}&table=ATTLOG`
 
-    console.log(` Sending to HRMS...`)
+    console.log(`\n Sending to HRMS...`)
     const response = await postData(pushUrl, body)
     console.log(` HRMS response: ${response.trim()}`)
 
     if (response.trim().startsWith('OK')) {
-      // Save latest punch time as last sync marker
-      const latestMs = Math.max(...toSync.map(r => new Date(r.attTime).getTime()))
-      const latestDt = new Date(latestMs)
-      fs.writeFileSync(LAST_SYNC_FILE, latestDt.toISOString())
-
       const processed = parseInt(response.trim().split(':')[1] ?? '0', 10)
-      console.log(`\n ✓ Sync complete — ${processed} records processed`)
-      console.log(` Next sync will only pull records after ${latestDt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
+      const latestMs  = Math.max(...toSync.map(r => new Date(r.time).getTime()))
+      fs.writeFileSync(LAST_SYNC_FILE, new Date(latestMs).toISOString())
+
+      console.log(`\n ✓ Sync complete — ${processed} punch(es) recorded in HRMS`)
+      if (processed === 0 && toSync.length > 0) {
+        console.log('\n NOTE: Records were sent but 0 were matched to employees.')
+        console.log(' The EmpID shown above must match the Employee Code in HRMS.')
+        console.log(' Go to HRMS → Employees and check the Employee Code column.')
+      }
     } else {
-      console.error('\n Unexpected response — sync may have failed. Check your HRMS URL and serial.')
+      console.error('\n Unexpected response — check your HRMS URL and device serial.')
     }
 
   } catch (err) {
-    console.error('\n ERROR:', err.message)
-    if (err.message.includes('ECONNREFUSED')) {
-      console.error(' → Cannot reach device. Make sure this PC is on the same WiFi/LAN as the device.')
-    }
-    if (err.message.includes('ETIMEDOUT')) {
-      console.error(' → Device not responding. Check the IP address and that the device is on.')
+    console.error('\n ERROR:', err.message || err)
+    if ((err.message || err).toString().includes('ECONNREFUSED')) {
+      console.error(' → Cannot reach device. Make sure this PC is on the same network (WiFi/LAN) as the device.')
+    } else if ((err.message || err).toString().includes('ETIMEDOUT')) {
+      console.error(' → Device not responding. Check the IP address and that the device is powered on.')
     }
     process.exit(1)
   } finally {
-    try { await zk.disconnect() } catch {}
+    if (device) await disconnectDevice(device)
     console.log('\n========================================\n')
   }
 }
