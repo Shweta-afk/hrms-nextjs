@@ -84,7 +84,8 @@ function LoginForm() {
   return (
     <div className="bg-card text-card-foreground p-8 rounded-lg shadow-md w-full max-w-md border border-border">
       <div className="flex justify-center mb-5">
-        <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain" />
+        <img src="/lightmodelogo.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain dark:hidden" />
+        <img src="/darkmodelogo.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain hidden dark:block" />
       </div>
       <p className="text-muted-foreground mb-6 text-center">Sign in to your account</p>
 
@@ -133,23 +134,23 @@ function LoginForm() {
           />
         </div>
         <div className="flex justify-end">
-          <Link href="/forgot-password" className="text-xs text-indigo-600 hover:underline">
+          <Link href="/forgot-password" className="text-xs text-blue-600 hover:underline">
             Forgot password?
           </Link>
         </div>
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+          className="w-full bg-blue-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
         >
           {loading ? 'Signing in...' : 'Sign In'}
         </button>
       </form>
 
       {/* Employee note */}
-      <div className="mt-5 rounded-md bg-indigo-50 border border-indigo-100 px-4 py-3 dark:bg-indigo-900/20 dark:border-indigo-800">
-        <p className="text-xs font-semibold text-indigo-800 dark:text-indigo-300 mb-0.5">Employee?</p>
-        <p className="text-xs text-indigo-700 dark:text-indigo-400">
+      <div className="mt-5 rounded-md bg-blue-50 border border-blue-100 px-4 py-3 dark:bg-blue-900/20 dark:border-blue-800">
+        <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-0.5">Employee?</p>
+        <p className="text-xs text-blue-700 dark:text-blue-400">
           Use the <strong>same login page</strong> with the email and password sent by your HR admin.
           You'll be taken to your employee portal automatically after signing in.
         </p>
@@ -157,7 +158,7 @@ function LoginForm() {
 
       <p className="text-xs text-center text-muted-foreground mt-4">
         Don't have an account?{' '}
-        <Link href="/signup" className="text-indigo-600 hover:underline font-medium">
+        <Link href="/signup" className="text-blue-600 hover:underline font-medium">
           Create one free
         </Link>
       </p>

@@ -9,12 +9,12 @@ export const metadata = {
 
 export default function DemoPage() {
   return (
-    <div className="min-h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+    <div className="min-h-screen bg-white text-zinc-900 dark:bg-[hsl(222,84%,5%)] dark:text-zinc-50">
       <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center px-6 py-24 text-center">
         <div className="grid h-14 w-14 place-items-center rounded-2xl border border-zinc-200 dark:border-zinc-800">
-          <Play className="h-6 w-6 text-indigo-600" strokeWidth={1.75} />
+          <Play className="h-6 w-6 text-blue-600" strokeWidth={1.75} />
         </div>
-        <p className="mt-8 font-mono text-[11px] uppercase tracking-[0.2em] text-indigo-600">
+        <p className="mt-8 font-mono text-[11px] uppercase tracking-[0.2em] text-blue-600">
           Demo
         </p>
         <h1 className="mt-3 text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
@@ -29,7 +29,7 @@ export default function DemoPage() {
           <Button
             asChild
             size="lg"
-            className="h-12 bg-indigo-600 px-6 text-base text-white hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+            className="h-12 bg-blue-600 px-6 text-base text-white hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
           >
             <Link href="/signup">Start 14-day trial</Link>
           </Button>

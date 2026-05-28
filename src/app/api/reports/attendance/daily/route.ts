@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import * as XLSX from 'xlsx'
+// XLSX loaded lazily inside handler — keeps cold-start lean
 import { format } from 'date-fns'
 
 /**
@@ -14,6 +14,7 @@ import { format } from 'date-fns'
 export async function GET(req: NextRequest) {
   try {
     // Org-wide daily attendance report — admin-only.
+    const XLSX = await import('xlsx')
     const guard = await requireAdmin()
     if (guard instanceof NextResponse) return guard
     const session = guard

@@ -11,12 +11,22 @@ import {
 import {
   Users, TrendingDown, TrendingUp, Clock, UserPlus, Download, AlertTriangle, Loader2,
 } from "lucide-react";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, ReferenceLine, Legend,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { toast } from "sonner";
-import { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent";
+import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent";
+
+// Lazy-load recharts — large library, not needed on initial paint
+const BarChart = dynamic(() => import("recharts").then(m => m.BarChart), { ssr: false });
+const Bar = dynamic(() => import("recharts").then(m => m.Bar), { ssr: false });
+const LineChart = dynamic(() => import("recharts").then(m => m.LineChart), { ssr: false });
+const Line = dynamic(() => import("recharts").then(m => m.Line), { ssr: false });
+const ReferenceLine = dynamic(() => import("recharts").then(m => m.ReferenceLine), { ssr: false });
+const XAxis = dynamic(() => import("recharts").then(m => m.XAxis), { ssr: false });
+const YAxis = dynamic(() => import("recharts").then(m => m.YAxis), { ssr: false });
+const CartesianGrid = dynamic(() => import("recharts").then(m => m.CartesianGrid), { ssr: false });
+const Tooltip = dynamic(() => import("recharts").then(m => m.Tooltip), { ssr: false });
+const Legend = dynamic(() => import("recharts").then(m => m.Legend), { ssr: false });
+const ResponsiveContainer = dynamic(() => import("recharts").then(m => m.ResponsiveContainer), { ssr: false });
 
 const chartAxis = { fill: "hsl(220 9% 46%)", fontSize: 12 }
 const formatter = (value: ValueType, name: NameType) => [
@@ -25,12 +35,12 @@ const formatter = (value: ValueType, name: NameType) => [
 ]
 
 const COLORS = {
-  indigo: "hsl(243 75% 59%)",
-  purple: "hsl(263 70% 50%)",
   blue: "hsl(217 91% 60%)",
   sky: "hsl(199 89% 48%)",
+  purple: "hsl(263 70% 50%)",
   amber: "hsl(38 92% 50%)",
   red: "hsl(0 84% 60%)",
+  teal: "hsl(173 80% 40%)",
 }
 
 interface AnalyticsData {
@@ -160,7 +170,7 @@ const Analytics = () => {
                       <XAxis type="number" tick={chartAxis} axisLine={false} tickLine={false} />
                       <YAxis type="category" dataKey="dept" tick={chartAxis} axisLine={false} tickLine={false} width={100} />
                       <Tooltip contentStyle={{ borderRadius: 8, fontSize: 13 }} />
-                      <Bar dataKey="count" fill={COLORS.indigo} radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="count" fill={COLORS.blue} radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -189,7 +199,7 @@ const Analytics = () => {
                         formatter={formatter as any}
                       />
                       <Legend formatter={v => v === 'present' ? 'Present %' : 'Late %'} />
-                      <Bar dataKey="present" fill={COLORS.indigo} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="present" fill={COLORS.blue} radius={[4, 4, 0, 0]} />
                       <Bar dataKey="late" fill={COLORS.amber} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -213,9 +223,9 @@ const Analytics = () => {
                   <YAxis tick={chartAxis} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={{ borderRadius: 8, fontSize: 13 }} />
                   <Legend />
-                  <Bar dataKey="CL" stackId="a" fill={COLORS.indigo} />
-                  <Bar dataKey="SL" stackId="a" fill={COLORS.blue} />
-                  <Bar dataKey="EL" stackId="a" fill={COLORS.sky} />
+                  <Bar dataKey="CL" stackId="a" fill={COLORS.blue} />
+                  <Bar dataKey="SL" stackId="a" fill={COLORS.sky} />
+                  <Bar dataKey="EL" stackId="a" fill={COLORS.teal} />
                   <Bar dataKey="ML" stackId="a" fill={COLORS.purple} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>

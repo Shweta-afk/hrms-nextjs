@@ -321,7 +321,7 @@ const EmployeePortal = () => {
   const quickActions = [
     { label: 'Apply for Leave', icon: CalendarDays, href: '/portal/leave', color: 'bg-blue-50 dark:bg-blue-900/20', iconColor: 'text-blue-600 dark:text-blue-400', ring: 'ring-blue-200 dark:ring-blue-800' },
     { label: 'Download Payslip', icon: Download, href: '/payslip', color: 'bg-green-50 dark:bg-green-900/20', iconColor: 'text-green-600 dark:text-green-400', ring: 'ring-green-200 dark:ring-green-800' },
-    { label: 'View Attendance', icon: Clock, href: '/portal/attendance', color: 'bg-indigo-50 dark:bg-indigo-900/20', iconColor: 'text-indigo-600 dark:text-indigo-400', ring: 'ring-indigo-200 dark:ring-indigo-800' },
+    { label: 'View Attendance', icon: Clock, href: '/portal/attendance', color: 'bg-blue-50 dark:bg-blue-900/20', iconColor: 'text-blue-600 dark:text-blue-400', ring: 'ring-blue-200 dark:ring-blue-800' },
     { label: 'Company Policies', icon: FileText, href: '/portal/policy', color: 'bg-orange-50 dark:bg-orange-900/20', iconColor: 'text-orange-600 dark:text-orange-400', ring: 'ring-orange-200 dark:ring-orange-800' },
     { label: 'Update Profile', icon: User, href: '/portal/profile', color: 'bg-purple-50 dark:bg-purple-900/20', iconColor: 'text-purple-600 dark:text-purple-400', ring: 'ring-purple-200 dark:ring-purple-800' },
     { label: 'Raise a Request', icon: HelpCircle, href: '#request', color: 'bg-muted', iconColor: 'text-muted-foreground', ring: 'ring-border' },
@@ -337,7 +337,8 @@ const EmployeePortal = () => {
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-6">
-            <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain" />
+            <img src="/lightmodelogo.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain dark:hidden" />
+            <img src="/darkmodelogo.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain hidden dark:block" />
             <nav className="hidden md:flex items-center gap-1">
               {[
                 { label: 'Home', href: '/portal' },
@@ -482,7 +483,7 @@ const EmployeePortal = () => {
                       </Badge>
                     )}
                     {latestPayslip && (
-                      <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800">
+                      <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800">
                         <Download className="mr-1.5 h-3.5 w-3.5" />
                         Payslip for {monthNames[latestPayslip.month - 1]} {latestPayslip.year} available
                       </Badge>

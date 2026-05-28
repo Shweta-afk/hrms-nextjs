@@ -16,7 +16,7 @@ const links = [
 export function Nav() {
   const [open, setOpen] = useState(false);
   return (
-    <header className="sticky top-0 z-50 border-b border-zinc-200/70 bg-white/80 backdrop-blur-md dark:border-zinc-800/70 dark:bg-zinc-950/80">
+    <header className="sticky top-0 z-50 border-b border-zinc-200/70 bg-white/80 backdrop-blur-md dark:border-zinc-800/70 dark:bg-[hsl(222,84%,5%)]/80">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Wordmark />
         <nav className="hidden items-center gap-8 md:flex">
@@ -24,7 +24,7 @@ export function Nav() {
             <Link
               key={l.href}
               href={l.href}
-              className="text-sm text-zinc-600 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:text-indigo-600 dark:text-zinc-400 dark:hover:text-zinc-50"
+              className="text-sm text-zinc-600 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:text-blue-600 dark:text-zinc-400 dark:hover:text-zinc-50"
             >
               {l.label}
             </Link>
@@ -37,7 +37,7 @@ export function Nav() {
           </Button>
           <Button
             asChild
-            className="bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+            className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
           >
             <Link href="/signup">Start free trial</Link>
           </Button>
@@ -48,7 +48,7 @@ export function Nav() {
             aria-label="Toggle menu"
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
-            className="rounded-md p-2 text-zinc-700 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            className="rounded-md p-2 text-zinc-700 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -71,7 +71,7 @@ export function Nav() {
               <Button asChild variant="ghost" className="flex-1">
                 <Link href="/login">Sign in</Link>
               </Button>
-              <Button asChild className="flex-1 bg-indigo-600 text-white hover:bg-indigo-700">
+              <Button asChild className="flex-1 bg-blue-600 text-white hover:bg-blue-700">
                 <Link href="/signup">Start free trial</Link>
               </Button>
             </div>

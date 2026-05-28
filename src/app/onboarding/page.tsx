@@ -125,7 +125,8 @@ export default function OnboardingPage() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-12">
       {/* Logo */}
       <div className="mb-8 text-center">
-        <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain mx-auto mb-2" />
+        <img src="/lightmodelogo.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain mx-auto mb-2 dark:hidden" />
+        <img src="/darkmodelogo.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain mx-auto mb-2 hidden dark:block" />
         <p className="text-sm text-muted-foreground mt-1">Let's get your workspace ready</p>
       </div>
 

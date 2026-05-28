@@ -7,7 +7,7 @@ export function Hero() {
   return (
     <section className="relative overflow-hidden border-b border-zinc-200 dark:border-zinc-800">
       {/* editorial rule motif */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 mx-auto h-px max-w-6xl bg-gradient-to-r from-transparent via-indigo-600/30 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 mx-auto h-px max-w-6xl bg-gradient-to-r from-transparent via-blue-600/30 to-transparent" />
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-16 px-6 py-24 lg:grid-cols-12 lg:gap-10 lg:py-32">
         <div className="lg:col-span-7">
           <h1 className="text-balance text-5xl font-semibold leading-[1.05] tracking-tight text-zinc-900 sm:text-6xl lg:text-7xl dark:text-zinc-50">
@@ -27,7 +27,7 @@ export function Hero() {
             <Button
               asChild
               size="lg"
-              className="h-12 bg-indigo-600 px-6 text-base text-white hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+              className="h-12 bg-blue-600 px-6 text-base text-white hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
             >
               <Link href="/signup">
                 Start 14-day trial <ArrowRight className="ml-1 h-4 w-4" />

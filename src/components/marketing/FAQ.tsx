@@ -33,7 +33,7 @@ export function FAQ() {
     <section className="border-b border-zinc-200 py-24 dark:border-zinc-800">
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 px-6 lg:grid-cols-12">
         <div className="lg:col-span-4">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-indigo-600">
+          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-blue-600">
             FAQ
           </p>
           <h2 className="mt-3 text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
@@ -41,7 +41,7 @@ export function FAQ() {
           </h2>
           <p className="mt-4 max-w-sm text-sm text-zinc-600 dark:text-zinc-400">
             Still not sure?{" "}
-            <a href="mailto:hello@acmehr.in" className="text-indigo-600 underline-offset-4 hover:underline">
+            <a href="mailto:hello@acmehr.in" className="text-blue-600 underline-offset-4 hover:underline">
               Email us
             </a>{" "}
             — we reply in hours, not days.
@@ -55,7 +55,7 @@ export function FAQ() {
                 value={`item-${i}`}
                 className="border-zinc-200 dark:border-zinc-800"
               >
-                <AccordionTrigger className="text-left text-base font-medium hover:no-underline focus-visible:ring-2 focus-visible:ring-indigo-600">
+                <AccordionTrigger className="text-left text-base font-medium hover:no-underline focus-visible:ring-2 focus-visible:ring-blue-600">
                   {f.q}
                 </AccordionTrigger>
                 <AccordionContent className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">

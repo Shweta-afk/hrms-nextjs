@@ -46,11 +46,11 @@ function VerifyEmailInner() {
   }, [token])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 px-6">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-10 max-w-md w-full text-center">
+    <div className="min-h-screen flex items-center justify-center bg-background px-6">
+      <div className="bg-card rounded-2xl border border-border p-10 max-w-md w-full text-center">
         {status === 'loading' && (
           <>
-            <Loader2 className="h-12 w-12 text-indigo-600 mx-auto animate-spin" />
+            <Loader2 className="h-12 w-12 text-blue-600 mx-auto animate-spin" />
             <h1 className="mt-6 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
               Verifying your email…
             </h1>
@@ -73,7 +73,7 @@ function VerifyEmailInner() {
             </p>
             <Link
               href="/login"
-              className="mt-6 inline-flex items-center justify-center rounded-md bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
+              className="mt-6 inline-flex items-center justify-center rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
             >
               Go to sign in →
             </Link>
@@ -128,8 +128,8 @@ function VerifyEmailInner() {
 export default function VerifyEmailPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen grid place-items-center bg-zinc-50 dark:bg-zinc-950">
-        <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+      <div className="min-h-screen grid place-items-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
       </div>
     }>
       <VerifyEmailInner />

@@ -72,7 +72,8 @@ const AppSidebar = () => {
     <aside className="hidden md:flex flex-col w-60 min-h-screen bg-sidebar text-sidebar-foreground shrink-0">
       {/* Logo */}
       <div className="flex items-center px-4 h-16 border-b border-sidebar-border">
-        <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain" />
+        <img src="/lightmodelogo.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain dark:hidden" />
+        <img src="/darkmodelogo.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain hidden dark:block" />
       </div>
 
       {/* Nav */}

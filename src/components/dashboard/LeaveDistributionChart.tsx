@@ -1,14 +1,22 @@
 'use client'
 
 import { useState, useEffect } from "react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 
+// Lazy-load recharts — keeps it out of the initial JS bundle
+const PieChart = dynamic(() => import("recharts").then(m => m.PieChart), { ssr: false });
+const Pie = dynamic(() => import("recharts").then(m => m.Pie), { ssr: false });
+const Cell = dynamic(() => import("recharts").then(m => m.Cell), { ssr: false });
+const ResponsiveContainer = dynamic(() => import("recharts").then(m => m.ResponsiveContainer), { ssr: false });
+const Legend = dynamic(() => import("recharts").then(m => m.Legend), { ssr: false });
+const Tooltip = dynamic(() => import("recharts").then(m => m.Tooltip), { ssr: false });
+
 const COLORS = [
-  "hsl(243 75% 59%)",
+  "hsl(217 91% 60%)",
   "hsl(263 70% 50%)",
-  "hsl(230 70% 65%)",
-  "hsl(280 60% 65%)",
+  "hsl(199 89% 48%)",
+  "hsl(173 80% 40%)",
   "hsl(38 92% 50%)",
 ]
 

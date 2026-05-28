@@ -20,7 +20,7 @@ export function Problem() {
   return (
     <section className="border-b border-zinc-200 py-24 dark:border-zinc-800">
       <div className="mx-auto max-w-6xl px-6">
-        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-indigo-600">
+        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-blue-600">
           The problem
         </p>
         <h2 className="mt-3 max-w-2xl text-balance text-4xl font-semibold tracking-tight text-zinc-900 sm:text-5xl dark:text-zinc-50">
@@ -31,7 +31,7 @@ export function Problem() {
           {problems.map((p) => (
             <div
               key={p.n}
-              className="group relative bg-white p-8 transition-colors hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+              className="group relative bg-white p-8 transition-colors hover:bg-blue-50/50 dark:bg-card dark:hover:bg-[hsl(222,65%,12%)]"
             >
               <span className="font-mono text-xs text-zinc-400">{p.n}</span>
               <h3 className="mt-6 text-xl font-medium leading-snug tracking-tight text-zinc-900 dark:text-zinc-50">
@@ -46,7 +46,7 @@ export function Problem() {
 
         <p className="mt-10 text-lg text-zinc-600 dark:text-zinc-400">
           There&apos;s a better way.{" "}
-          <span className="text-zinc-900 dark:text-zinc-50">It&apos;s called Acme HR.</span>
+          <span className="text-zinc-900 dark:text-zinc-50">It&apos;s called Axiotta HRMS.</span>
         </p>
       </div>
     </section>

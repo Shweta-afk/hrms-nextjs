@@ -21,7 +21,7 @@ function AttendanceSlide() {
         <div className="flex items-center gap-2 text-xs font-medium text-zinc-500">
           <Users className="h-3.5 w-3.5" /> Today&apos;s attendance
         </div>
-        <span className="rounded-full bg-indigo-600/10 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
+        <span className="rounded-full bg-blue-600/10 px-2 py-0.5 text-[10px] font-medium text-blue-600">
           Live
         </span>
       </div>
@@ -37,7 +37,7 @@ function AttendanceSlide() {
             <div
               className={`w-full rounded-sm ${
                 i === bars.length - 1
-                  ? "bg-indigo-600"
+                  ? "bg-blue-600"
                   : "bg-zinc-200 dark:bg-zinc-700"
               }`}
               style={{ height: `${h}%` }}
@@ -54,7 +54,7 @@ function AttendanceSlide() {
       </div>
 
       <div className="mt-4 flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
-        <Fingerprint className="h-4 w-4 text-indigo-600" />
+        <Fingerprint className="h-4 w-4 text-blue-600" />
         <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
           <span className="font-medium text-zinc-900 dark:text-zinc-50">
             EMP0042
@@ -111,7 +111,7 @@ function PayrollSlide() {
         ))}
       </div>
 
-      <button className="mt-4 w-full rounded-md bg-indigo-600 px-3 py-2 text-[11px] font-medium text-white">
+      <button className="mt-4 w-full rounded-md bg-blue-600 px-3 py-2 text-[11px] font-medium text-white">
         Run payroll & email payslips
       </button>
     </div>
@@ -120,7 +120,7 @@ function PayrollSlide() {
 
 function LeaveSlide() {
   const requests = [
-    { name: "Priya M.", type: "Casual", days: "2 days", initials: "PM", tint: "bg-indigo-600" },
+    { name: "Priya M.", type: "Casual", days: "2 days", initials: "PM", tint: "bg-blue-600" },
     { name: "Rohan K.", type: "Sick", days: "1 day", initials: "RK", tint: "bg-amber-600" },
     { name: "Aisha S.", type: "Earned", days: "5 days", initials: "AS", tint: "bg-emerald-600" },
   ];
@@ -155,7 +155,7 @@ function LeaveSlide() {
               </p>
             </div>
             <div className="flex gap-1">
-              <button className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white">
+              <button className="rounded-md bg-blue-600 px-2 py-1 text-[10px] font-medium text-white">
                 Approve
               </button>
               <button className="rounded-md border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
@@ -181,7 +181,7 @@ function RecruitmentSlide() {
         <div className="flex items-center gap-2 text-xs font-medium text-zinc-500">
           <Briefcase className="h-3.5 w-3.5" /> Top candidates · this week
         </div>
-        <span className="rounded-full bg-indigo-600/10 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
+        <span className="rounded-full bg-blue-600/10 px-2 py-0.5 text-[10px] font-medium text-blue-600">
           AI ranked
         </span>
       </div>
@@ -264,7 +264,7 @@ export function FeatureSlideshow() {
             <span className="h-2.5 w-2.5 rounded-full bg-zinc-200 dark:bg-zinc-700" />
           </div>
           <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-400">
-            acme-hr / {slides[index].key}
+            axiotta-hrms / {slides[index].key}
           </span>
         </div>
 
@@ -299,7 +299,7 @@ export function FeatureSlideshow() {
               <span
                 className={`h-1.5 rounded-full transition-all ${
                   i === index
-                    ? "w-6 bg-indigo-600"
+                    ? "w-6 bg-blue-600"
                     : "w-1.5 bg-zinc-300 group-hover:bg-zinc-400 dark:bg-zinc-700 dark:group-hover:bg-zinc-600"
                 }`}
               />

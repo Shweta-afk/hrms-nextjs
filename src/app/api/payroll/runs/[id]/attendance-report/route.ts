@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import * as XLSX from 'xlsx'
+// XLSX loaded lazily inside handler — keeps cold-start lean
 
 // ─── Helper: count working days in a range ──────────────────────────────────
 function getWorkingDays(
@@ -28,6 +28,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const XLSX = await import('xlsx')
     const guard = await requireAdmin()
     if (guard instanceof NextResponse) return guard
     const session = guard

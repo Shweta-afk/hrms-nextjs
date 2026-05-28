@@ -46,7 +46,7 @@ export function FeatureGrid() {
       <div className="mx-auto max-w-6xl px-6">
         <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-indigo-600">
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-blue-600">
               Core features
             </p>
             <h2 className="mt-3 max-w-2xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
@@ -62,9 +62,9 @@ export function FeatureGrid() {
           {features.map((f) => (
             <div
               key={f.title}
-              className="group relative bg-white p-8 transition-colors hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+              className="group relative bg-white p-8 transition-colors hover:bg-blue-50/50 dark:bg-card dark:hover:bg-[hsl(222,65%,12%)]"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-200 text-zinc-700 transition-colors group-hover:border-indigo-600 group-hover:text-indigo-600 dark:border-zinc-800 dark:text-zinc-300">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-200 text-zinc-700 transition-colors group-hover:border-blue-600 group-hover:text-blue-600 dark:border-zinc-800 dark:text-zinc-300">
                 <f.icon className="h-5 w-5" strokeWidth={1.75} />
               </div>
               <h3 className="mt-6 text-lg font-medium tracking-tight">

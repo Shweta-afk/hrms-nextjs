@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
-import * as XLSX from 'xlsx'
+// XLSX loaded lazily inside handler — keeps cold-start lean
 
 export async function POST(
   req: NextRequest,
@@ -10,6 +10,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params
+    const XLSX = await import('xlsx')
     const guard = await requireAdmin()
     if (guard instanceof NextResponse) return guard
     const session = guard

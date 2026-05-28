@@ -2,19 +2,6 @@ import type { NextConfig } from "next";
 
 /**
  * HTTP security headers applied to every response.
- *
- * - `Strict-Transport-Security`: tells browsers to only ever talk HTTPS to us.
- *   includeSubDomains + preload-ready (1 year). Skip if you don't yet own the
- *   apex/subdomains you list here.
- * - `X-Frame-Options: DENY`: blocks clickjacking by refusing to render inside
- *   any iframe.
- * - `X-Content-Type-Options: nosniff`: prevents the browser from guessing
- *   MIME types (defends against MIME-confusion attacks).
- * - `Referrer-Policy`: don't leak the full URL when navigating to third parties.
- * - `Permissions-Policy`: deny browser features we don't use.
- * - `Content-Security-Policy`: tight default. Allows self-served scripts,
- *   inline styles (Tailwind needs them), Razorpay checkout, and AWS S3 for
- *   uploads. Adjust the connect-src list when you add new third-party APIs.
  */
 const securityHeaders = [
   {
@@ -32,14 +19,11 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      // Razorpay checkout loads its own JS + needs inline + eval.
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://*.razorpay.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      // S3 presigned URLs, Razorpay API, our own API.
       "connect-src 'self' https://*.s3.amazonaws.com https://*.s3.ap-south-1.amazonaws.com https://api.razorpay.com https://*.razorpay.com",
-      // Razorpay opens a payment iframe.
       "frame-src https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com",
       "object-src 'none'",
       "base-uri 'self'",
@@ -51,11 +35,56 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Gzip/Brotli compression for all responses
+  compress: true,
+
+  // Allow next/image to optimize images from S3 and external org logos
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "*.s3.amazonaws.com",
+      },
+      {
+        protocol: "https",
+        hostname: "*.s3.ap-south-1.amazonaws.com",
+      },
+      // Fallback for any other https image source (org logos, avatars)
+      {
+        protocol: "https",
+        hostname: "**",
+      },
+    ],
+    // Modern formats — Vercel serves WebP/AVIF automatically
+    formats: ["image/avif", "image/webp"],
+  },
+
   async headers() {
     return [
+      // Security headers on every route
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+      // Long-lived cache for static assets that Next.js content-hashes
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      // Public folder assets (logos, favicons) — 1 hour, revalidate in background
+      {
+        source: "/:file(.*\\.(?:png|jpg|jpeg|svg|ico|webp|avif|woff2?))",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=3600, stale-while-revalidate=86400",
+          },
+        ],
       },
     ];
   },

@@ -6,10 +6,10 @@ export function CTABanner() {
   return (
     <section className="py-24">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="relative overflow-hidden rounded-3xl bg-indigo-50 px-8 py-20 text-center dark:bg-indigo-950/40">
+        <div className="relative overflow-hidden rounded-3xl bg-blue-50 px-8 py-20 text-center dark:bg-blue-950/40">
           {/* editorial rule */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 mx-auto h-px max-w-md bg-gradient-to-r from-transparent via-indigo-600/60 to-transparent" />
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-indigo-600">
+          <div className="pointer-events-none absolute inset-x-0 top-0 mx-auto h-px max-w-md bg-gradient-to-r from-transparent via-blue-600/60 to-transparent" />
+          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-blue-600">
             One more thing
           </p>
           <h2 className="mx-auto mt-4 max-w-2xl text-balance text-4xl font-semibold leading-tight tracking-tight text-zinc-900 sm:text-5xl dark:text-zinc-50">
@@ -22,7 +22,7 @@ export function CTABanner() {
             <Button
               asChild
               size="lg"
-              className="h-12 bg-indigo-600 px-6 text-base text-white hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+              className="h-12 bg-blue-600 px-6 text-base text-white hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
             >
               <Link href="/signup">
                 Start free trial <ArrowRight className="ml-1 h-4 w-4" />

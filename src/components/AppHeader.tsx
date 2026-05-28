@@ -1,8 +1,9 @@
 'use client'
 
-import { Bell, Search, ChevronDown, Menu, X, Check } from "lucide-react";
+import { Bell, Search, ChevronDown, Menu, X, Check, Moon, Sun } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 
 interface Notification {
   id: string;
@@ -38,6 +39,10 @@ function timeAgo(dateStr: string) {
 
 const AppHeader = ({ title, onMenuToggle }: AppHeaderProps) => {
   const router = useRouter();
+  const { resolvedTheme, setTheme } = useTheme();
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => setThemeMounted(true), []);
+  const isDark = themeMounted && resolvedTheme === "dark";
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -130,6 +135,24 @@ const AppHeader = ({ title, onMenuToggle }: AppHeaderProps) => {
       <div className="flex items-center gap-2">
         <button className="p-2 rounded-lg hover:bg-muted transition-colors">
           <Search className="h-5 w-5 text-muted-foreground" />
+        </button>
+
+        <button
+          type="button"
+          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          onClick={() => setTheme(isDark ? "light" : "dark")}
+          className="relative p-2 rounded-lg hover:bg-muted transition-colors"
+        >
+          <Sun
+            className={`h-5 w-5 text-muted-foreground transition-all ${
+              isDark ? "rotate-90 scale-0 opacity-0" : "rotate-0 scale-100 opacity-100"
+            }`}
+          />
+          <Moon
+            className={`absolute top-2 left-2 h-5 w-5 text-muted-foreground transition-all ${
+              isDark ? "rotate-0 scale-100 opacity-100" : "-rotate-90 scale-0 opacity-0"
+            }`}
+          />
         </button>
 
         {/* Bell + Dropdown */}

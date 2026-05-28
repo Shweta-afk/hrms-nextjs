@@ -14,8 +14,8 @@ export function WhyUs() {
     <section id="why" className="border-b border-zinc-200 py-24 dark:border-zinc-800">
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-16 px-6 lg:grid-cols-12">
         <div className="lg:col-span-5">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-indigo-600">
-            Why Acme HR
+          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-blue-600">
+            Why Axiotta HRMS
           </p>
           <h2 className="mt-3 text-balance text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
             Built for India.
@@ -41,7 +41,7 @@ export function WhyUs() {
                 {String(i + 1).padStart(2, "0")}
               </span>
               <CheckCircle2
-                className="mt-0.5 h-5 w-5 shrink-0 text-indigo-600"
+                className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"
                 strokeWidth={1.75}
               />
               <span className="text-base leading-relaxed text-zinc-700 dark:text-zinc-300">

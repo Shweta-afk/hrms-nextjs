@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import * as XLSX from 'xlsx'
+// XLSX loaded lazily inside handler — keeps cold-start lean
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -11,6 +11,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params
+    const XLSX = await import('xlsx')
     const guard = await requireAdmin()
     if (guard instanceof NextResponse) return guard
     const session = guard
