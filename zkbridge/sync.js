@@ -2,7 +2,7 @@
  * ZK Bridge — pulls attendance from AiFace Magnum / ZKTeco device
  * and pushes it to your HRMS on Vercel.
  *
- * First run:  node sync.js --full    (pulls ALL records from device)
+ * First run:  node sync.js --full    (pulls ALL records, resets direction tracking)
  * Normal run: node sync.js           (pulls only new records since last sync)
  */
 
@@ -15,23 +15,23 @@ const path  = require('path')
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 const DEVICE_IP     = '192.168.1.201'
 const DEVICE_PORT   = 4370
-const DEVICE_SERIAL = 'YOUR_DEVICE_SERIAL'          // must match Settings → Biometric Devices in HRMS
-const HRMS_URL      = 'https://YOUR-APP.vercel.app' // your Vercel URL, no trailing slash
-const BATCH_SIZE    = 50                             // records per request (keep under Vercel timeout)
-const FROM_DATE     = new Date('2025-12-31T18:30:00.000Z') // 1 Jan 2026 00:00 IST — ignore older records
+const DEVICE_SERIAL = 'TDBD241101376'          // must match Settings → Biometric Devices
+const HRMS_URL      = 'https://hrms.axiotta.com' // no trailing slash
+const BATCH_SIZE    = 50                         // records per request
+const FROM_DATE     = new Date('2025-12-31T18:30:00.000Z') // 1 Jan 2026 00:00 IST
 // ─────────────────────────────────────────────────────────────────────────────
 
-const LAST_SYNC_FILE = path.join(__dirname, '.last_sync')
-const LOG_FILE       = path.join(__dirname, 'sync.log')
-const fullSync       = process.argv.includes('--full')
-const sleep          = ms => new Promise(r => setTimeout(r, ms))
+const LAST_SYNC_FILE    = path.join(__dirname, '.last_sync')
+const PUNCH_COUNTS_FILE = path.join(__dirname, '.punch_counts.json')
+const LOG_FILE          = path.join(__dirname, 'sync.log')
+const fullSync          = process.argv.includes('--full')
+const sleep             = ms => new Promise(r => setTimeout(r, ms))
 
 function writeLog (message) {
   const ts   = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
   const line = `[${ts}] ${message}\n`
   process.stdout.write(line)
   try {
-    // Keep last 500 lines only
     let existing = ''
     if (fs.existsSync(LOG_FILE)) {
       existing = fs.readFileSync(LOG_FILE, 'utf8')
@@ -67,31 +67,53 @@ function disconnectDevice (device) {
   return new Promise(resolve => { try { device.disconnect(resolve) } catch { resolve() } })
 }
 
-/** Assign IN/OUT direction per employee per day (alternating).
- *  AiFace devices don't track direction — every punch is state 15.
- *  Strategy: within each employee+day, first punch = IN, next = OUT, next = IN... */
-function assignDirections (records) {
-  // Sort by time first
+/**
+ * Returns IST date string "YYYY-MM-DD" for a Date object.
+ * Used as the per-day key in punchCounts so IST midnight is the day boundary.
+ */
+function toISTDate (d) {
+  const istMs = d.getTime() + 5.5 * 60 * 60 * 1000
+  return new Date(istMs).toISOString().slice(0, 10)
+}
+
+/**
+ * Assign IN/OUT direction per employee per day using CUMULATIVE punch counts.
+ *
+ * AiFace devices send every punch as state=15 (no direction).
+ * We alternate: position 0,2,4… = IN,  position 1,3,5… = OUT.
+ * The key fix: in incremental mode we need to know how many punches were
+ * ALREADY sent for each employee+day in previous runs so the global
+ * position is correct, not just the batch-local index.
+ *
+ * punchCounts  { "empId_YYYY-MM-DD": totalSentSoFar }
+ * Returns      { sorted, dirMap, newCounts }
+ */
+function assignDirections (records, punchCounts) {
   const sorted = [...records].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
 
-  // Group by empId + date
+  // Group by empId + IST date
   const dayMap = {}
   for (const r of sorted) {
     const empId = String(r.id || r.uid)
-    const date  = new Date(r.timestamp).toISOString().slice(0, 10)
+    const date  = toISTDate(new Date(r.timestamp))
     const key   = `${empId}_${date}`
     if (!dayMap[key]) dayMap[key] = []
     dayMap[key].push(r)
   }
 
-  // Assign direction index for each record
-  const dirMap = new Map()
-  for (const [, group] of Object.entries(dayMap)) {
-    group.forEach((r, idx) => {
-      dirMap.set(r, idx % 2 === 0 ? 0 : 1) // 0 = IN, 1 = OUT
+  const dirMap    = new Map()
+  const newCounts = {}
+
+  for (const [key, group] of Object.entries(dayMap)) {
+    const prevCount = punchCounts[key] || 0   // punches already sent in earlier runs
+    group.forEach((r, batchIdx) => {
+      const globalPos = prevCount + batchIdx    // true position across all runs
+      dirMap.set(r, globalPos % 2 === 0 ? 0 : 1) // 0=IN, 1=OUT
     })
+    newCounts[key] = prevCount + group.length   // updated total for this key
   }
-  return { sorted, dirMap }
+
+  return { sorted, dirMap, newCounts }
 }
 
 async function main () {
@@ -111,6 +133,19 @@ async function main () {
   console.log(` HRMS   : ${HRMS_URL}`)
   console.log(` Serial : ${DEVICE_SERIAL}`)
 
+  // Load cumulative punch counts for correct IN/OUT assignment.
+  // --full resets them so directions are re-calculated cleanly from all records.
+  let punchCounts = {}
+  if (!fullSync) {
+    try {
+      if (fs.existsSync(PUNCH_COUNTS_FILE)) {
+        punchCounts = JSON.parse(fs.readFileSync(PUNCH_COUNTS_FILE, 'utf8'))
+      }
+    } catch { punchCounts = {} }
+  } else {
+    console.log(' Full sync: resetting direction tracking...')
+  }
+
   let device = null
   try {
     console.log('\n Connecting to device...')
@@ -128,10 +163,12 @@ async function main () {
       lastSync = new Date(fs.readFileSync(LAST_SYNC_FILE, 'utf8').trim())
       console.log(` Last sync : ${lastSync.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
     } else {
-      console.log(fullSync ? ' Mode: FULL sync (all records)' : ` Mode: Syncing from ${FROM_DATE.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} onwards`)
+      console.log(fullSync
+        ? ' Mode: FULL sync (all records)'
+        : ` Mode: Syncing from ${FROM_DATE.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} onwards`)
     }
 
-    // Pull
+    // Pull all records from device
     console.log(' Pulling attendance logs... (may take 1-3 min for large logs)')
     const allRecords = await getAttendance(device)
     console.log(` Total records on device: ${allRecords.length}`)
@@ -145,9 +182,9 @@ async function main () {
     }
     console.log(` Records to sync: ${toSync.length}`)
 
-    // Assign IN/OUT directions (device sends state=15 for all — no direction info)
+    // Assign IN/OUT — uses cumulative counts so incremental batches get correct direction
     console.log(' Calculating IN/OUT direction per employee per day...')
-    const { sorted, dirMap } = assignDirections(toSync)
+    const { sorted, dirMap, newCounts } = assignDirections(toSync, punchCounts)
 
     // Show sample
     console.log('\n Sample (first 3):')
@@ -157,9 +194,9 @@ async function main () {
     })
 
     // Batch and send
-    const batches    = Math.ceil(sorted.length / BATCH_SIZE)
-    let totalProcessed = 0
-    let totalSkipped   = 0
+    const batches       = Math.ceil(sorted.length / BATCH_SIZE)
+    let totalProcessed  = 0
+    let totalSkipped    = 0
 
     console.log(`\n Sending in ${batches} batches of ${BATCH_SIZE}...\n`)
 
@@ -170,7 +207,7 @@ async function main () {
         const d      = new Date(r.timestamp)
         const pad    = n => String(n).padStart(2, '0')
         const dt     = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-        const state  = dirMap.get(r) ?? 0    // 0=IN, 1=OUT
+        const state  = dirMap.get(r) ?? 0   // 0 = IN, 1 = OUT
         return `${empId}\t${dt}\t${state}\t1`
       })
 
@@ -194,20 +231,31 @@ async function main () {
         console.error(`\n Batch ${i+1} error: ${e.message}`)
       }
 
-      // Small pause to avoid overwhelming the server
-      if (i < batches - 1) await sleep(200)
+      if (i < batches - 1) await sleep(300)
     }
 
-    // Save last sync time
+    // ── Save .last_sync ────────────────────────────────────────────────────
     const latestMs = Math.max(...sorted.map(r => new Date(r.timestamp).getTime()))
     fs.writeFileSync(LAST_SYNC_FILE, new Date(latestMs).toISOString())
+
+    // ── Save updated .punch_counts.json ────────────────────────────────────
+    // Merge new counts into existing, then prune entries older than 14 days
+    const updatedCounts = fullSync ? newCounts : { ...punchCounts, ...newCounts }
+    const pruneDate = new Date()
+    pruneDate.setDate(pruneDate.getDate() - 14)
+    const pruneDateStr = toISTDate(pruneDate)
+    for (const key of Object.keys(updatedCounts)) {
+      const datePart = key.slice(key.lastIndexOf('_') + 1) // "YYYY-MM-DD" at end
+      if (datePart < pruneDateStr) delete updatedCounts[key]
+    }
+    fs.writeFileSync(PUNCH_COUNTS_FILE, JSON.stringify(updatedCounts, null, 2))
 
     writeLog(`✓ Sent: ${sorted.length}, Matched: ${totalProcessed}, Skipped: ${totalSkipped}`)
     if (totalProcessed === 0 && sorted.length > 0) {
       writeLog(`NOTE: 0 matched — device EmpID (e.g. ${sorted[0] ? String(sorted[0].id) : '?'}) must match Employee Code in HRMS`)
     }
 
-    // Report sync result to HRMS so it shows on the portal
+    // Report sync result to HRMS portal (shows in Settings → Biometric Devices)
     postData(
       `${HRMS_URL}/api/devices/sync-report`,
       JSON.stringify({ serial: DEVICE_SERIAL, sent: sorted.length, matched: totalProcessed, skipped: totalSkipped }),
