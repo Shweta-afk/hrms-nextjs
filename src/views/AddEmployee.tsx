@@ -61,6 +61,7 @@ const AddEmployee = () => {
   const [employmentType, setEmploymentType] = useState("")
   const [workLocation, setWorkLocation] = useState("")
   const [ctcAnnual, setCtcAnnual] = useState("")
+  const [esslDeviceId, setEsslDeviceId] = useState("")
 
   // Step 3 — Statutory & Bank
   const [pan, setPan] = useState("")
@@ -143,7 +144,7 @@ const AddEmployee = () => {
         department_id: departmentId || undefined,
         designation_id: undefined,
         manager_id: managerId || undefined,
-        essl_device_id: undefined,
+        essl_device_id: esslDeviceId || undefined,
         personal_info: {
           date_of_birth: dob,
           gender,
@@ -412,6 +413,13 @@ const AddEmployee = () => {
                   <Label>Work Location</Label>
                   <Input placeholder="e.g. Mumbai, Bengaluru" value={workLocation}
                     onChange={e => setWorkLocation(e.target.value)} />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Biometric Device ID</Label>
+                  <Input placeholder="e.g. 25" value={esslDeviceId}
+                    onChange={e => setEsslDeviceId(e.target.value)} />
+                  <p className="text-xs text-muted-foreground">Device Code from Smart Office / ZKTeco device</p>
                 </div>
 
                 <div className="space-y-2">
