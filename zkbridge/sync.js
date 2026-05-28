@@ -22,8 +22,25 @@ const FROM_DATE     = new Date('2025-12-31T18:30:00.000Z') // 1 Jan 2026 00:00 I
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LAST_SYNC_FILE = path.join(__dirname, '.last_sync')
+const LOG_FILE       = path.join(__dirname, 'sync.log')
 const fullSync       = process.argv.includes('--full')
 const sleep          = ms => new Promise(r => setTimeout(r, ms))
+
+function writeLog (message) {
+  const ts   = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+  const line = `[${ts}] ${message}\n`
+  process.stdout.write(line)
+  try {
+    // Keep last 500 lines only
+    let existing = ''
+    if (fs.existsSync(LOG_FILE)) {
+      existing = fs.readFileSync(LOG_FILE, 'utf8')
+      const lines = existing.split('\n').filter(Boolean)
+      if (lines.length > 500) existing = lines.slice(-500).join('\n') + '\n'
+    }
+    fs.writeFileSync(LOG_FILE, existing + line)
+  } catch {}
+}
 
 function connectDevice () {
   return new Promise((resolve, reject) => {
@@ -123,7 +140,7 @@ async function main () {
     const toSync = allRecords.filter(r => new Date(r.timestamp) > cutoff)
 
     if (toSync.length === 0) {
-      console.log(' Nothing new to sync. Already up to date.')
+      writeLog('Nothing new to sync. Already up to date.')
       return
     }
     console.log(` Records to sync: ${toSync.length}`)
@@ -185,23 +202,17 @@ async function main () {
     const latestMs = Math.max(...sorted.map(r => new Date(r.timestamp).getTime()))
     fs.writeFileSync(LAST_SYNC_FILE, new Date(latestMs).toISOString())
 
-    console.log(`\n\n ✓ All done!`)
-    console.log(`   Sent    : ${sorted.length}`)
-    console.log(`   Matched : ${totalProcessed}`)
-    console.log(`   Skipped : ${totalSkipped}`)
-
-    if (totalProcessed === 0) {
-      console.log('\n NOTE: 0 records matched employees in HRMS.')
-      console.log(` The device EmpID (e.g. ${sorted[0] ? String(sorted[0].id) : '?'}) must match the`)
-      console.log(' Employee Code in HRMS → Employees → Employee Code column.')
+    writeLog(`✓ Sent: ${sorted.length}, Matched: ${totalProcessed}, Skipped: ${totalSkipped}`)
+    if (totalProcessed === 0 && sorted.length > 0) {
+      writeLog(`NOTE: 0 matched — device EmpID (e.g. ${sorted[0] ? String(sorted[0].id) : '?'}) must match Employee Code in HRMS`)
     }
 
   } catch (err) {
     const msg = err && err.message ? err.message : String(err)
-    console.error('\n ERROR:', msg)
-    if (msg.includes('ECONNREFUSED')) console.error(' → Make sure this PC is on the same network as the device.')
-    if (msg.includes('ETIMEDOUT'))    console.error(' → Device not responding. Check IP and that it is powered on.')
-    if (msg.includes('Invalid'))      console.error(' → Device busy. Wait 60 seconds and try again.')
+    writeLog(`ERROR: ${msg}`)
+    if (msg.includes('ECONNREFUSED')) writeLog('→ Cannot reach device. Make sure this PC is on the same network.')
+    if (msg.includes('ETIMEDOUT'))    writeLog('→ Device not responding. Check IP and that device is on.')
+    if (msg.includes('Invalid'))      writeLog('→ Device busy. Will retry on next run.')
     process.exit(1)
   } finally {
     if (device) {
