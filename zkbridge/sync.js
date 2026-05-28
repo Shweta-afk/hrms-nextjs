@@ -207,6 +207,13 @@ async function main () {
       writeLog(`NOTE: 0 matched — device EmpID (e.g. ${sorted[0] ? String(sorted[0].id) : '?'}) must match Employee Code in HRMS`)
     }
 
+    // Report sync result to HRMS so it shows on the portal
+    postData(
+      `${HRMS_URL}/api/devices/sync-report`,
+      JSON.stringify({ serial: DEVICE_SERIAL, sent: sorted.length, matched: totalProcessed, skipped: totalSkipped }),
+      'application/json'
+    ).catch(() => {})
+
   } catch (err) {
     const msg = err && err.message ? err.message : String(err)
     writeLog(`ERROR: ${msg}`)
@@ -223,7 +230,7 @@ async function main () {
   }
 }
 
-function postData (url, body) {
+function postData (url, body, contentType) {
   return new Promise((resolve, reject) => {
     const u    = new URL(url)
     const lib  = u.protocol === 'https:' ? https : http
@@ -233,7 +240,7 @@ function postData (url, body) {
       path     : u.pathname + u.search,
       method   : 'POST',
       headers  : {
-        'Content-Type'  : 'application/x-www-form-urlencoded',
+        'Content-Type'  : contentType || 'application/x-www-form-urlencoded',
         'Content-Length': Buffer.byteLength(body),
         'User-Agent'    : 'ZKBridge/1.0',
       },

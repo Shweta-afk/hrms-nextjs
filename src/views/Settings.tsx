@@ -175,6 +175,8 @@ const Settings = () => {
   // Biometric Devices
   const [devices, setDevices] = useState<Device[]>([])
   const [devicesLoading, setDevicesLoading] = useState(false)
+  type SyncEntry = { time: string; device: string; sent: number; matched: number; skipped: number }
+  const [syncLog, setSyncLog] = useState<SyncEntry[]>([])
   const [deviceModal, setDeviceModal] = useState(false)
   const [deviceSyncing, setDeviceSyncing] = useState<string | null>(null)
   const [deviceDeleting, setDeviceDeleting] = useState<string | null>(null)
@@ -684,9 +686,16 @@ const Settings = () => {
   async function fetchDevices() {
     setDevicesLoading(true)
     try {
-      const res = await fetch('/api/devices')
-      const json = await res.json()
-      if (json.success) setDevices(json.data)
+      const [devRes, settingsRes] = await Promise.all([
+        fetch('/api/devices'),
+        fetch('/api/org/settings'),
+      ])
+      const [devJson, settingsJson] = await Promise.all([devRes.json(), settingsRes.json()])
+      if (devJson.success) setDevices(devJson.data)
+      if (settingsJson.success) {
+        const log = (settingsJson.data as Record<string, unknown>).sync_log
+        if (Array.isArray(log)) setSyncLog(log as SyncEntry[])
+      }
     } catch { toast.error('Failed to load devices') }
     finally { setDevicesLoading(false) }
   }
@@ -1660,6 +1669,27 @@ const Settings = () => {
                             </strong></span>
                           )}
                         </div>
+
+                        {/* Sync History */}
+                        {syncLog.filter(e => e.device === device.name).length > 0 && (
+                          <div className="mt-3 rounded-lg border bg-muted/30 p-3">
+                            <p className="text-xs font-semibold text-foreground mb-2">Sync History</p>
+                            <div className="space-y-1 max-h-40 overflow-y-auto">
+                              {syncLog.filter(e => e.device === device.name).map((entry, i) => (
+                                <div key={i} className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">
+                                    {new Date(entry.time).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                  <div className="flex gap-3">
+                                    <span className="text-green-600 font-medium">✓ {entry.matched} matched</span>
+                                    {entry.skipped > 0 && <span className="text-muted-foreground">{entry.skipped} skipped</span>}
+                                    {entry.matched === 0 && entry.sent === 0 && <span className="text-muted-foreground">Nothing new</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
                         {/* ADMS Server Address — what to type on the physical device */}
                         <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
