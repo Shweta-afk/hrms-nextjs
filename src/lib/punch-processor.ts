@@ -240,3 +240,163 @@ export async function processPunches(inputs: PunchInput[]): Promise<{
 
   return { processed, skipped, errors }
 }
+
+/**
+ * High-performance bulk processor — processes a batch of punches in 4 DB
+ * round-trips instead of 4 × N.
+ *
+ * 1. ONE query  — batch employee lookup by emp_code
+ * 2. ONE insert — createMany punch logs
+ * 3. ONE query  — load existing AttendanceRecords for affected employee+days
+ * 4. U upserts  — one per unique employee+day  (U << N for typical batches)
+ *
+ * All inputs must belong to the same org_id.
+ */
+export async function processPunchesBulk(inputs: PunchInput[]): Promise<{
+  processed: number
+  skipped:   number
+  errors:    string[]
+}> {
+  if (inputs.length === 0) return { processed: 0, skipped: 0, errors: [] }
+
+  const org_id        = inputs[0].org_id
+  const shiftSettings = await getShiftSettings(org_id)
+
+  // ── 1. Batch employee lookup ────────────────────────────────────────────
+  const empCodes = [...new Set(inputs.map(i => i.emp_code))]
+  const employees = await prisma.employee.findMany({
+    where: {
+      org_id,
+      OR: [
+        { emp_code:        { in: empCodes } },
+        { essl_device_id:  { in: empCodes } },
+      ],
+    },
+    select: { id: true, emp_code: true, essl_device_id: true },
+  })
+
+  const empMap = new Map<string, string>() // emp_code → employee_id
+  for (const emp of employees) {
+    if (emp.emp_code)       empMap.set(emp.emp_code,       emp.id)
+    if (emp.essl_device_id) empMap.set(emp.essl_device_id, emp.id)
+  }
+
+  // ── 2. Batch insert punch logs ──────────────────────────────────────────
+  await prisma.punchLog.createMany({
+    data: inputs.map(i => ({
+      org_id:     i.org_id,
+      device_id:  i.device_id,
+      emp_code:   i.emp_code,
+      punch_time: i.punch_time,
+      direction:  i.direction,
+      raw_data:   i.raw_data ?? null,
+      processed:  empMap.has(i.emp_code),
+    })),
+  }).catch(() => {}) // non-fatal if some logs already exist
+
+  // ── 3. Group matched inputs by employee + date ──────────────────────────
+  type DayData = {
+    employee_id: string
+    date:        Date
+    firstIn:     Date | null
+    lastOut:     Date | null
+    device_id:   string
+    device_name: string
+  }
+
+  const dayMap  = new Map<string, DayData>()
+  let   skipped = 0
+  const errors: string[] = []
+
+  for (const input of inputs) {
+    const employee_id = empMap.get(input.emp_code)
+    if (!employee_id) { skipped++; continue }
+
+    const date = dateOnly(input.punch_time)
+    const key  = `${employee_id}_${date.toISOString()}`
+
+    if (!dayMap.has(key)) {
+      dayMap.set(key, {
+        employee_id,
+        date,
+        firstIn:     null,
+        lastOut:     null,
+        device_id:   input.device_id,
+        device_name: input.device_name,
+      })
+    }
+    const d = dayMap.get(key)!
+    if (input.direction === 'IN') {
+      if (!d.firstIn || input.punch_time < d.firstIn) d.firstIn = input.punch_time
+    } else {
+      if (!d.lastOut || input.punch_time > d.lastOut) d.lastOut = input.punch_time
+    }
+  }
+
+  if (dayMap.size === 0) return { processed: 0, skipped, errors }
+
+  // ── 4. Load existing attendance records (ONE query) ─────────────────────
+  const dayEntries = [...dayMap.values()]
+  const existing   = await prisma.attendanceRecord.findMany({
+    where: {
+      org_id,
+      OR: dayEntries.map(d => ({ employee_id: d.employee_id, date: d.date })),
+    },
+    select: { employee_id: true, date: true, first_in: true, last_out: true },
+  })
+
+  for (const ex of existing) {
+    const key = `${ex.employee_id}_${ex.date.toISOString()}`
+    const d   = dayMap.get(key)
+    if (!d) continue
+    if (ex.first_in && (!d.firstIn || ex.first_in < d.firstIn)) d.firstIn = ex.first_in
+    if (ex.last_out && (!d.lastOut || ex.last_out > d.lastOut)) d.lastOut = ex.last_out
+  }
+
+  // ── 5. Upsert one record per unique employee+day ────────────────────────
+  for (const d of dayMap.values()) {
+    try {
+      const { isLate, lateByMinutes } = d.firstIn
+        ? lateCalc(d.firstIn, shiftSettings)
+        : { isLate: false, lateByMinutes: 0 }
+      const totalHours = d.firstIn && d.lastOut && d.lastOut > d.firstIn
+        ? (d.lastOut.getTime() - d.firstIn.getTime()) / 3_600_000
+        : null
+
+      await prisma.attendanceRecord.upsert({
+        where:  { org_id_employee_id_date: { org_id, employee_id: d.employee_id, date: d.date } },
+        update: {
+          first_in:        d.firstIn,
+          last_out:        d.lastOut,
+          total_hours:     totalHours,
+          status:          d.firstIn ? 'present' : 'absent',
+          is_late:         isLate,
+          late_by_minutes: lateByMinutes,
+          device_id:       d.device_id,
+          device_name:     d.device_name,
+          source:          'device',
+        },
+        create: {
+          org_id,
+          employee_id:     d.employee_id,
+          date:            d.date,
+          first_in:        d.firstIn,
+          last_out:        d.lastOut,
+          total_hours:     totalHours,
+          status:          d.firstIn ? 'present' : 'absent',
+          is_late:         isLate,
+          late_by_minutes: lateByMinutes,
+          device_id:       d.device_id,
+          device_name:     d.device_name,
+          source:          'device',
+        },
+      })
+    } catch (err) {
+      skipped++
+      errors.push(`${d.employee_id} @ ${d.date.toISOString()}: ${String(err)}`)
+    }
+  }
+
+  const processed = inputs.length - skipped
+  return { processed, skipped, errors }
+}

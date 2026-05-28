@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { processPunch } from '@/lib/punch-processor'
+import { processPunchesBulk, PunchInput } from '@/lib/punch-processor'
 
 /**
  * ZKTeco / ESSL / AiFace ADMS attendance push endpoint.
@@ -82,9 +82,9 @@ export async function POST(req: NextRequest) {
       return new Response('OK: 0', { status: 200, headers: { 'Content-Type': 'text/plain' } })
     }
 
-    const lines = data.split(/\r?\n/).filter(l => l.trim())
-    let processed = 0
-    let skipped   = 0
+    const lines:   string[]    = data.split(/\r?\n/).filter(l => l.trim())
+    const inputs:  PunchInput[] = []
+    let   skipped = 0
 
     for (const line of lines) {
       const fields = line.split('\t')
@@ -92,27 +92,25 @@ export async function POST(req: NextRequest) {
 
       const [empCode, datetimeStr, stateStr] = fields
       const state     = parseInt(stateStr ?? '0', 10)
-      // Use device timezone for correct IST → UTC conversion
       const punchTime = parseDeviceTime(datetimeStr, device.timezone ?? 'Asia/Kolkata')
       if (isNaN(punchTime.getTime())) { skipped++; continue }
 
       const direction: 'IN' | 'OUT' = [0, 4].includes(state) ? 'IN' : 'OUT'
-
-      try {
-        const result = await processPunch({
-          org_id:      device.org_id,
-          device_id:   device.id,
-          device_name: device.name,
-          emp_code:    empCode.trim(),
-          punch_time:  punchTime,
-          direction,
-          raw_data:    `SN=${sn}&${line}`,
-        })
-        result.skipped ? skipped++ : processed++
-      } catch {
-        skipped++
-      }
+      inputs.push({
+        org_id:      device.org_id,
+        device_id:   device.id,
+        device_name: device.name,
+        emp_code:    empCode.trim(),
+        punch_time:  punchTime,
+        direction,
+        raw_data:    `SN=${sn}&${line}`,
+      })
     }
+
+    // Bulk process — 4 DB round-trips total regardless of batch size
+    const result    = await processPunchesBulk(inputs)
+    const processed = result.processed
+    skipped        += result.skipped
 
     if (processed > 0) {
       prisma.device.update({
