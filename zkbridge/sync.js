@@ -18,6 +18,7 @@ const DEVICE_PORT   = 4370
 const DEVICE_SERIAL = 'YOUR_DEVICE_SERIAL'          // must match Settings → Biometric Devices in HRMS
 const HRMS_URL      = 'https://YOUR-APP.vercel.app' // your Vercel URL, no trailing slash
 const BATCH_SIZE    = 50                             // records per request (keep under Vercel timeout)
+const FROM_DATE     = new Date('2025-12-31T18:30:00.000Z') // 1 Jan 2026 00:00 IST — ignore older records
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LAST_SYNC_FILE = path.join(__dirname, '.last_sync')
@@ -110,7 +111,7 @@ async function main () {
       lastSync = new Date(fs.readFileSync(LAST_SYNC_FILE, 'utf8').trim())
       console.log(` Last sync : ${lastSync.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`)
     } else {
-      console.log(fullSync ? ' Mode: FULL sync (all records)' : ' Mode: First run — pulling all records')
+      console.log(fullSync ? ' Mode: FULL sync (all records)' : ` Mode: Syncing from ${FROM_DATE.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} onwards`)
     }
 
     // Pull
@@ -118,9 +119,8 @@ async function main () {
     const allRecords = await getAttendance(device)
     console.log(` Total records on device: ${allRecords.length}`)
 
-    const toSync = lastSync
-      ? allRecords.filter(r => new Date(r.timestamp) > lastSync)
-      : allRecords
+    const cutoff = lastSync && lastSync > FROM_DATE ? lastSync : FROM_DATE
+    const toSync = allRecords.filter(r => new Date(r.timestamp) > cutoff)
 
     if (toSync.length === 0) {
       console.log(' Nothing new to sync. Already up to date.')
