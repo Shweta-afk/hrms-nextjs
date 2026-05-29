@@ -182,30 +182,40 @@ export async function POST(req: NextRequest) {
       const structure = (employee.salary_structure ?? defaultStructure) as any
       const components = (structure?.components as any[]) ?? null
 
-      let basic: number, hra: number, special: number
+      let basic = 0, hra = 0
+      // structureEarnings holds the per-component breakdown actually stored in the payslip
+      let structureEarnings: Record<string, number> | null = null
 
       if (components && Array.isArray(components)) {
-        basic = 0; hra = 0; let otherEarnings = 0
+        structureEarnings = {}
         for (const comp of components) {
           if (comp.type !== 'earning') continue
           let amount = 0
+          // soFar = sum already allocated to earlier components (for remainder calc)
+          const soFar = Object.values(structureEarnings).reduce((a, b) => a + b, 0)
           if (comp.calc_type === 'percentage_of_ctc') amount = Math.round(ctcMonthly * comp.value / 100)
           else if (comp.calc_type === 'percentage_of_basic') amount = Math.round(basic * comp.value / 100)
           else if (comp.calc_type === 'fixed') amount = comp.value
-          else if (comp.calc_type === 'remainder') amount = Math.round(ctcMonthly - basic - hra - otherEarnings)
+          else if (comp.calc_type === 'remainder') amount = Math.max(0, Math.round(ctcMonthly - soFar))
           if (comp.name === 'Basic') basic = amount
           else if (comp.name === 'HRA') hra = amount
-          else otherEarnings += amount
+          structureEarnings[comp.name] = amount
         }
-        special = Math.round(ctcMonthly - basic - hra - otherEarnings)
+        // If structure components don't sum to full CTC, add an implicit Special Allowance
+        const allocated = Object.values(structureEarnings).reduce((a, b) => a + b, 0)
+        const implicitSpecial = Math.round(ctcMonthly - allocated)
+        if (implicitSpecial > 0 && !structureEarnings['Special Allowance']) {
+          structureEarnings['Special Allowance'] = implicitSpecial
+        }
       } else {
         basic = Math.round(ctcMonthly * 0.40)
         hra = Math.round(basic * 0.50)
-        special = Math.round(ctcMonthly - basic - hra)
+        const special = Math.round(ctcMonthly - basic - hra)
+        structureEarnings = { Basic: basic, HRA: hra, 'Special Allowance': special }
       }
 
       const incentiveAmount = employee.monthly_incentive ? Math.round(Number(employee.monthly_incentive)) : 0
-      const baseSalary = basic + hra + special
+      const baseSalary = Object.values(structureEarnings!).reduce((a, b) => a + b, 0)
       const grossSalary = baseSalary + otPay + incentiveAmount
 
       const lopAmount = lopDays > 0
@@ -241,9 +251,7 @@ export async function POST(req: NextRequest) {
       const tds = tdsApplicable ? calculateTDS(grossSalary * 12, tdsRegime)     : 0
 
       const earnings: Record<string, number> = {
-        Basic: basic,
-        HRA: hra,
-        'Special Allowance': special,
+        ...structureEarnings!,
         ...(incentiveAmount > 0 ? { Incentive: incentiveAmount } : {}),
         ...(otPay > 0 ? { [`OT Pay (${totalOtHours.toFixed(1)}h)`]: otPay } : {}),
       }
