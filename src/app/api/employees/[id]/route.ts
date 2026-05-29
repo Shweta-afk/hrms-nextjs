@@ -148,9 +148,10 @@ export async function PATCH(
       })
     }
 
-    await prisma.employee.update({
+    const updated = await prisma.employee.update({
       where: { id: id },
       data: updatePayload,
+      include: { department: true, designation: true },
     })
 
     // If email changed, keep the linked User account in sync
@@ -158,15 +159,8 @@ export async function PATCH(
       await prisma.user.updateMany({
         where: { employee_id: id, org_id: session.user.org_id },
         data: { email: updatePayload.email as string },
-      }).catch(() => {}) // ignore if no linked user yet
+      }).catch(() => {})
     }
-
-    const updated = await prisma.employee.findFirst({
-      where: { id: id },
-      include: { department: true, designation: true },
-    })
-
-    if (!updated) return NextResponse.json({ success: false, error: 'Employee not found' }, { status: 404 })
 
     return NextResponse.json({
       success: true,
