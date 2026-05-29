@@ -67,17 +67,19 @@ export async function GET(req: NextRequest) {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    const [presentToday, absentToday, lateToday] = await Promise.all([
+    const [presentToday, totalActive, lateToday] = await Promise.all([
       prisma.attendanceRecord.count({
-        where: { org_id: session.user.org_id, date: today, status: 'present' },
+        where: { org_id: session.user.org_id, date: today, status: { in: ['present', 'half_day', 'wfh'] } },
       }),
-      prisma.attendanceRecord.count({
-        where: { org_id: session.user.org_id, date: today, status: 'absent' },
+      prisma.employee.count({
+        where: { org_id: session.user.org_id, status: 'active', exclude_from_payroll: false },
       }),
       prisma.attendanceRecord.count({
         where: { org_id: session.user.org_id, date: today, is_late: true },
       }),
     ])
+    // Absent = employees with no present/wfh/half_day record today
+    const absentToday = Math.max(0, totalActive - presentToday)
 
     return NextResponse.json({
       success: true,

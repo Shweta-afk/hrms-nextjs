@@ -358,6 +358,33 @@ export async function processPunchesBulk(inputs: PunchInput[]): Promise<{
     if (ex.last_out && (!d.lastOut || ex.last_out > d.lastOut)) d.lastOut = ex.last_out
   }
 
+  // ── 4b. Merge ALL punch logs for these employees/dates ──────────────────
+  // Unprocessed punches (employee not mapped at sync time) live in PunchLog
+  // but never made it into AttendanceRecord.  Re-scan them here so first_in
+  // always reflects the true earliest tap, not just the current batch.
+  if (dayEntries.length > 0) {
+    const minDate = new Date(Math.min(...dayEntries.map(d => d.date.getTime())))
+    const maxDate = new Date(Math.max(...dayEntries.map(d => d.date.getTime())) + 86_400_000)
+    const allLogs = await prisma.punchLog.findMany({
+      where: {
+        org_id,
+        emp_code: { in: empCodes },
+        punch_time: { gte: minDate, lt: maxDate },
+      },
+      select: { emp_code: true, punch_time: true },
+    })
+    for (const log of allLogs) {
+      const employee_id = empMap.get(log.emp_code)
+      if (!employee_id) continue
+      const date = dateOnly(log.punch_time)
+      const key  = `${employee_id}_${date.toISOString()}`
+      const d    = dayMap.get(key)
+      if (!d) continue  // only touch days already in this batch
+      if (!d.firstIn || log.punch_time < d.firstIn) d.firstIn = log.punch_time
+      if (!d.lastOut  || log.punch_time > d.lastOut) d.lastOut  = log.punch_time
+    }
+  }
+
   // ── 5. Upsert one record per unique employee+day ────────────────────────
   for (const d of dayMap.values()) {
     try {

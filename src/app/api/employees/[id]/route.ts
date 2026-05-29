@@ -127,6 +127,10 @@ export async function PATCH(
     const updatePayload: Record<string, unknown> = { ...rest }
     if (bank_details !== undefined) updatePayload.bank_details = safeEncrypt(bank_details)
     if (statutory_info !== undefined) updatePayload.statutory_info = safeEncrypt(statutory_info)
+    // Prisma DateTime fields require a Date object, not a raw string
+    if (updatePayload.date_of_joining) {
+      updatePayload.date_of_joining = new Date(updatePayload.date_of_joining as string)
+    }
 
     // If there's nothing to update just return the current record
     if (Object.keys(updatePayload).length === 0) {
@@ -174,8 +178,10 @@ export async function PATCH(
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ success: false, error: error.issues }, { status: 400 })
+      const msg = error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
+      return NextResponse.json({ success: false, error: msg }, { status: 400 })
     }
+    console.error('Employee PATCH error:', error)
     return NextResponse.json({ success: false, error: 'Failed to update employee' }, { status: 500 })
   }
 }

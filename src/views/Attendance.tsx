@@ -510,16 +510,45 @@ const Attendance = () => {
   const filteredRecords = reportEmpFilter === 'all' ? records : records.filter(r => r.employee.id === reportEmpFilter)
 
   const absentReport = (() => {
-    const map = new Map<string, EmpKey & { days: number; dates: string[] }>()
-    for (const r of filteredRecords) {
-      if (r.status !== 'absent') continue
-      const key = r.employee.id
-      if (!map.has(key)) map.set(key, { id: key, name: `${r.employee.first_name} ${r.employee.last_name}`, emp_code: r.employee.emp_code, dept: r.employee.department?.name ?? '—', days: 0, dates: [] })
-      const e = map.get(key)!
-      e.days++
-      e.dates.push(new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }))
+    // Working days in the selected month up to today (Mon–Fri only)
+    const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const workingDays: string[] = []
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      if (dateStr > todayStr) break
+      const dow = new Date(year, month - 1, d).getDay()
+      if (dow !== 0 && dow !== 6) workingDays.push(dateStr)
     }
-    return [...map.values()].sort((a, b) => b.days - a.days)
+
+    // Build a set of dates each employee was present/wfh/half_day
+    const presentDates = new Map<string, Set<string>>()
+    for (const r of filteredRecords) {
+      if (r.status === 'absent') continue
+      const eid = r.employee.id
+      if (!presentDates.has(eid)) presentDates.set(eid, new Set())
+      presentDates.get(eid)!.add((r.date as string).slice(0, 10))
+    }
+
+    // For each active employee find working days with no present record
+    const empsToCheck = reportEmpFilter === 'all'
+      ? activeEmployees
+      : activeEmployees.filter(e => e.id === reportEmpFilter)
+
+    const result = new Map<string, EmpKey & { days: number; dates: string[] }>()
+    for (const emp of empsToCheck) {
+      const present = presentDates.get(emp.id) ?? new Set<string>()
+      const absentDays = workingDays.filter(d => !present.has(d))
+      if (absentDays.length === 0) continue
+      result.set(emp.id, {
+        id: emp.id,
+        name: `${emp.first_name} ${emp.last_name}`,
+        emp_code: emp.emp_code,
+        dept: emp.department?.name ?? '—',
+        days: absentDays.length,
+        dates: absentDays.map(d => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })),
+      })
+    }
+    return [...result.values()].sort((a, b) => b.days - a.days)
   })()
 
   const lateReport = (() => {
