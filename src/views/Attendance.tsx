@@ -73,7 +73,7 @@ const heatmapColors: Record<string, string> = {
 
 const formatTime = (dateStr: string | null) => {
   if (!dateStr) return "—"
-  return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' })
 }
 
 const Attendance = () => {

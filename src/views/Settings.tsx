@@ -1660,12 +1660,12 @@ const Settings = () => {
                           <span>Today: <strong className="text-foreground">{device.punches_today}</strong></span>
                           {device.last_sync && (
                             <span>Last sync: <strong className="text-foreground">
-                              {new Date(device.last_sync).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              {new Date(device.last_sync).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                             </strong></span>
                           )}
                           {device.last_heartbeat && (
                             <span>Last seen: <strong className="text-foreground">
-                              {new Date(device.last_heartbeat).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              {new Date(device.last_heartbeat).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                             </strong></span>
                           )}
                         </div>
@@ -1678,7 +1678,7 @@ const Settings = () => {
                               {syncLog.filter(e => e.device === device.name).map((entry, i) => (
                                 <div key={i} className="flex items-center justify-between text-xs">
                                   <span className="text-muted-foreground">
-                                    {new Date(entry.time).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                    {new Date(entry.time).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                                   </span>
                                   <div className="flex gap-3">
                                     <span className="text-green-600 font-medium">✓ {entry.matched} matched</span>
