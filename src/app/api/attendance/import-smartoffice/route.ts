@@ -61,7 +61,9 @@ function buildDateTime(date: Date, timeStr: string | null | undefined): Date | n
   if (!s || s === '00:00:00' || s === '00:00') return null
   const parts = s.split(':').map(Number)
   if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null
-  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), parts[0], parts[1], parts[2] ?? 0))
+  // SmartOffice times are in IST — convert to UTC by subtracting 5h30m (330 min)
+  const istMs = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), parts[0], parts[1], parts[2] ?? 0)
+  return new Date(istMs - 330 * 60 * 1000)
 }
 
 interface UpsertData {
@@ -295,8 +297,9 @@ async function parseDailyBasic(
     let isLate = false
     let lateByMinutes = 0
     if (firstIn) {
+      // 9:15 IST = 03:45 UTC — use UTC hours since timestamps are stored as UTC
       const shiftStart = new Date(firstIn)
-      shiftStart.setHours(9, 15, 0, 0)
+      shiftStart.setUTCHours(3, 45, 0, 0)
       if (firstIn > shiftStart) {
         isLate = true
         lateByMinutes = Math.floor((firstIn.getTime() - shiftStart.getTime()) / 60_000)

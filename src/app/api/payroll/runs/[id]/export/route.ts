@@ -45,7 +45,8 @@ export async function GET(
       cur.setUTCDate(cur.getUTCDate() + 1)
     }
     const dateStrings = allDates.map(d => d.toISOString().slice(0, 10))
-    const totalDays = allDates.length
+    // Total days = calendar days in the payroll month (standard Indian payroll)
+    const totalDays = new Date(run.year, run.month, 0).getDate()
 
     // Daily column headers: "21-Tue", "22-Wed", ...
     const dailyHeaders = allDates.map(d => {
@@ -54,9 +55,9 @@ export async function GET(
       return `${dd}-${dow}`
     })
 
-    // Payslips + employee data (including bank details for banking columns)
+    // Payslips + employee data — skip employees excluded from payroll
     const payslips = await prisma.payslip.findMany({
-      where: { payroll_run_id: id, org_id: session.user.org_id },
+      where: { payroll_run_id: id, org_id: session.user.org_id, employee: { exclude_from_payroll: false } },
       include: {
         employee: {
           select: {
@@ -229,8 +230,8 @@ export async function GET(
         }
       })
 
-      // Salary days: full present + wfh + paid leave (half days counted separately as deduction)
-      const salaryDays = presentCount + wfhCount + paidLeaveCount
+      // Salary days: full present + wfh + paid leave + half days (half days then lose 0.5 via ACT_HALF_DAY deduction)
+      const salaryDays = presentCount + wfhCount + paidLeaveCount + halfDayCount
 
       const actualSalary = Number(ps.gross_salary)
       const perDayApprox = totalDays > 0 ? actualSalary / totalDays : 0

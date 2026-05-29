@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
         ctc_annual: true,
         monthly_incentive: true,
         salary_structure_id: true,
-        salary_structure: true,
+        salary_structure: { select: { id: true, name: true, components: true, is_default: true } },
         shift_group_id: true,
         shift_group: { select: { weekly_offs: true } },
         date_of_joining: true,
@@ -115,8 +115,10 @@ export async function POST(req: NextRequest) {
     })
 
     const [defaultStructure, allAttendance] = await Promise.all([
+      // Prefer the structure marked as default; fall back to the first one if none is set
       prisma.salaryStructure.findFirst({
-        where: { org_id: session.user.org_id, is_default: true },
+        where: { org_id: session.user.org_id },
+        orderBy: [{ is_default: 'desc' }, { created_at: 'asc' }],
       }),
       // Load ALL employee attendance in ONE query instead of N queries
       prisma.attendanceRecord.findMany({

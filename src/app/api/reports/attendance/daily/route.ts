@@ -82,8 +82,8 @@ export async function GET(req: NextRequest) {
         else if (rec.status === 'half_day') status = 'Half Day'
         else status = 'Absent'
 
-        if (rec.first_in) timeIn = format(new Date(rec.first_in), 'HH:mm')
-        if (rec.last_out) timeOut = format(new Date(rec.last_out), 'HH:mm')
+        if (rec.first_in) timeIn = new Date(rec.first_in).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })
+        if (rec.last_out) timeOut = new Date(rec.last_out).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })
         if (rec.total_hours != null) workHours = Number(rec.total_hours).toFixed(2)
         lateBy = rec.late_by_minutes
         overtime = rec.overtime_hours != null ? Number(rec.overtime_hours).toFixed(2) : '—'
