@@ -114,22 +114,26 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    const [defaultStructure, allAttendance] = await Promise.all([
-      // Prefer the structure marked as default; fall back to the first one if none is set
-      prisma.salaryStructure.findFirst({
-        where: { org_id: session.user.org_id },
-        orderBy: [{ is_default: 'desc' }, { created_at: 'asc' }],
-      }),
-      // Load ALL employee attendance in ONE query instead of N queries
-      prisma.attendanceRecord.findMany({
-        where: {
-          org_id: session.user.org_id,
-          employee_id: { in: employees.map(e => e.id) },
-          date: { gte: monthStart, lte: monthEnd },
-        },
-        select: { employee_id: true, status: true, overtime_hours: true, is_late: true, late_by_minutes: true, last_out: true },
-      }),
-    ])
+    // Prefer the structure marked as default; fall back to the first one if none is set
+    const defaultStructure =
+      await prisma.salaryStructure.findFirst({ where: { org_id: session.user.org_id, is_default: true } }) ??
+      await prisma.salaryStructure.findFirst({ where: { org_id: session.user.org_id }, orderBy: { created_at: 'asc' } })
+
+    logger.info('payroll_structure_resolved', {
+      org_id: session.user.org_id,
+      structure_id: defaultStructure?.id ?? null,
+      structure_name: defaultStructure?.name ?? null,
+      components_count: Array.isArray(defaultStructure?.components) ? (defaultStructure.components as any[]).length : 0,
+    })
+
+    const allAttendance = await prisma.attendanceRecord.findMany({
+      where: {
+        org_id: session.user.org_id,
+        employee_id: { in: employees.map(e => e.id) },
+        date: { gte: monthStart, lte: monthEnd },
+      },
+      select: { employee_id: true, status: true, overtime_hours: true, is_late: true, late_by_minutes: true, last_out: true },
+    })
 
     // Group attendance by employee_id for O(1) lookup
     const attendanceByEmp = new Map<string, typeof allAttendance>()
@@ -342,6 +346,9 @@ export async function POST(req: NextRequest) {
         total_net: runTotalNet,
         working_days: orgWorkingDays,
         holidays_in_month: holidays.filter(h => h.type !== 'working_day').length,
+        salary_structure_used: defaultStructure
+          ? { id: defaultStructure.id, name: defaultStructure.name, components_count: Array.isArray(defaultStructure.components) ? (defaultStructure.components as any[]).length : 0 }
+          : null,
         warnings,
         zero_attendance_employees: zeroAttendanceEmployees,
       },
