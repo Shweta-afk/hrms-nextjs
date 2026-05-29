@@ -218,12 +218,7 @@ export async function POST(req: NextRequest) {
           else if (comp.name === 'HRA') hra = amount
           structureEarnings[comp.name] = amount
         }
-        // If structure components don't sum to full CTC, add an implicit Special Allowance
-        const allocated = Object.values(structureEarnings).reduce((a, b) => a + b, 0)
-        const implicitSpecial = Math.round(ctcMonthly - allocated)
-        if (implicitSpecial > 0 && !structureEarnings['Special Allowance']) {
-          structureEarnings['Special Allowance'] = implicitSpecial
-        }
+        // No implicit components — gross = sum of whatever the structure defines
       } else {
         basic = Math.round(ctcMonthly * 0.40)
         hra = Math.round(basic * 0.50)
