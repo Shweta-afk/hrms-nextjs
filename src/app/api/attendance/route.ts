@@ -63,23 +63,83 @@ export async function GET(req: NextRequest) {
       prisma.attendanceRecord.count({ where }),
     ])
 
-    // Today's summary
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    const nowUTC = new Date()
+    const todayUTC = new Date(Date.UTC(nowUTC.getUTCFullYear(), nowUTC.getUTCMonth(), nowUTC.getUTCDate()))
 
-    const [presentToday, totalActive, lateToday] = await Promise.all([
-      prisma.attendanceRecord.count({
-        where: { org_id: session.user.org_id, date: today, status: { in: ['present', 'half_day', 'wfh'] } },
-      }),
-      prisma.employee.count({
-        where: { org_id: session.user.org_id, status: 'active', exclude_from_payroll: false },
-      }),
-      prisma.attendanceRecord.count({
-        where: { org_id: session.user.org_id, date: today, is_late: true },
-      }),
-    ])
-    // Absent = employees with no present/wfh/half_day record today
-    const absentToday = Math.max(0, totalActive - presentToday)
+    const reqMonth = month ? parseInt(month) : null
+    const reqYear  = year  ? parseInt(year)  : null
+
+    // Active payroll-included headcount (needed for both paths)
+    const totalActive = await prisma.employee.count({
+      where: { org_id: session.user.org_id, status: 'active', exclude_from_payroll: false },
+    })
+
+    let summaryPresent: number, summaryAbsent: number, summaryLate: number
+
+    if (reqMonth != null && reqYear != null) {
+      // ── Monthly aggregate summary ─────────────────────────────────────────
+      // Used by the dashboard chart — returns employee-days present/absent so
+      // present/(present+absent) gives the monthly attendance rate.
+      const monthStart  = new Date(Date.UTC(reqYear, reqMonth - 1, 1))
+      const monthEnd    = new Date(Date.UTC(reqYear, reqMonth, 0))       // last day of month
+      const effectiveEnd = monthEnd < todayUTC ? monthEnd : todayUTC     // don't peek into the future
+
+      // Count working weekdays elapsed so far
+      let workingDays = 0
+      const d = new Date(monthStart)
+      while (d <= effectiveEnd) {
+        const dow = d.getUTCDay()
+        if (dow !== 0 && dow !== 6) workingDays++
+        d.setUTCDate(d.getUTCDate() + 1)
+      }
+
+      const [presentCount, lateCount] = await Promise.all([
+        prisma.attendanceRecord.count({
+          where: {
+            org_id: session.user.org_id,
+            date: { gte: monthStart, lte: effectiveEnd },
+            status: { in: ['present', 'late', 'half_day', 'wfh'] },
+            employee: { status: 'active', exclude_from_payroll: false },
+          },
+        }),
+        prisma.attendanceRecord.count({
+          where: {
+            org_id: session.user.org_id,
+            date: { gte: monthStart, lte: effectiveEnd },
+            is_late: true,
+            employee: { status: 'active', exclude_from_payroll: false },
+          },
+        }),
+      ])
+
+      const totalExpected = totalActive * workingDays
+      summaryPresent = presentCount
+      summaryAbsent  = Math.max(0, totalExpected - presentCount)
+      summaryLate    = lateCount
+    } else {
+      // ── Today's summary ───────────────────────────────────────────────────
+      const [presentToday, lateToday] = await Promise.all([
+        prisma.attendanceRecord.count({
+          where: {
+            org_id: session.user.org_id,
+            date: todayUTC,
+            status: { in: ['present', 'late', 'half_day', 'wfh'] },
+            employee: { status: 'active', exclude_from_payroll: false },
+          },
+        }),
+        prisma.attendanceRecord.count({
+          where: {
+            org_id: session.user.org_id,
+            date: todayUTC,
+            is_late: true,
+            employee: { status: 'active', exclude_from_payroll: false },
+          },
+        }),
+      ])
+      summaryPresent = presentToday
+      summaryAbsent  = Math.max(0, totalActive - presentToday)
+      summaryLate    = lateToday
+    }
 
     return NextResponse.json({
       success: true,
@@ -88,7 +148,7 @@ export async function GET(req: NextRequest) {
         total,
         page,
         pages: Math.ceil(total / limit),
-        summary: { present: presentToday, absent: absentToday, late: lateToday },
+        summary: { present: summaryPresent, absent: summaryAbsent, late: summaryLate },
       },
     })
   } catch (error) {

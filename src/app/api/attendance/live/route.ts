@@ -83,13 +83,17 @@ export async function GET(req: NextRequest) {
       lastDirectionByEmpCode[p.emp_code] = p.direction as 'IN' | 'OUT'
     }
 
-    // Map present records
-    const presentMap = new Map(todayRecords.map((r) => [r.employee_id, r]))
-    const presentIds = new Set(todayRecords.filter((r) => r.status === 'present').map((r) => r.employee_id))
+    // "Attended" = any status that means the employee showed up today
+    const ATTENDED_STATUSES = new Set(['present', 'late', 'half_day', 'wfh', 'pending_review'])
 
-    const presentCount   = todayRecords.filter((r) => r.status === 'present').length
-    const lateToday      = todayRecords.filter((r) => r.is_late)
-    const absentCount    = totalEmployees - presentCount
+    const presentMap = new Map(todayRecords.map((r) => [r.employee_id, r]))
+    const presentIds = new Set(
+      todayRecords.filter((r) => ATTENDED_STATUSES.has(r.status)).map((r) => r.employee_id)
+    )
+
+    const presentCount = presentIds.size
+    const lateToday    = todayRecords.filter((r) => r.is_late)
+    const absentCount  = Math.max(0, totalEmployees - presentCount)
 
     // Who is currently inside (last punch = IN)
     const currentlyInsideRecords = todayRecords.filter((r) => {
