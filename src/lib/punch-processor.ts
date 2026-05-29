@@ -148,23 +148,29 @@ export async function processPunch(input: PunchInput): Promise<PunchResult> {
     select: { first_in: true, last_out: true },
   })
 
-  // Recalculate first_in / last_out by comparing with new punch
+  // first_in  = EARLIEST punch of the day (regardless of IN/OUT direction)
+  // last_out  = LATEST punch of the day   (regardless of IN/OUT direction)
+  // This is robust against direction mis-assignment from AiFace alternating logic.
   let firstIn: Date | null = existing?.first_in ?? null
   let lastOut: Date | null = existing?.last_out ?? null
 
-  if (direction === 'IN') {
-    if (!firstIn || punch_time < firstIn) firstIn = punch_time
-  } else {
-    if (!lastOut || punch_time > lastOut) lastOut = punch_time
-  }
+  if (!firstIn || punch_time < firstIn) firstIn = punch_time
+  if (!lastOut || punch_time > lastOut) lastOut  = punch_time
+
+  // Only set last_out when there is a meaningful gap — a single punch means
+  // the employee just arrived (or only tapped once), so keep last_out null.
+  const effectiveLastOut: Date | null =
+    lastOut && firstIn && lastOut.getTime() > firstIn.getTime() ? lastOut : null
 
   // Derived fields
-  let totalHours: number | null = null
-  if (firstIn && lastOut && lastOut > firstIn) {
-    totalHours = (lastOut.getTime() - firstIn.getTime()) / 3_600_000
-  }
+  const totalHours: number | null =
+    firstIn && effectiveLastOut
+      ? (effectiveLastOut.getTime() - firstIn.getTime()) / 3_600_000
+      : null
 
-  const { isLate, lateByMinutes } = firstIn ? lateCalc(firstIn, shiftSettings) : { isLate: false, lateByMinutes: 0 }
+  const { isLate, lateByMinutes } = firstIn
+    ? lateCalc(firstIn, shiftSettings)
+    : { isLate: false, lateByMinutes: 0 }
 
   const record = await prisma.attendanceRecord.upsert({
     where: {
@@ -172,7 +178,7 @@ export async function processPunch(input: PunchInput): Promise<PunchResult> {
     },
     update: {
       first_in:        firstIn,
-      last_out:        lastOut,
+      last_out:        effectiveLastOut,
       total_hours:     totalHours,
       status:          firstIn ? 'present' : 'absent',
       is_late:         isLate,
@@ -186,7 +192,7 @@ export async function processPunch(input: PunchInput): Promise<PunchResult> {
       employee_id:     employee.id,
       date:            recordDate,
       first_in:        firstIn,
-      last_out:        lastOut,
+      last_out:        effectiveLastOut,
       total_hours:     totalHours,
       status:          firstIn ? 'present' : 'absent',
       is_late:         isLate,
@@ -197,8 +203,9 @@ export async function processPunch(input: PunchInput): Promise<PunchResult> {
     },
   })
 
-  // Fire-and-forget: notify manager when employee punches IN late
-  if (direction === 'IN' && isLate) {
+  // Fire late notification on first arrival of the day
+  const isFirstArrival = !existing?.first_in || punch_time < existing.first_in
+  if (isFirstArrival && isLate) {
     notifyLateArrival(org_id, employee.id, lateByMinutes).catch(() => {})
   }
 
@@ -326,11 +333,9 @@ export async function processPunchesBulk(inputs: PunchInput[]): Promise<{
       })
     }
     const d = dayMap.get(key)!
-    if (input.direction === 'IN') {
-      if (!d.firstIn || input.punch_time < d.firstIn) d.firstIn = input.punch_time
-    } else {
-      if (!d.lastOut || input.punch_time > d.lastOut) d.lastOut = input.punch_time
-    }
+    // first_in = earliest punch, last_out = latest punch — direction-independent
+    if (!d.firstIn || input.punch_time < d.firstIn) d.firstIn = input.punch_time
+    if (!d.lastOut || input.punch_time > d.lastOut) d.lastOut  = input.punch_time
   }
 
   if (dayMap.size === 0) return { processed: 0, skipped, errors }
@@ -359,15 +364,22 @@ export async function processPunchesBulk(inputs: PunchInput[]): Promise<{
       const { isLate, lateByMinutes } = d.firstIn
         ? lateCalc(d.firstIn, shiftSettings)
         : { isLate: false, lateByMinutes: 0 }
-      const totalHours = d.firstIn && d.lastOut && d.lastOut > d.firstIn
-        ? (d.lastOut.getTime() - d.firstIn.getTime()) / 3_600_000
+
+      // Only treat lastOut as a real checkout if it's strictly later than firstIn.
+      // A single punch (or double-tap at the same second) must not set last_out.
+      const effectiveLastOut =
+        d.lastOut && d.firstIn && d.lastOut.getTime() > d.firstIn.getTime()
+          ? d.lastOut : null
+
+      const totalHours = d.firstIn && effectiveLastOut
+        ? (effectiveLastOut.getTime() - d.firstIn.getTime()) / 3_600_000
         : null
 
       await prisma.attendanceRecord.upsert({
         where:  { org_id_employee_id_date: { org_id, employee_id: d.employee_id, date: d.date } },
         update: {
           first_in:        d.firstIn,
-          last_out:        d.lastOut,
+          last_out:        effectiveLastOut,
           total_hours:     totalHours,
           status:          d.firstIn ? 'present' : 'absent',
           is_late:         isLate,
@@ -381,7 +393,7 @@ export async function processPunchesBulk(inputs: PunchInput[]): Promise<{
           employee_id:     d.employee_id,
           date:            d.date,
           first_in:        d.firstIn,
-          last_out:        d.lastOut,
+          last_out:        effectiveLastOut,
           total_hours:     totalHours,
           status:          d.firstIn ? 'present' : 'absent',
           is_late:         isLate,

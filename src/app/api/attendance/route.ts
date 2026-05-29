@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
     const session = guard
 
     const body = await req.json()
-    const { employee_id, date, first_in, last_out, status, source = 'manual' } = body
+    const { employee_id, date, first_in, last_out, status, correction_reason, source = 'manual' } = body
 
     const dateObj = new Date(date)
     const firstInObj = first_in ? new Date(first_in) : null
@@ -144,6 +144,8 @@ export async function POST(req: NextRequest) {
         is_late: isLate,
         late_by_minutes: lateByMinutes,
         source,
+        is_corrected: true,
+        ...(correction_reason && { correction_reason }),
       },
       create: {
         org_id: session.user.org_id,
@@ -156,6 +158,8 @@ export async function POST(req: NextRequest) {
         is_late: isLate,
         late_by_minutes: lateByMinutes,
         source,
+        is_corrected: true,
+        ...(correction_reason && { correction_reason }),
       },
     })
 

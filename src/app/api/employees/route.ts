@@ -5,16 +5,18 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
 const CreateEmployeeSchema = z.object({
-  first_name: z.string().min(1),
-  last_name: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().optional(),
-  department_id: z.string().optional(),
-  designation_id: z.string().optional(),
-  manager_id: z.string().optional(),
-  date_of_joining: z.string(),
-  employment_type: z.enum(['full_time', 'part_time', 'contract', 'intern']),
-  essl_device_id: z.string().optional(),
+  first_name:       z.string().min(1),
+  last_name:        z.string().min(1),
+  email:            z.string().email(),
+  phone:            z.string().optional(),
+  emp_code:         z.string().optional(),   // HR can supply; auto-generated if blank
+  department_id:    z.string().optional(),
+  designation_id:   z.string().optional(),
+  manager_id:       z.string().optional(),
+  date_of_joining:  z.string(),
+  employment_type:  z.enum(['full_time', 'part_time', 'contract', 'intern']),
+  essl_device_id:   z.string().optional(),
+  ctc_annual:       z.number().optional(),
 })
 
 // GET — list all employees
@@ -107,11 +109,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const data = CreateEmployeeSchema.parse(body)
 
-    // Auto-generate emp_code
+    // Use HR-provided emp_code if given, otherwise auto-generate
     const count = await prisma.employee.count({
       where: { org_id: session.user.org_id },
     })
-    const emp_code = `EMP${String(count + 1).padStart(4, '0')}`
+    const emp_code = data.emp_code?.trim() || `EMP${String(count + 1).padStart(4, '0')}`
 
     const employee = await prisma.employee.create({
       data: {

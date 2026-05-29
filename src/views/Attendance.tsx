@@ -136,10 +136,11 @@ const Attendance = () => {
   // Reports
   const [activeReport, setActiveReport] = useState<'absent' | 'late' | 'ot' | 'grid'>('absent')
 
-  // Correction modal
+  // Correction / Add modal
   const [correctionRecord, setCorrectionRecord] = useState<AttendanceRecord | null>(null)
   const [corrFirstIn, setCorrFirstIn] = useState('')
   const [corrLastOut, setCorrLastOut] = useState('')
+  const [corrStatus, setCorrStatus] = useState('present')
   const [corrReason, setCorrReason] = useState('')
   const [correcting, setCorrecting] = useState(false)
 
@@ -419,6 +420,7 @@ const Attendance = () => {
     setCorrectionRecord(r)
     setCorrFirstIn(r.first_in ? formatTime(r.first_in) : '')
     setCorrLastOut(r.last_out ? formatTime(r.last_out) : '')
+    setCorrStatus(r.status === 'absent' ? 'present' : r.status)
     setCorrReason('')
   }
 
@@ -426,30 +428,67 @@ const Attendance = () => {
     if (!correctionRecord) return
     if (!corrReason.trim()) { toast.error('Correction reason is required'); return }
     setCorrecting(true)
+
+    const isAbsent = correctionRecord.id.startsWith('absent-')
+    const date = new Date(correctionRecord.date)
+
+    const toDateTime = (timeStr: string) => {
+      const [h, m] = timeStr.split(':').map(Number)
+      const d = new Date(date)
+      d.setHours(h, m, 0, 0)
+      return d.toISOString()
+    }
+
     try {
-      const date = new Date(correctionRecord.date)
-      const toDateTime = (timeStr: string) => {
-        const [h, m] = timeStr.split(':').map(Number)
-        const d = new Date(date)
-        d.setHours(h, m, 0, 0)
-        return d.toISOString()
+      if (isAbsent) {
+        // CREATE — employee had no record; POST to /api/attendance
+        const empId = correctionRecord.employee.id
+        const res = await fetch('/api/attendance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employee_id:       empId,
+            date:              date.toISOString(),
+            first_in:          corrFirstIn  ? toDateTime(corrFirstIn)  : null,
+            last_out:          corrLastOut  ? toDateTime(corrLastOut)   : null,
+            status:            corrStatus,
+            correction_reason: corrReason.trim(),
+            source:            'manual',
+          }),
+        })
+        const json = await res.json()
+        if (json.success) {
+          // Add the new record to local state so the row updates immediately
+          const newRecord: AttendanceRecord = {
+            ...json.data,
+            employee: correctionRecord.employee,
+            is_corrected: true,
+          }
+          setRecords(prev => [newRecord, ...prev])
+          toast.success('Attendance record added')
+          setCorrectionRecord(null)
+          fetchAttendance() // re-fetch to get accurate summary
+        } else toast.error(json.error || 'Failed to add attendance')
+      } else {
+        // UPDATE — existing record
+        const res = await fetch(`/api/attendance/${correctionRecord.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_in: corrFirstIn ? toDateTime(corrFirstIn) : undefined,
+            last_out: corrLastOut ? toDateTime(corrLastOut) : undefined,
+            status: corrStatus,
+            correction_reason: corrReason.trim(),
+          }),
+        })
+        const json = await res.json()
+        if (json.success) {
+          setRecords(prev => prev.map(r => r.id === correctionRecord.id ? { ...r, ...json.data, is_corrected: true } : r))
+          toast.success('Attendance corrected')
+          setCorrectionRecord(null)
+        } else toast.error(json.error || 'Failed to correct attendance')
       }
-      const res = await fetch(`/api/attendance/${correctionRecord.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          first_in: corrFirstIn ? toDateTime(corrFirstIn) : undefined,
-          last_out: corrLastOut ? toDateTime(corrLastOut) : undefined,
-          correction_reason: corrReason.trim(),
-        }),
-      })
-      const json = await res.json()
-      if (json.success) {
-        setRecords(prev => prev.map(r => r.id === correctionRecord.id ? { ...r, ...json.data, is_corrected: true } : r))
-        toast.success('Attendance corrected')
-        setCorrectionRecord(null)
-      } else toast.error(json.error || 'Failed to correct attendance')
-    } catch { toast.error('Failed to correct attendance') }
+    } catch { toast.error('Failed to save attendance') }
     finally { setCorrecting(false) }
   }
 
@@ -729,14 +768,12 @@ const Attendance = () => {
                               {r.is_corrected && (
                                 <Badge variant="notice" className="text-[10px]">Corrected</Badge>
                               )}
-                              {!r.id.startsWith('absent-') && (
-                                <button
-                                  className="text-xs font-medium text-primary hover:underline"
-                                  onClick={() => openCorrection(r)}
-                                >
-                                  Correct
-                                </button>
-                              )}
+                              <button
+                                className={`text-xs font-medium hover:underline ${r.id.startsWith('absent-') ? 'text-kpi-green' : 'text-primary'}`}
+                                onClick={() => openCorrection(r)}
+                              >
+                                {r.id.startsWith('absent-') ? 'Add Record' : 'Correct'}
+                              </button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1583,18 +1620,39 @@ const Attendance = () => {
         </DialogContent>
       </Dialog>
 
-      {/* ── Correction Modal ── */}
+      {/* ── Correction / Add Modal ── */}
       <Dialog open={!!correctionRecord} onOpenChange={open => !open && setCorrectionRecord(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Correct Attendance</DialogTitle>
+            <DialogTitle>
+              {correctionRecord?.id.startsWith('absent-') ? 'Add Attendance Record' : 'Correct Attendance'}
+            </DialogTitle>
             <DialogDescription>
               {correctionRecord && (
-                <>Correcting record for {correctionRecord.employee.first_name} {correctionRecord.employee.last_name} on {new Date(correctionRecord.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</>
+                <>
+                  {correctionRecord.id.startsWith('absent-') ? 'Creating record for ' : 'Correcting record for '}
+                  <strong>{correctionRecord.employee.first_name} {correctionRecord.employee.last_name}</strong>
+                  {' '}on {new Date(correctionRecord.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </>
               )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select value={corrStatus} onValueChange={setCorrStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="present">Present</SelectItem>
+                  <SelectItem value="half_day">Half Day</SelectItem>
+                  <SelectItem value="wfh">Work From Home</SelectItem>
+                  <SelectItem value="leave">On Leave</SelectItem>
+                  <SelectItem value="absent">Absent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>First In (HH:MM)</Label>
@@ -1606,11 +1664,13 @@ const Attendance = () => {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Correction Reason *</Label>
+              <Label>Reason *</Label>
               <Textarea
                 value={corrReason}
                 onChange={e => setCorrReason(e.target.value)}
-                placeholder="e.g. Forgot to punch in, On-site visit..."
+                placeholder={correctionRecord?.id.startsWith('absent-')
+                  ? 'e.g. On-site visit, no device punch...'
+                  : 'e.g. Forgot to punch in, device error...'}
                 rows={3}
               />
             </div>
@@ -1618,7 +1678,9 @@ const Attendance = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setCorrectionRecord(null)}>Cancel</Button>
             <Button onClick={submitCorrection} disabled={correcting}>
-              {correcting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : 'Save Correction'}
+              {correcting
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</>
+                : correctionRecord?.id.startsWith('absent-') ? 'Add Record' : 'Save Correction'}
             </Button>
           </DialogFooter>
         </DialogContent>

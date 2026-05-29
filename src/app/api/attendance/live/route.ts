@@ -103,10 +103,11 @@ export async function GET(req: NextRequest) {
     const allActiveEmployees = await prisma.employee.findMany({
       where: { org_id, status: 'active', exclude_from_payroll: false },
       select: {
-        id:          true,
-        first_name:  true,
-        last_name:   true,
-        emp_code:    true,
+        id:             true,
+        first_name:     true,
+        last_name:      true,
+        emp_code:       true,
+        essl_device_id: true,
         department:  { select: { name: true } },
         designation: { select: { name: true } },
       },
@@ -114,10 +115,15 @@ export async function GET(req: NextRequest) {
 
     const notYetArrived = allActiveEmployees.filter((e) => !presentIds.has(e.id))
 
-    // Enrich recent punches with employee name
+    // Enrich recent punches with employee name.
+    // Punch logs store the device user-ID in emp_code (e.g. "25").
+    // We map both the HRMS emp_code AND essl_device_id → full name so the
+    // lookup succeeds regardless of which identifier the device sent.
     const empCodeToName: Record<string, string> = {}
     for (const e of allActiveEmployees) {
-      empCodeToName[e.emp_code] = `${e.first_name} ${e.last_name}`
+      const fullName = `${e.first_name} ${e.last_name}`
+      empCodeToName[e.emp_code] = fullName
+      if (e.essl_device_id) empCodeToName[e.essl_device_id] = fullName
     }
 
     const enrichedPunches = recentPunches.map((p) => ({
