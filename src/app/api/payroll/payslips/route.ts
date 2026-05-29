@@ -30,7 +30,10 @@ export async function GET(req: NextRequest) {
     }
 
     const payslips = await prisma.payslip.findMany({
-      where,
+      where: {
+        ...where,
+        employee: { exclude_from_payroll: false },
+      },
       include: {
         employee: {
           select: {

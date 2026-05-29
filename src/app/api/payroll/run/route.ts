@@ -96,6 +96,15 @@ export async function POST(req: NextRequest) {
     const halfDayCutoffStr = (settings.half_day_cutoff as string | undefined) ?? '14:00'
     const [hCut, mCut] = halfDayCutoffStr.split(':').map(Number)
 
+    // Remove stale payslips for employees who are now excluded or no longer active
+    await prisma.payslip.deleteMany({
+      where: {
+        org_id: session.user.org_id,
+        payroll_run_id: run.id,
+        employee: { OR: [{ exclude_from_payroll: true }, { status: { not: 'active' } }] },
+      },
+    })
+
     const employees = await prisma.employee.findMany({
       where: { org_id: session.user.org_id, status: 'active', exclude_from_payroll: false },
       select: {
