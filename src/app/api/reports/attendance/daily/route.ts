@@ -77,9 +77,14 @@ export async function GET(req: NextRequest) {
       let remarks = '—'
 
       if (rec) {
-        if (rec.status === 'present' && rec.is_late) status = 'Late'
+        if (rec.status === 'late' || (rec.status === 'present' && rec.is_late)) status = 'Late'
         else if (rec.status === 'present') status = 'Present'
         else if (rec.status === 'half_day') status = 'Half Day'
+        else if (rec.status === 'wfh') status = 'WFH'
+        else if (rec.status === 'pending_review') status = 'Pending Review'
+        else if (rec.status === 'leave') status = 'On Leave'
+        else if (rec.status === 'holiday') status = 'Holiday'
+        else if (rec.status === 'weekly_off' || rec.status === 'weekend') status = 'Weekly Off'
         else status = 'Absent'
 
         if (rec.first_in) timeIn = new Date(rec.first_in).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })

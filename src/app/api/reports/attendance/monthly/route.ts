@@ -152,9 +152,10 @@ export async function GET(req: NextRequest) {
       const empRecords = recordsByEmployee.get(emp.id) ?? []
       const empLeaves  = leaveByEmployee.get(emp.id)  ?? []
 
-      const presentDays = empRecords.filter((r) => r.status === 'present').length
+      const ATTENDED = new Set(['present', 'late', 'wfh', 'pending_review'])
+      const presentDays = empRecords.filter((r) => ATTENDED.has(r.status)).length
       const halfDays    = empRecords.filter((r) => r.status === 'half_day').length
-      const lateDays    = empRecords.filter((r) => r.is_late).length
+      const lateDays    = empRecords.filter((r) => r.is_late || r.status === 'late').length
       const totalLateMins = empRecords.reduce((s, r) => s + r.late_by_minutes, 0)
       const overtimeHrs   = empRecords.reduce((s, r) => s + Number(r.overtime_hours ?? 0), 0)
 
@@ -172,7 +173,7 @@ export async function GET(req: NextRequest) {
       const netPayDays = Math.max(0, workingDaysInMonth - lopDays + paidLeaveDays)
       const attendancePct =
         workingDaysInMonth > 0
-          ? ((presentDays + halfDays * 0.5) / workingDaysInMonth * 100).toFixed(1)
+          ? (((presentDays + halfDays * 0.5) / workingDaysInMonth) * 100).toFixed(1)
           : '0.0'
 
       rows.push([
