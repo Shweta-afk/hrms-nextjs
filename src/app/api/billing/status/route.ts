@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       : null
 
     const activeCount = await prisma.employee.count({
-      where: { org_id: session.user.org_id, status: 'active' },
+      where: { org_id: session.user.org_id, status: 'active', exclude_from_payroll: false },
     })
 
     return NextResponse.json({

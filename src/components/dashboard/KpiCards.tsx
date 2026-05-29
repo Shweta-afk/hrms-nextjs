@@ -23,7 +23,7 @@ const KpiCards = () => {
         const year = now.getFullYear()
 
         const [empRes, attRes, leaveRes, recruitRes] = await Promise.all([
-          fetch('/api/employees?limit=1'),
+          fetch('/api/employees?limit=1&payroll_only=true'),
           fetch('/api/attendance?limit=1'),
           fetch('/api/leave/requests?status=approved&limit=50'),
           fetch('/api/recruitment/jobs'),

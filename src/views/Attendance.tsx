@@ -178,9 +178,9 @@ const Attendance = () => {
   useEffect(() => { fetchAttendance() }, [monthOffset])
   useEffect(() => { if (showYearView) fetchYearSummary() }, [showYearView, yearOffset])
 
-  // Fetch all active employees once so we can show absent ones in today view
+  // Fetch payroll-included active employees for today's absent/present view
   useEffect(() => {
-    fetch('/api/employees?status=active&limit=500')
+    fetch('/api/employees?status=active&limit=500&payroll_only=true')
       .then(r => r.json())
       .then(j => { if (j.success) setActiveEmployees(j.data.employees ?? j.data ?? []) })
       .catch(() => {})
@@ -197,11 +197,12 @@ const Attendance = () => {
     if (dow === 0 || dow === 6) heatmap[d] = heatmap[d] || 'weekend'
   }
 
-  const todayStr = new Date().toDateString()
-  const lateToday = records.filter(r => new Date(r.date).toDateString() === todayStr && r.is_late)
+  // Today's date as "YYYY-MM-DD" in IST — matches how dates are stored in DB (UTC midnight = IST date for normal office hours)
+  const todayDateStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const lateToday = records.filter(r => (r.date as string).slice(0, 10) === todayDateStr && r.is_late)
 
   // Today-only view: all employees with their today status (present/late/absent)
-  const todayRecordsOnly = records.filter(r => new Date(r.date).toDateString() === todayStr)
+  const todayRecordsOnly = records.filter(r => (r.date as string).slice(0, 10) === todayDateStr)
   const todayRecordByEmpId = new Map(todayRecordsOnly.map(r => [r.employee.id, r]))
   // Employees with no record today show as absent
   const todayAbsentRows: AttendanceRecord[] = activeEmployees

@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search') || ''
     const department_id = searchParams.get('department_id')
     const status = searchParams.get('status')
+    const payrollOnly = searchParams.get('payroll_only') === 'true'
     const page = Math.max(parseInt(searchParams.get('page') || '1'), 1)
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20'), 1), 200)
     const skip = (page - 1) * limit
@@ -40,6 +41,8 @@ export async function GET(req: NextRequest) {
       // Default: hide terminated. Pass ?status=terminated explicitly for archive view.
       ...(status ? { status } : { status: { not: 'terminated' } }),
       ...(department_id && { department_id }),
+      // Pass ?payroll_only=true to exclude employees marked "exclude from payroll"
+      ...(payrollOnly && { exclude_from_payroll: false }),
       ...(search && {
         OR: [
           { first_name: { contains: search, mode: 'insensitive' } },
