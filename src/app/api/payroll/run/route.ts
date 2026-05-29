@@ -168,9 +168,11 @@ export async function POST(req: NextRequest) {
         })
       }
 
-      // ── Per-employee working days (shift group overrides org default) ──
+      // ── Calendar days in the payroll month (standard Indian payroll divisor) ──
+      const calendarDays = new Date(run.year, run.month, 0).getDate()
+
+      // ── Working days still needed to determine LOP (days employee should attend) ──
       const empWeeklyOffs = (employee.shift_group as any)?.weekly_offs as number[] | null
-      const effectiveWeeklyOffs = empWeeklyOffs ?? weeklyOffs
       const workingDays = empWeeklyOffs
         ? getWorkingDays(run.year, run.month, empWeeklyOffs, holidays, workingDayOverrides)
         : orgWorkingDays
@@ -180,7 +182,6 @@ export async function POST(req: NextRequest) {
         a => a.status === 'present' || a.status === 'late' || a.status === 'pending_review'
       ).length
       const halfDayCount = attendance.filter(a => a.status === 'half_day').length
-      // Effective present days including half-days
       const effectivePresentDays = fullPresentDays + halfDayCount * 0.5
       const lopDays = Math.max(0, workingDays - effectivePresentDays)
 
@@ -192,7 +193,8 @@ export async function POST(req: NextRequest) {
 
       const ctcAnnual = employee.ctc_annual ? Number(employee.ctc_annual) : 300_000
       const ctcMonthly = ctcAnnual / 12
-      const dailySalary = ctcMonthly / workingDays
+      // Per-day rate uses calendar days — monthly CTC already includes weekends
+      const dailySalary = ctcMonthly / calendarDays
 
       const structure = (employee.salary_structure ?? defaultStructure) as any
       const components = (structure?.components as any[]) ?? null
@@ -234,7 +236,7 @@ export async function POST(req: NextRequest) {
       const grossSalary = baseSalary + otPay + incentiveAmount
 
       const lopAmount = lopDays > 0
-        ? Math.round((baseSalary / workingDays) * lopDays)
+        ? Math.round((baseSalary / calendarDays) * lopDays)
         : 0
 
       // ── Late penalty calculation ──────────────────────────────────────────
@@ -292,7 +294,7 @@ export async function POST(req: NextRequest) {
           },
         },
         update: {
-          working_days: workingDays,
+          working_days: calendarDays,
           present_days: effectivePresentDays,
           earnings,
           deductions: empDeductions,
@@ -311,7 +313,7 @@ export async function POST(req: NextRequest) {
           payroll_run_id: run.id,
           month: run.month,
           year: run.year,
-          working_days: workingDays,
+          working_days: calendarDays,
           present_days: effectivePresentDays,
           earnings,
           deductions: empDeductions,
