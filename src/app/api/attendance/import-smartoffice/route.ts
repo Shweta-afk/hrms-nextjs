@@ -9,7 +9,7 @@ const MONTH_MAP: Record<string, number> = {
 }
 
 function parseDate(d: number, m: number, y: number): Date {
-  return new Date(y, m, d)
+  return new Date(Date.UTC(y, m, d))
 }
 
 function findPeriod(rows: any[][]): { startDate: Date } | null {
@@ -42,7 +42,7 @@ function buildColDateMap(headerRow: any[], startDate: Date): Map<number, Date> {
       month++
       if (month > 11) { month = 0; year++ }
     }
-    map.set(col, new Date(year, month, day))
+    map.set(col, new Date(Date.UTC(year, month, day)))
     prevDay = day
   }
   return map
@@ -404,6 +404,10 @@ export async function POST(req: NextRequest) {
     const orgSettings = (orgData?.settings ?? {}) as Record<string, unknown>
     const halfDayCutoffStr = (orgSettings.half_day_cutoff as string | undefined) ?? '14:00'
     const [cutHour, cutMin] = halfDayCutoffStr.split(':').map(Number)
+    // Cutoff is in IST — convert to UTC (subtract 5h30m) for comparison with stored UTC timestamps
+    const cutoffUTCMins = cutHour * 60 + cutMin - 330
+    const cutUTCHour = Math.floor(((cutoffUTCMins % 1440) + 1440) / 60) % 24
+    const cutUTCMin  = ((cutoffUTCMins % 60) + 60) % 60
 
     // ── Auto-create employees whose emp_code wasn't in the HR master ──
     // Collect unique unknown codes with best-effort names (deduplicated).
@@ -469,7 +473,7 @@ export async function POST(req: NextRequest) {
       if (rec.status === 'present' && rec.last_out) {
         const outHour = rec.last_out.getUTCHours()
         const outMin  = rec.last_out.getUTCMinutes()
-        if (outHour < cutHour || (outHour === cutHour && outMin < cutMin)) {
+        if (outHour < cutUTCHour || (outHour === cutUTCHour && outMin < cutUTCMin)) {
           effectiveStatus = 'pending_review'
           earlyFlagged++
         }
