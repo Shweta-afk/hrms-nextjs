@@ -15,6 +15,7 @@ const badgeVariants = cva(
         active: "border-transparent bg-kpi-green/15 text-kpi-green",
         notice: "border-transparent bg-kpi-amber/15 text-kpi-amber",
         terminated: "border-transparent bg-destructive/15 text-destructive",
+        resigned: "border-transparent bg-orange-500/15 text-orange-600",
         leave: "border-transparent bg-primary/15 text-primary",
       },
     },

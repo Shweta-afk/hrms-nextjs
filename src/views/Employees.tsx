@@ -24,8 +24,8 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Search, Upload, Plus, MoreHorizontal, Eye, Pencil, ArrowRightLeft,
-  UserX, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown,
-  Download, FileX, Loader2,
+  UserX, UserCheck, LogOut, RotateCcw, ChevronLeft, ChevronRight,
+  ArrowUpDown, ArrowUp, ArrowDown, Download, FileX, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,6 +52,7 @@ const statusVariantMap: Record<string, string> = {
   active: "active",
   on_notice: "notice",
   terminated: "terminated",
+  resigned: "resigned",
 }
 
 const avatarColors = [
@@ -92,8 +93,11 @@ const Employees = () => {
   // Modal state
   const [transferModal, setTransferModal] = useState<Employee | null>(null)
   const [deactivateModal, setDeactivateModal] = useState<Employee | null>(null)
+  const [resignModal, setResignModal] = useState<Employee | null>(null)
   const [transferDept, setTransferDept] = useState("")
   const [transferReason, setTransferReason] = useState("")
+  const [exitReason, setExitReason] = useState("")
+  const [exitLastDay, setExitLastDay] = useState("")
 
   // Fetch employees from API
   async function fetchEmployees() {
@@ -104,9 +108,9 @@ const Employees = () => {
         limit: String(perPage),
         ...(search && { search }),
         ...(selectedDept !== 'all' && { department_id: selectedDept }),
-        // Archive view: always fetch terminated; Active view: apply user filter or default (non-terminated)
+        // Archive view: fetch terminated + resigned; Active view: apply user filter
         ...(activeView === 'archive'
-          ? { status: 'terminated' }
+          ? { status: 'archive' }
           : selectedStatus !== 'all'
             ? { status: selectedStatus }
             : {}
@@ -250,7 +254,7 @@ const Employees = () => {
       const res = await fetch(`/api/employees/${deactivateModal.id}/terminate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ exit_type: 'terminated', reason: exitReason || undefined, last_working_day: exitLastDay || undefined }),
       })
       const json = await res.json()
       if (json.success) {
@@ -263,6 +267,32 @@ const Employees = () => {
       toast.error('Failed to terminate employee')
     }
     setDeactivateModal(null)
+    setExitReason('')
+    setExitLastDay('')
+  }
+
+  // Accept resignation
+  async function handleResign() {
+    if (!resignModal) return
+    try {
+      const res = await fetch(`/api/employees/${resignModal.id}/terminate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exit_type: 'resigned', reason: exitReason || undefined, last_working_day: exitLastDay || undefined }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(`${resignModal.first_name} ${resignModal.last_name}'s resignation accepted`)
+        fetchEmployees()
+      } else {
+        toast.error(json.error ?? 'Failed to process resignation')
+      }
+    } catch {
+      toast.error('Failed to process resignation')
+    }
+    setResignModal(null)
+    setExitReason('')
+    setExitLastDay('')
   }
 
   // Transfer department
@@ -494,20 +524,29 @@ const Employees = () => {
                                     : <><ArrowRightLeft className="h-4 w-4 text-amber-600" /> Exclude from Payroll</>
                                   }
                                 </DropdownMenuItem>
-                                <DropdownMenuItem className="gap-2 cursor-pointer text-destructive" onClick={() => setDeactivateModal(emp)}>
+                                <DropdownMenuItem
+                                  className="gap-2 cursor-pointer text-orange-600"
+                                  onClick={() => { setResignModal(emp); setExitReason(''); setExitLastDay('') }}
+                                >
+                                  <LogOut className="h-4 w-4" /> Resignation
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="gap-2 cursor-pointer text-destructive"
+                                  onClick={() => { setDeactivateModal(emp); setExitReason(''); setExitLastDay('') }}
+                                >
                                   <UserX className="h-4 w-4" /> Terminate
                                 </DropdownMenuItem>
                               </>
                             ) : (
                               <DropdownMenuItem
-                                className="gap-2 cursor-pointer text-emerald-600"
+                                className="gap-2 cursor-pointer text-kpi-green"
                                 disabled={reactivating === emp.id}
                                 onClick={() => handleReactivate(emp)}
                               >
                                 {reactivating === emp.id
                                   ? <Loader2 className="h-4 w-4 animate-spin" />
-                                  : <UserX className="h-4 w-4" />}
-                                Re-activate
+                                  : <RotateCcw className="h-4 w-4" />}
+                                Restore to Active
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
@@ -597,7 +636,7 @@ const Employees = () => {
       </Dialog>
 
       {/* Terminate Modal */}
-      <Dialog open={!!deactivateModal} onOpenChange={(o) => !o && setDeactivateModal(null)}>
+      <Dialog open={!!deactivateModal} onOpenChange={(o) => { if (!o) { setDeactivateModal(null); setExitReason(''); setExitLastDay('') } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="text-destructive flex items-center gap-2">
@@ -605,12 +644,63 @@ const Employees = () => {
             </DialogTitle>
             <DialogDescription>
               <strong>{deactivateModal?.first_name} {deactivateModal?.last_name}</strong> will be moved to Archive.
-              All history is preserved — attendance, payroll, leaves. Their biometric enrollments and pending leaves will be deactivated.
+              All history is preserved. Biometric enrollments and pending leaves will be deactivated.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Last Working Day</Label>
+              <Input type="date" value={exitLastDay} onChange={e => setExitLastDay(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Reason <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Textarea
+                placeholder="Reason for termination..."
+                value={exitReason}
+                onChange={e => setExitReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeactivateModal(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setDeactivateModal(null); setExitReason(''); setExitLastDay('') }}>Cancel</Button>
             <Button variant="destructive" onClick={handleDeactivate}>Terminate &amp; Archive</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resignation Modal */}
+      <Dialog open={!!resignModal} onOpenChange={(o) => { if (!o) { setResignModal(null); setExitReason(''); setExitLastDay('') } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-orange-600 flex items-center gap-2">
+              <LogOut className="h-4 w-4" /> Accept Resignation
+            </DialogTitle>
+            <DialogDescription>
+              Record <strong>{resignModal?.first_name} {resignModal?.last_name}</strong>'s resignation.
+              They will be moved to Archive. All history is preserved.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Last Working Day</Label>
+              <Input type="date" value={exitLastDay} onChange={e => setExitLastDay(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Resignation Reason <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Textarea
+                placeholder="Reason for resignation..."
+                value={exitReason}
+                onChange={e => setExitReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setResignModal(null); setExitReason(''); setExitLastDay('') }}>Cancel</Button>
+            <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={handleResign}>
+              Accept &amp; Archive
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

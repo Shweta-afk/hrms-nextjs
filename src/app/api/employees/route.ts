@@ -38,8 +38,13 @@ export async function GET(req: NextRequest) {
 
     const where: any = {
       org_id: session.user.org_id,
-      // Default: hide terminated. Pass ?status=terminated explicitly for archive view.
-      ...(status ? { status } : { status: { not: 'terminated' } }),
+      // 'archive' = show both terminated + resigned. Default hides both from active list.
+      ...(status === 'archive'
+        ? { status: { in: ['terminated', 'resigned'] } }
+        : status
+          ? { status }
+          : { status: { notIn: ['terminated', 'resigned'] } }
+      ),
       ...(department_id && { department_id }),
       // Pass ?payroll_only=true to exclude employees marked "exclude from payroll"
       ...(payrollOnly && { exclude_from_payroll: false }),
