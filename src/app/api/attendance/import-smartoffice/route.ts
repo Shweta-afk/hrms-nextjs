@@ -121,13 +121,21 @@ async function parseMonthlyBasic(
 
     for (const [col, date] of colDateMap) {
       const val = String(row[col] ?? '').trim().toUpperCase()
-      if (val !== 'P' && val !== 'A') continue
+      let status: string
+      if (val === 'P') status = 'present'
+      else if (val === 'A' || val === 'ABSENT') status = 'absent'
+      else if (val === 'HD') status = 'wfh'            // weekend/holiday half-day = full salary day
+      else if (val === 'HALF DAY' || val === 'HALFDAY') status = 'half_day'
+      else if (val === 'WFH') status = 'wfh'
+      else if (val === 'L' || val === 'LEAVE') status = 'leave'
+      else continue
+
       records.push({
         employeeId,
         empCode,
         empName,
         date,
-        status: val === 'P' ? 'present' : 'absent',
+        status,
         first_in: null,
         last_out: null,
         total_hours: null,
@@ -195,8 +203,16 @@ async function parseMonthlyDetails(
     const statRow  = rows[i + 10] ?? []
 
     for (const [col, date] of colDateMap) {
-      const statusStr = String(statRow[col] ?? '').trim().toUpperCase()
-      if (statusStr !== 'P' && statusStr !== 'A') continue
+      const rawStatus = String(statRow[col] ?? '').trim().toUpperCase()
+      if (!rawStatus || rawStatus === '') continue
+      let statusStr: string
+      if (rawStatus === 'P') statusStr = 'present'
+      else if (rawStatus === 'A' || rawStatus === 'ABSENT') statusStr = 'absent'
+      else if (rawStatus === 'HD') statusStr = 'wfh'
+      else if (rawStatus === 'HALF DAY' || rawStatus === 'HALFDAY') statusStr = 'half_day'
+      else if (rawStatus === 'WFH') statusStr = 'wfh'
+      else if (rawStatus === 'L' || rawStatus === 'LEAVE') statusStr = 'leave'
+      else continue
 
       const firstIn = buildDateTime(date, String(inRow[col] ?? ''))
       const lastOut = buildDateTime(date, String(outRow[col] ?? ''))
@@ -211,7 +227,7 @@ async function parseMonthlyDetails(
         empCode,
         empName: empName || empCode,
         date,
-        status: statusStr === 'P' ? 'present' : 'absent',
+        status: statusStr,
         first_in: firstIn,
         last_out: lastOut,
         total_hours: totalHours,
@@ -235,6 +251,7 @@ async function parseDailyBasic(
   ws: XLSX.WorkSheet,
   empMap: Map<string, string>,
   filename: string,
+  shiftStartIST = '09:00',   // configurable shift start, default 9:00 AM IST
 ): Promise<{ records: UpsertData[]; errors: string[] }> {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }) as any[][]
   const errors: string[] = []
@@ -284,8 +301,15 @@ async function parseDailyBasic(
     const empName = String(row[3] ?? '').trim() || empCode
     const employeeId = empMap.get(empCode.toUpperCase()) ?? ''
 
-    const statusStr = String(row[17] ?? '').trim().toUpperCase()
-    const status = statusStr === 'P' ? 'present' : 'absent'
+    const rawStatus = String(row[17] ?? '').trim().toUpperCase()
+    let status: string
+    if (rawStatus === 'P') status = 'present'
+    else if (rawStatus === 'A' || rawStatus === 'ABSENT') status = 'absent'
+    else if (rawStatus === 'HD') status = 'wfh'
+    else if (rawStatus === 'HALF DAY' || rawStatus === 'HALFDAY') status = 'half_day'
+    else if (rawStatus === 'WFH') status = 'wfh'
+    else if (rawStatus === 'L' || rawStatus === 'LEAVE') status = 'leave'
+    else status = 'absent'
 
     const firstIn = buildDateTime(reportDate, String(row[8] ?? ''))
     const lastOut = buildDateTime(reportDate, String(row[9] ?? ''))
@@ -297,9 +321,11 @@ async function parseDailyBasic(
     let isLate = false
     let lateByMinutes = 0
     if (firstIn) {
-      // 9:15 IST = 03:45 UTC — use UTC hours since timestamps are stored as UTC
+      // Convert org's IST shift start → UTC for comparison with stored UTC timestamps
+      const [shH, shM] = shiftStartIST.split(':').map(Number)
+      const shiftUTCMins = shH * 60 + shM - 330  // subtract 5h30m IST offset
       const shiftStart = new Date(firstIn)
-      shiftStart.setUTCHours(3, 45, 0, 0)
+      shiftStart.setUTCHours(Math.floor(shiftUTCMins / 60), shiftUTCMins % 60, 0, 0)
       if (firstIn > shiftStart) {
         isLate = true
         lateByMinutes = Math.floor((firstIn.getTime() - shiftStart.getTime()) / 60_000)
@@ -352,6 +378,16 @@ export async function POST(req: NextRequest) {
       return empMap.get(code.toUpperCase()) ?? ''
     }
 
+    // ── Load org settings first (needed for shift start and half-day cutoff) ──
+    const orgData = await prisma.organisation.findUnique({
+      where: { id: session.user.org_id },
+      select: { settings: true },
+    })
+    const orgSettings = (orgData?.settings ?? {}) as Record<string, unknown>
+    const attendanceSettings = (orgSettings.attendance ?? {}) as Record<string, unknown>
+    const shiftStartIST = (attendanceSettings.shift_start as string | undefined) ?? '09:00'
+    const halfDayCutoffStr = (orgSettings.half_day_cutoff as string | undefined) ?? '14:00'
+
     let records: UpsertData[] = []
     let errors: string[] = []
     let format = ''
@@ -384,7 +420,7 @@ export async function POST(req: NextRequest) {
     } else if (isDailyByName || isDailyBySheet) {
       format = 'Daily Basic'
       const sheet = wb.Sheets[sheetNames.find(n => /daily/i.test(n)) ?? sheetNames[0]]
-      ;({ records, errors } = await parseDailyBasic(sheet, empMap, filename))
+      ;({ records, errors } = await parseDailyBasic(sheet, empMap, filename, shiftStartIST))
     } else {
       // Last resort: try Monthly Basic anyway (most common format)
       format = 'Monthly Basic (auto-detected)'
@@ -395,14 +431,6 @@ export async function POST(req: NextRequest) {
     if (records.length === 0 && errors.length > 0) {
       return NextResponse.json({ success: false, error: errors[0] }, { status: 400 })
     }
-
-    // ── Load org settings for early-departure detection ──
-    const orgData = await prisma.organisation.findUnique({
-      where: { id: session.user.org_id },
-      select: { settings: true },
-    })
-    const orgSettings = (orgData?.settings ?? {}) as Record<string, unknown>
-    const halfDayCutoffStr = (orgSettings.half_day_cutoff as string | undefined) ?? '14:00'
     const [cutHour, cutMin] = halfDayCutoffStr.split(':').map(Number)
     // Cutoff is in IST — convert to UTC (subtract 5h30m) for comparison with stored UTC timestamps
     const cutoffUTCMins = cutHour * 60 + cutMin - 330

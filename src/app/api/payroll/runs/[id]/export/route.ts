@@ -45,8 +45,8 @@ export async function GET(
       cur.setUTCDate(cur.getUTCDate() + 1)
     }
     const dateStrings = allDates.map(d => d.toISOString().slice(0, 10))
-    // Total days = calendar days in the payroll month (standard Indian payroll)
-    const totalDays = new Date(run.year, run.month, 0).getDate()
+    // Total days = actual calendar days in the payroll period (e.g. 21 Apr–20 May = 30)
+    const totalDays = Math.round((periodEnd.getTime() - periodStart.getTime()) / 86_400_000)
 
     // Daily column headers: "21-Tue", "22-Wed", ...
     const dailyHeaders = allDates.map(d => {
@@ -190,6 +190,9 @@ export async function GET(
       const empAtt = attByEmp.get(emp.id) ?? []
       const attMap = new Map(empAtt.map(a => [new Date(a.date).toISOString().slice(0, 10), a]))
 
+      // Only count as "Late Mark" if it meets the first penalty tier threshold
+      const lateMinThreshold = lateTiers.length > 0 ? Math.min(...lateTiers.map(t => t.from_min)) : 1
+
       let presentCount = 0, absentCount = 0, halfDayCount = 0, paidLeaveCount = 0, wfhCount = 0, lateCount = 0
 
       const dailyVals = dateStrings.map(ds => {
@@ -202,18 +205,19 @@ export async function GET(
         }
         switch (rec.status) {
           case 'present':
-            if (rec.is_late) lateCount++
+            if (rec.is_late && rec.late_by_minutes >= lateMinThreshold) lateCount++
             presentCount++
             return 'P'
           case 'late':
-            lateCount++; presentCount++
+            if (rec.late_by_minutes >= lateMinThreshold) lateCount++
+            presentCount++
             return 'P'
           case 'half_day':
             halfDayCount++
-            return 'HD'
+            return 'Half Day'
           case 'wfh':
             wfhCount++
-            return 'WFH'
+            return 'HD'  // weekend/holiday half-day working — matches HR template
           case 'leave':
             paidLeaveCount++
             return 'L'

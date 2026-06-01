@@ -77,13 +77,16 @@ export async function POST(req: NextRequest) {
       .map(h => new Date(h.date).toISOString().slice(0, 10))
 
     // org-level working days (used as fallback for employees without a shift group)
-    const orgWorkingDays = getWorkingDays(run.year, run.month, weeklyOffs, holidays, workingDayOverrides)
+    const orgWorkingDays = getWorkingDaysInPeriod(monthStart, monthEnd, weeklyOffs, holidays, workingDayOverrides)
 
-    // ── Statutory toggle flags ──────────────────────────────────────────────
-    const pfApplicable  = settings.pf_applicable  !== false
-    const esiApplicable = settings.esi_applicable !== false
-    const ptApplicable  = settings.pt_applicable  !== false
-    const tdsApplicable = settings.tds_applicable !== false
+    // Calendar days in the actual payroll period (e.g. 21 Apr–20 May = 30)
+    const periodCalendarDays = Math.round((monthEnd.getTime() - monthStart.getTime()) / 86_400_000)
+
+    // ── Statutory toggle flags — opt-in only (not applied unless HR enables them) ──
+    const pfApplicable  = settings.pf_applicable  === true
+    const esiApplicable = settings.esi_applicable === true
+    const ptApplicable  = settings.pt_applicable  === true
+    const tdsApplicable = settings.tds_applicable === true
 
     // ── Late penalty tiers ──────────────────────────────────────────────────
     // Format: [{ from_min, to_min, deduction_pct, is_half_day }]
@@ -168,18 +171,16 @@ export async function POST(req: NextRequest) {
         })
       }
 
-      // ── Calendar days in the payroll month (standard Indian payroll divisor) ──
-      const calendarDays = new Date(run.year, run.month, 0).getDate()
-
-      // ── Working days still needed to determine LOP (days employee should attend) ──
+      // ── Working days in the period for this employee (LOP calculation only) ──
       const empWeeklyOffs = (employee.shift_group as any)?.weekly_offs as number[] | null
       const workingDays = empWeeklyOffs
-        ? getWorkingDays(run.year, run.month, empWeeklyOffs, holidays, workingDayOverrides)
+        ? getWorkingDaysInPeriod(monthStart, monthEnd, empWeeklyOffs, holidays, workingDayOverrides)
         : orgWorkingDays
 
       // ── Attendance counts ──
+      // wfh = weekend/holiday half-day working (HD in SmartOffice) = full salary day
       const fullPresentDays = attendance.filter(
-        a => a.status === 'present' || a.status === 'late' || a.status === 'pending_review'
+        a => a.status === 'present' || a.status === 'late' || a.status === 'pending_review' || a.status === 'wfh'
       ).length
       const halfDayCount = attendance.filter(a => a.status === 'half_day').length
       const effectivePresentDays = fullPresentDays + halfDayCount * 0.5
@@ -193,8 +194,8 @@ export async function POST(req: NextRequest) {
 
       const ctcAnnual = employee.ctc_annual ? Number(employee.ctc_annual) : 300_000
       const ctcMonthly = ctcAnnual / 12
-      // Per-day rate uses calendar days — monthly CTC already includes weekends
-      const dailySalary = ctcMonthly / calendarDays
+      // Per-day rate = monthly CTC / actual calendar days in payroll period
+      const dailySalary = ctcMonthly / periodCalendarDays
 
       const structure = (employee.salary_structure ?? defaultStructure) as any
       const components = (structure?.components as any[]) ?? null
@@ -227,11 +228,11 @@ export async function POST(req: NextRequest) {
       }
 
       const incentiveAmount = employee.monthly_incentive ? Math.round(Number(employee.monthly_incentive)) : 0
-      const baseSalary = Object.values(structureEarnings!).reduce((a, b) => a + b, 0)
-      const grossSalary = baseSalary + otPay + incentiveAmount
+      // grossSalary = full monthly CTC — structure is for payslip breakdown display only
+      const grossSalary = Math.round(ctcMonthly) + otPay + incentiveAmount
 
       const lopAmount = lopDays > 0
-        ? Math.round((baseSalary / calendarDays) * lopDays)
+        ? Math.round((ctcMonthly / periodCalendarDays) * lopDays)
         : 0
 
       // ── Late penalty calculation ──────────────────────────────────────────
@@ -289,7 +290,7 @@ export async function POST(req: NextRequest) {
           },
         },
         update: {
-          working_days: calendarDays,
+          working_days: periodCalendarDays,
           present_days: effectivePresentDays,
           earnings,
           deductions: empDeductions,
@@ -308,7 +309,7 @@ export async function POST(req: NextRequest) {
           payroll_run_id: run.id,
           month: run.month,
           year: run.year,
-          working_days: calendarDays,
+          working_days: periodCalendarDays,
           present_days: effectivePresentDays,
           earnings,
           deductions: empDeductions,
@@ -373,33 +374,34 @@ export async function POST(req: NextRequest) {
  *                        working days — these count even if they fall on a
  *                        weekly off (e.g. a working Sunday)
  */
-function getWorkingDays(
-  year: number,
-  month: number,
+/** Working days within an arbitrary date range (inclusive both ends). */
+function getWorkingDaysInPeriod(
+  from: Date,
+  to: Date,
   weeklyOffs: number[],
   holidays: { date: Date; type: string }[],
   workingDayOverrides: string[],
 ): number {
-  const daysInMonth = new Date(year, month, 0).getDate()
   const overrideSet = new Set(workingDayOverrides)
-  // Holidays that fall on working days (not weekends, not already an override)
-  const holidayDeductions = holidays
-    .filter(h => h.type !== 'working_day')
-    .map(h => new Date(h.date))
-    .filter(d => !weeklyOffs.includes(d.getUTCDay()))
-    .length
+  const holidaySet = new Set(
+    holidays
+      .filter(h => h.type !== 'working_day')
+      .map(h => new Date(h.date).toISOString().slice(0, 10))
+  )
 
   let count = 0
-  for (let d = 1; d <= daysInMonth; d++) {
-    const date = new Date(year, month - 1, d)
-    const dow  = date.getDay()
-    const isoDate = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()))
+  const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()))
+
+  while (cur <= end) {
+    const iso = cur.toISOString().slice(0, 10)
+    const dow = cur.getUTCDay()
     if (weeklyOffs.includes(dow)) {
-      // Weekend: only count if HR marked it as a working day
-      if (overrideSet.has(isoDate)) count++
-    } else {
+      if (overrideSet.has(iso)) count++ // HR marked this weekly-off as a working day
+    } else if (!holidaySet.has(iso)) {
       count++
     }
+    cur.setUTCDate(cur.getUTCDate() + 1)
   }
-  return Math.max(0, count - holidayDeductions)
+  return count
 }
