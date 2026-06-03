@@ -376,7 +376,8 @@ export async function GET(
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, safeSheetName)
 
-    const filename = `payroll_${String(run.month).padStart(2,'0')}_${run.year}_report.xlsx`
+    const monthName = new Date(run.year, run.month - 1, 1).toLocaleString('en-IN', { month: 'long' })
+    const filename = `Payroll_${monthName}_${run.year}.xlsx`
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
     return new Response(buf, {

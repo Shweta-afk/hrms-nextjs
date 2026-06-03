@@ -84,12 +84,19 @@ export async function GET(req: NextRequest) {
       const monthEnd    = new Date(Date.UTC(reqYear, reqMonth, 0))       // last day of month
       const effectiveEnd = monthEnd < todayUTC ? monthEnd : todayUTC     // don't peek into the future
 
-      // Count working weekdays elapsed so far
+      // Read org work-day config so Saturday/Sunday are counted correctly
+      const orgSettings = (await prisma.organisation.findFirst({
+        where: { id: session.user.org_id },
+        select: { settings: true },
+      }))?.settings as Record<string, unknown> | null ?? {}
+      const workDayArr = (orgSettings?.work_days as number[] | undefined)
+        ?? [1, 2, 3, 4, 5, 6]   // Mon-Sat default
+      const workDaySet = new Set(workDayArr)
+
       let workingDays = 0
       const d = new Date(monthStart)
       while (d <= effectiveEnd) {
-        const dow = d.getUTCDay()
-        if (dow !== 0 && dow !== 6) workingDays++
+        if (workDaySet.has(d.getUTCDay())) workingDays++
         d.setUTCDate(d.getUTCDate() + 1)
       }
 

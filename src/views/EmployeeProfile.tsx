@@ -138,6 +138,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   const [error, setError] = useState('')
 
   const [departments, setDepartments] = useState<Department[]>([])
+  const [designations, setDesignations] = useState<Designation[]>([])
   const [salaryStructures, setSalaryStructures] = useState<SalaryStructure[]>([])
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([])
 
@@ -170,27 +171,30 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   const [empDraft, setEmpDraft] = useState<{
     department_id: string; employment_type: string
     ctc_annual: string; salary_structure_id: string; date_of_joining: string
-  }>({ department_id: '', employment_type: '', ctc_annual: '', salary_structure_id: '', date_of_joining: '' })
+    designation_id: string
+  }>({ department_id: '', employment_type: '', ctc_annual: '', salary_structure_id: '', date_of_joining: '', designation_id: '' })
   const [transferDept, setTransferDept] = useState('')
 
   const fetchEmployee = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const [empRes, deptRes, structRes, balRes] = await Promise.all([
+      const [empRes, deptRes, desgRes, structRes, balRes] = await Promise.all([
         fetch(`/api/employees/${employeeId}`),
         fetch('/api/departments'),
+        fetch('/api/designations'),
         fetch('/api/payroll/structures'),
         fetch(`/api/leave/balance?employee_id=${employeeId}`),
       ])
-      const [empJson, deptJson, structJson, balJson] = await Promise.all([
-        empRes.json(), deptRes.json(), structRes.json(), balRes.json(),
+      const [empJson, deptJson, desgJson, structJson, balJson] = await Promise.all([
+        empRes.json(), deptRes.json(), desgRes.json(), structRes.json(), balRes.json(),
       ])
       if (empJson.success) {
         setEmployee(empJson.data)
         setEsslDeviceId(empJson.data.essl_device_id ?? '')
       } else setError(empJson.error || 'Employee not found')
       if (deptJson.success) setDepartments(deptJson.data)
+      if (desgJson.success) setDesignations(desgJson.data)
       if (structJson.success) setSalaryStructures(structJson.data)
       if (balJson.success) setLeaveBalances(balJson.data)
     } catch {
@@ -390,6 +394,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
     const ok = await patch({
       department_id: empDraft.department_id || undefined,
       employment_type: empDraft.employment_type || undefined,
+      designation_id: empDraft.designation_id || undefined,
       ctc_annual: monthly ? monthly * 12 : undefined,
       salary_structure_id: empDraft.salary_structure_id || undefined,
       date_of_joining: empDraft.date_of_joining || undefined,
@@ -677,8 +682,9 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                   setEmpDraft({
                     department_id: employee.department_id || '',
                     employment_type: employee.employment_type,
+                    designation_id: employee.designation_id || '',
                     // Pre-fill with monthly salary (annual ÷ 12) so the user sees/edits monthly
-                  ctc_annual: employee.ctc_annual ? String(Math.round(Number(employee.ctc_annual) / 12)) : '',
+                    ctc_annual: employee.ctc_annual ? String(Math.round(Number(employee.ctc_annual) / 12)) : '',
                     salary_structure_id: employee.salary_structure_id || '',
                     date_of_joining: employee.date_of_joining ? employee.date_of_joining.split('T')[0] : '',
                   })
@@ -696,6 +702,15 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                       <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                       <SelectContent>
                         {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Designation</Label>
+                    <Select value={empDraft.designation_id} onValueChange={v => setEmpDraft(p => ({ ...p, designation_id: v }))}>
+                      <SelectTrigger><SelectValue placeholder="Select designation" /></SelectTrigger>
+                      <SelectContent>
+                        {designations.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -752,6 +767,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6">
                   <InfoRow label="Department" value={employee.department?.name || '—'} />
+                  <InfoRow label="Designation" value={employee.designation?.name || '—'} />
                   <InfoRow label="Employment Type" value={employee.employment_type.replace('_', ' ')} />
                   <InfoRow label="Date of Joining" value={format(new Date(employee.date_of_joining), 'd MMM yyyy')} />
                   <InfoRow label="Monthly Salary" value={employee.ctc_annual ? fmt(Math.round(Number(employee.ctc_annual) / 12)) : '—'} />
