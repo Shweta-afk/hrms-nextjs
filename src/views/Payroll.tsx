@@ -274,7 +274,8 @@ const Payroll = () => {
     const emp = payslip.employee
     const bank = emp.bank_details_decrypted ?? emp.bank_details
     const statutory = emp.statutory_info_decrypted
-    const lopDays = Math.max(0, payslip.working_days - Number(payslip.present_days))
+    const _dayRate = payslip.working_days > 0 ? payslip.gross_salary / payslip.working_days : 0
+    const lopDays  = _dayRate > 0 ? Math.round((payslip.deductions['Loss of Pay'] ?? 0) / _dayRate) : 0
 
     // Number to words
     function numWords(n: number): string {
@@ -803,9 +804,11 @@ const Payroll = () => {
                     const otPay = otKey ? (p.earnings[otKey] ?? 0) : 0
                     const otherEarnings = Object.entries(p.earnings)
                       .filter(([k]) => !['Basic','HRA','Special Allowance'].includes(k) && !k.startsWith('Overtime Pay'))
-                    const lopDays = Math.max(0, p.working_days - Number(p.present_days))
-                    const lopAmt = p.deductions['Loss of Pay'] ?? 0
+                    const lopAmt  = p.deductions['Loss of Pay'] ?? 0
+                    // working_days stores calendar days (period length); per-day rate = gross / calendar days
                     const dayRate = p.working_days > 0 ? Math.round(p.gross_salary / p.working_days) : 0
+                    // Derive lopDays from stored amount rather than recalculating (avoids calendar vs working-days mismatch)
+                    const lopDays = dayRate > 0 ? Math.round(lopAmt / dayRate) : 0
                     const ctcMonthly = basic + hra + special
                     return (
                       <>
