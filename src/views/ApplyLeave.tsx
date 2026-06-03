@@ -20,11 +20,8 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { format, eachDayOfInterval, isWeekend } from "date-fns";
-import {
-  CalendarIcon, ChevronRight, Home, LogOut, CheckCircle2, Loader2,
-} from "lucide-react";
+import { CalendarIcon, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { signOut } from "next-auth/react";
 
 interface LeaveType {
   id: string; name: string; code: string
@@ -169,30 +166,7 @@ const ApplyLeave = () => {
   )
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Top nav */}
-      <header className="sticky top-0 z-30 bg-card border-b shadow-sm">
-        <div className="max-w-7xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
-          <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-7 w-auto object-contain" />
-          <nav className="hidden sm:flex items-center gap-6 text-sm font-medium text-muted-foreground">
-            <Link href="/portal" className="hover:text-foreground transition-colors flex items-center gap-1">
-              <Home className="h-4 w-4" /> Portal
-            </Link>
-          </nav>
-          <Button variant="ghost" size="sm" onClick={() => signOut({ callbackUrl: '/login' })}>
-            <LogOut className="h-4 w-4" />
-          </Button>
-        </div>
-      </header>
-
-      {/* Breadcrumb */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-2 text-xs text-muted-foreground">
-        <Link href="/portal" className="hover:text-foreground">Portal</Link>
-        <ChevronRight className="h-3.5 w-3.5" />
-        <span className="text-foreground">Apply Leave</span>
-      </div>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-12">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-12 pt-4">
         {loadingData ? (
           <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : (
@@ -334,7 +308,6 @@ const ApplyLeave = () => {
             </div>
           </div>
         )}
-      </main>
     </div>
   )
 }

@@ -6,18 +6,13 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Bell, CalendarDays, Download, Clock, FileText, User, HelpCircle,
-  CheckCircle2, ChevronDown, LogOut, Settings, Megaphone, ArrowRight,
+  CheckCircle2, Megaphone, ArrowRight,
   CalendarCheck, CreditCard, Shield, Loader2, X, Receipt, PlusCircle,
-  Home, Menu,
 } from "lucide-react";
 import { toast } from "sonner";
-import { signOut, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -111,7 +106,6 @@ const EmployeePortal = () => {
   const [latestPayslip, setLatestPayslip] = useState<Payslip | null>(null)
   const [loading, setLoading] = useState(true)
   const [profileIncomplete, setProfileIncomplete] = useState<string[]>([])
-  const [notifOpen, setNotifOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [requestModal, setRequestModal] = useState(false)
   const [requestType, setRequestType] = useState('')
@@ -318,126 +312,7 @@ const EmployeePortal = () => {
   const displayName = employeeName || session?.user?.email?.split('@')[0] || 'there'
 
   return (
-    <div className="min-h-screen bg-muted/40">
-
-      {/* Top Nav */}
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-6">
-            <img src="/lightmodelogo.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain dark:hidden" />
-            <img src="/darkmodelogo.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain hidden dark:block" />
-            <nav className="hidden md:flex items-center gap-1">
-              {[
-                { label: 'Home', href: '/portal' },
-                { label: 'Leave', href: '/portal/leave' },
-                { label: 'Attendance', href: '/portal/attendance' },
-                { label: 'Payslips', href: '/payslip' },
-                { label: 'Profile', href: '/portal/profile' },
-              ].map(l => (
-                <Link key={l.label} href={l.href}
-                  className="px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  {l.label}
-                </Link>
-              ))}
-            </nav>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Notifications */}
-            <div className="relative">
-              <button
-                onClick={() => setNotifOpen(p => !p)}
-                className="relative h-9 w-9 rounded-full flex items-center justify-center hover:bg-muted transition-colors"
-              >
-                <Bell className="h-[18px] w-[18px] text-muted-foreground" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-destructive text-[9px] text-white flex items-center justify-center font-bold">
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
-              {notifOpen && (
-                <div className="absolute right-0 top-11 w-80 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 border-b">
-                    <span className="font-semibold text-sm">Notifications</span>
-                    <div className="flex gap-2">
-                      {unreadCount > 0 && (
-                        <button onClick={markAllRead} className="text-xs text-primary hover:underline">Mark all read</button>
-                      )}
-                      <button onClick={() => setNotifOpen(false)}><X className="h-3.5 w-3.5 text-muted-foreground" /></button>
-                    </div>
-                  </div>
-                  <div className="max-h-72 overflow-y-auto">
-                    {notifications.length === 0 ? (
-                      <div className="px-4 py-6 text-center text-sm text-muted-foreground">No notifications</div>
-                    ) : (
-                      notifications.map(n => (
-                        <div key={n.id}
-                          className={`px-4 py-3 border-b border-border last:border-0 cursor-pointer hover:bg-muted ${!n.is_read ? 'bg-muted/40' : ''}`}
-                          onClick={() => { if (n.link) router.push(n.link); setNotifOpen(false) }}
-                        >
-                          <p className={`text-sm ${!n.is_read ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
-                          <p className="text-[10px] text-muted-foreground mt-1">
-                            {new Date(n.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* User Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 rounded-full pl-1 pr-2 py-1 hover:bg-muted transition-colors">
-                  <Avatar className="h-7 w-7">
-                    <AvatarFallback className="text-[11px] font-bold bg-primary/10 text-primary">{userInitials}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium text-foreground hidden sm:inline capitalize">{displayName}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                {session?.user?.role === 'admin' && (
-                  <DropdownMenuItem onClick={() => router.push('/dashboard')}>
-                    <Settings className="mr-2 h-4 w-4" /> HR Dashboard
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => router.push('/portal/profile')}>
-                  <User className="mr-2 h-4 w-4" /> My Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive" onClick={() => signOut({ callbackUrl: '/login' })}>
-                  <LogOut className="mr-2 h-4 w-4" /> Log Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </header>
-
-      {/* Mobile Bottom Nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur md:hidden">
-        <div className="flex items-center justify-around py-2 px-2">
-          {[
-            { label: 'Home',       icon: Home,        href: '/portal' },
-            { label: 'Leave',      icon: CalendarDays, href: '/portal/leave' },
-            { label: 'Attendance', icon: Clock,        href: '/portal/attendance' },
-            { label: 'Payslips',   icon: Download,    href: '/payslip' },
-            { label: 'Profile',    icon: User,        href: '/portal/profile' },
-          ].map(item => (
-            <Link key={item.label} href={item.href}
-              className="flex flex-col items-center gap-0.5 min-w-[56px] py-1 text-muted-foreground hover:text-foreground transition-colors">
-              <item.icon className="h-5 w-5" />
-              <span className="text-[10px] font-medium">{item.label}</span>
-            </Link>
-          ))}
-        </div>
-      </nav>
-
-      <main className="mx-auto max-w-6xl px-4 py-6 pb-24 md:pb-6 space-y-6">
+    <div className="mx-auto max-w-6xl px-4 py-6 space-y-6">
 
         {loading ? (
           <div className="flex justify-center py-20">
@@ -868,7 +743,6 @@ const EmployeePortal = () => {
             </Dialog>
           </>
         )}
-      </main>
     </div>
   )
 }

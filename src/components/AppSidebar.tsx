@@ -44,7 +44,7 @@ const navLinkClass =
 const navLinkActive =
   'bg-sidebar-active text-primary-foreground border-l-[3px] border-primary-foreground'
 
-const AppSidebar = () => {
+const AppSidebar = ({ className = '' }: { className?: string }) => {
   const { data: session } = useSession()
   const pathname = usePathname()
 
@@ -69,7 +69,7 @@ const AppSidebar = () => {
     : 'HR'
 
   return (
-    <aside className="hidden md:flex flex-col w-60 min-h-screen bg-sidebar text-sidebar-foreground shrink-0">
+    <aside className={cn("flex flex-col w-60 min-h-screen bg-sidebar text-sidebar-foreground shrink-0", className)}>
       {/* Logo */}
       <div className="flex items-center px-4 h-16 border-b border-sidebar-border">
         <img src="/lightmodelogo.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain dark:hidden" />
