@@ -119,7 +119,8 @@ const AddEmployee = () => {
         department_id:   departmentId || undefined,
         manager_id:      managerId    || undefined,
         essl_device_id:  esslDeviceId || undefined,
-        ctc_annual:      ctcAnnual ? parseFloat(ctcAnnual) : undefined,
+        // UI accepts monthly salary; store as annual (×12) in ctc_annual
+        ctc_annual:      ctcAnnual ? parseFloat(ctcAnnual) * 12 : undefined,
       }
       // designation is a free-text field; map it as a name-based lookup or store in notes
       // The API accepts designation_id; we'll pass it as text via a separate field if needed
@@ -297,10 +298,16 @@ const AddEmployee = () => {
                 </Field>
 
                 <div className="space-y-2">
-                  <Label htmlFor="ctcAnnual">Annual CTC (₹)</Label>
-                  <Input id="ctcAnnual" type="number" placeholder="e.g. 600000" value={ctcAnnual}
+                  <Label htmlFor="ctcAnnual">Monthly Salary (₹)</Label>
+                  <Input id="ctcAnnual" type="number" placeholder="e.g. 22000" value={ctcAnnual}
                     onChange={e => setCtcAnnual(e.target.value)} />
-                  <p className="text-xs text-muted-foreground">Used for payroll calculations</p>
+                  {ctcAnnual && Number(ctcAnnual) > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Annual CTC: ₹{(Number(ctcAnnual) * 12).toLocaleString('en-IN')}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Enter take-home / gross monthly salary</p>
+                  )}
                 </div>
 
               </div>
@@ -333,7 +340,7 @@ const AddEmployee = () => {
                   ['Employment Type',  emp_type_label[employmentType] ?? employmentType],
                   ['Manager',          managerLabel],
                   ['Device ID',        esslDeviceId || '—'],
-                  ['Annual CTC',       ctcAnnual ? `₹ ${Number(ctcAnnual).toLocaleString('en-IN')}` : '—'],
+                  ['Monthly Salary',   ctcAnnual ? `₹ ${Number(ctcAnnual).toLocaleString('en-IN')} / month  (₹${(Number(ctcAnnual)*12).toLocaleString('en-IN')} annual)` : '—'],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-center justify-between px-4 py-3 text-sm">
                     <span className="text-muted-foreground w-36 flex-shrink-0">{label}</span>

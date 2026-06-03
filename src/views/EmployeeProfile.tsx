@@ -385,10 +385,12 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   }
 
   const saveEmployment = async () => {
+    // UI shows monthly salary; store as annual (×12) in ctc_annual
+    const monthly = empDraft.ctc_annual ? parseFloat(empDraft.ctc_annual) : undefined
     const ok = await patch({
       department_id: empDraft.department_id || undefined,
       employment_type: empDraft.employment_type || undefined,
-      ctc_annual: empDraft.ctc_annual ? parseFloat(empDraft.ctc_annual) : undefined,
+      ctc_annual: monthly ? monthly * 12 : undefined,
       salary_structure_id: empDraft.salary_structure_id || undefined,
       date_of_joining: empDraft.date_of_joining || undefined,
     })
@@ -675,7 +677,8 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                   setEmpDraft({
                     department_id: employee.department_id || '',
                     employment_type: employee.employment_type,
-                    ctc_annual: employee.ctc_annual ? String(employee.ctc_annual) : '',
+                    // Pre-fill with monthly salary (annual ÷ 12) so the user sees/edits monthly
+                  ctc_annual: employee.ctc_annual ? String(Math.round(Number(employee.ctc_annual) / 12)) : '',
                     salary_structure_id: employee.salary_structure_id || '',
                     date_of_joining: employee.date_of_joining ? employee.date_of_joining.split('T')[0] : '',
                   })
@@ -709,13 +712,18 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Annual CTC (₹)</Label>
+                    <Label>Monthly Salary (₹)</Label>
                     <Input
                       type="number"
                       value={empDraft.ctc_annual}
                       onChange={e => setEmpDraft(p => ({ ...p, ctc_annual: e.target.value }))}
-                      placeholder="e.g. 600000"
+                      placeholder="e.g. 22000"
                     />
+                    {empDraft.ctc_annual && Number(empDraft.ctc_annual) > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Annual CTC: ₹{(Number(empDraft.ctc_annual) * 12).toLocaleString('en-IN')}
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Salary Structure</Label>
@@ -746,7 +754,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                   <InfoRow label="Department" value={employee.department?.name || '—'} />
                   <InfoRow label="Employment Type" value={employee.employment_type.replace('_', ' ')} />
                   <InfoRow label="Date of Joining" value={format(new Date(employee.date_of_joining), 'd MMM yyyy')} />
-                  <InfoRow label="Annual CTC" value={employee.ctc_annual ? fmt(Number(employee.ctc_annual)) : '—'} />
+                  <InfoRow label="Monthly Salary" value={employee.ctc_annual ? fmt(Math.round(Number(employee.ctc_annual) / 12)) : '—'} />
                   <InfoRow label="Salary Structure" value={salaryStructures.find(s => s.id === employee.salary_structure_id)?.name || '—'} />
                   <InfoRow label="Status" value={employee.status.replace('_', ' ')} />
                 </div>
