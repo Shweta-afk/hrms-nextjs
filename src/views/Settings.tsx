@@ -111,9 +111,9 @@ const Settings = () => {
   const [tdsApplicable, setTdsApplicable] = useState(true)
   const [ptState, setPtState] = useState("maharashtra")
   const [tdsRegime, setTdsRegime] = useState("new")
-  type LateTier = { from_min: number; to_min: number | null; deduction_pct?: number; is_half_day?: boolean }
   const [latePenaltyEnabled, setLatePenaltyEnabled] = useState(false)
-  const [latePenaltyTiers, setLatePenaltyTiers] = useState<LateTier[]>([])
+  const [lateGraceMin, setLateGraceMin] = useState("15")       // grace period minutes
+  const [lateMarksPerHD, setLateMarksPerHD] = useState("3")   // lates per half-day
   const [halfDayCutoff, setHalfDayCutoff] = useState('14:00')
   const [savingPayroll, setSavingPayroll] = useState(false)
 
@@ -288,9 +288,10 @@ const Settings = () => {
       if (s.tds_regime)  setTdsRegime(s.tds_regime as string)
       if (s.payroll_processing_day) setProcessingDay(String(s.payroll_processing_day as number))
       if (s.half_day_cutoff) setHalfDayCutoff(s.half_day_cutoff as string)
-      const lp = s.late_penalty as { enabled?: boolean; tiers?: LateTier[] } | undefined
+      const lp = s.late_penalty as { enabled?: boolean; min_minutes?: number; marks_per_half_day?: number } | undefined
       if (lp?.enabled !== undefined) setLatePenaltyEnabled(!!lp.enabled)
-      if (Array.isArray(lp?.tiers)) setLatePenaltyTiers(lp!.tiers!)
+      if (lp?.min_minutes !== undefined) setLateGraceMin(String(lp.min_minutes))
+      if (lp?.marks_per_half_day !== undefined) setLateMarksPerHD(String(lp.marks_per_half_day))
 
       // Attendance policy
       const att = (s.attendance ?? {}) as Record<string, unknown>
@@ -396,8 +397,9 @@ const Settings = () => {
           payroll_processing_day: parseInt(processingDay) || 28,
           half_day_cutoff:        halfDayCutoff,
           late_penalty: {
-            enabled: latePenaltyEnabled,
-            tiers:   latePenaltyTiers,
+            enabled:           latePenaltyEnabled,
+            min_minutes:       parseInt(lateGraceMin) || 15,
+            marks_per_half_day: parseInt(lateMarksPerHD) || 3,
           },
         }),
       })
@@ -1129,9 +1131,9 @@ const Settings = () => {
             <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
               <div className="flex items-center justify-between">
                 <div>
-                  <Label className="font-medium">Late Penalty Rules</Label>
+                  <Label className="font-medium">Late Penalty (Circle Rule)</Label>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Applied per attendance record during payroll run.
+                    Every N late arrivals = 1 half-day deduction. Industry standard.
                   </p>
                 </div>
                 <Switch
@@ -1141,90 +1143,37 @@ const Settings = () => {
               </div>
 
               {latePenaltyEnabled && (
-                <div className="space-y-3 pt-2">
-                  {/* Tier rows */}
-                  {latePenaltyTiers.map((tier, idx) => (
-                    <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">From (min)</Label>
-                        <Input
-                          type="number" min={0} value={tier.from_min}
-                          className="h-8 text-sm"
-                          onChange={e => {
-                            const t = [...latePenaltyTiers]
-                            t[idx] = { ...t[idx], from_min: parseInt(e.target.value) || 0 }
-                            setLatePenaltyTiers(t); markDirty('payroll')
-                          }}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">To (min, blank = ∞)</Label>
-                        <Input
-                          type="number" min={0}
-                          value={tier.to_min === null ? '' : tier.to_min}
-                          placeholder="unlimited"
-                          className="h-8 text-sm"
-                          onChange={e => {
-                            const t = [...latePenaltyTiers]
-                            t[idx] = { ...t[idx], to_min: e.target.value === '' ? null : parseInt(e.target.value) || 0 }
-                            setLatePenaltyTiers(t); markDirty('payroll')
-                          }}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">Penalty</Label>
-                        <div className="flex gap-1.5">
-                          <Select
-                            value={tier.is_half_day ? 'half_day' : 'pct'}
-                            onValueChange={v => {
-                              const t = [...latePenaltyTiers]
-                              if (v === 'half_day') t[idx] = { ...t[idx], is_half_day: true, deduction_pct: undefined }
-                              else t[idx] = { ...t[idx], is_half_day: false, deduction_pct: t[idx].deduction_pct ?? 1 }
-                              setLatePenaltyTiers(t); markDirty('payroll')
-                            }}
-                          >
-                            <SelectTrigger className="h-8 text-xs w-28"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pct">% of day</SelectItem>
-                              <SelectItem value="half_day">Half day</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {!tier.is_half_day && (
-                            <Input
-                              type="number" min={0} max={100} step={0.5}
-                              value={tier.deduction_pct ?? 1}
-                              className="h-8 text-sm w-16"
-                              onChange={e => {
-                                const t = [...latePenaltyTiers]
-                                t[idx] = { ...t[idx], deduction_pct: parseFloat(e.target.value) || 0 }
-                                setLatePenaltyTiers(t); markDirty('payroll')
-                              }}
-                            />
-                          )}
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => { setLatePenaltyTiers(latePenaltyTiers.filter((_, i) => i !== idx)); markDirty('payroll') }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-                  <Button
-                    variant="outline" size="sm" className="gap-2 h-8"
-                    onClick={() => {
-                      const lastTo = latePenaltyTiers[latePenaltyTiers.length - 1]?.to_min
-                      const from = lastTo !== null && lastTo !== undefined ? lastTo + 1 : 1
-                      setLatePenaltyTiers([...latePenaltyTiers, { from_min: from, to_min: null, deduction_pct: 1 }])
-                      markDirty('payroll')
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add Tier
-                  </Button>
-                  <p className="text-xs text-muted-foreground">
-                    Example: 1–10 min = 1% of daily pay · 11–30 min = 2% · 31+ min = half day deduction.
-                  </p>
+                <div className="grid grid-cols-2 gap-4 pt-1">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Grace period (minutes)</Label>
+                    <Input
+                      type="number" min={0} max={60}
+                      value={lateGraceMin}
+                      className="h-8 w-28"
+                      onChange={e => { setLateGraceMin(e.target.value); markDirty('payroll') }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Arrivals within this many minutes of shift start are not counted as late.
+                      Recommended: 15 min (biometric readers can be slow).
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Late marks per half-day</Label>
+                    <Input
+                      type="number" min={1} max={30}
+                      value={lateMarksPerHD}
+                      className="h-8 w-28"
+                      onChange={e => { setLateMarksPerHD(e.target.value); markDirty('payroll') }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      How many counted lates trigger 1 half-day deduction.
+                      Standard: 3 lates = 1 half-day.
+                    </p>
+                  </div>
+                  <div className="col-span-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                    Example with current settings: 3 lates = ½ day deducted · 6 lates = 1 day · 12 lates = 2 days.
+                    Arrivals under {lateGraceMin || 15} min late are ignored.
+                  </div>
                 </div>
               )}
             </div>

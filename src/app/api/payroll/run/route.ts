@@ -88,12 +88,19 @@ export async function POST(req: NextRequest) {
     const ptApplicable  = settings.pt_applicable  === true
     const tdsApplicable = settings.tds_applicable === true
 
-    // ── Late penalty tiers ──────────────────────────────────────────────────
-    // Format: [{ from_min, to_min, deduction_pct, is_half_day }]
-    type LateTier = { from_min: number; to_min: number | null; deduction_pct?: number; is_half_day?: boolean }
-    const latePenaltyConfig = settings.late_penalty as { enabled?: boolean; tiers?: LateTier[] } | undefined
+    // ── Late penalty — cumulative monthly rule ──────────────────────────────
+    // Industry-standard "circle" rule: count total late marks for the month,
+    // then every N lates = 1 half-day deduction.  NOT per-occurrence.
+    // Config: { enabled, min_minutes, marks_per_half_day }
+    //   min_minutes     — grace period; lates below this many minutes are ignored (default 15)
+    //   marks_per_half_day — how many lates trigger 1 half-day deduction (default 3)
+    type LatePenaltyCfg = { enabled?: boolean; min_minutes?: number; marks_per_half_day?: number }
+    const latePenaltyConfig = settings.late_penalty as LatePenaltyCfg | undefined
     const latePenaltyEnabled = latePenaltyConfig?.enabled === true
-    const lateTiers: LateTier[] = latePenaltyConfig?.tiers ?? []
+    // Minimum minutes to count as a real late mark (biometric readers are noisy — 1 min ≠ late)
+    const lateGraceMinutes = latePenaltyConfig?.min_minutes ?? 15
+    // Every N counted late marks → deduct 1 half-day
+    const lateMarksPerHalfDay = latePenaltyConfig?.marks_per_half_day ?? 3
 
     // ── Half-day early-departure cutoff ────────────────────────────────────
     const halfDayCutoffStr = (settings.half_day_cutoff as string | undefined) ?? '14:00'
@@ -235,26 +242,19 @@ export async function POST(req: NextRequest) {
         ? Math.round((ctcMonthly / periodCalendarDays) * lopDays)
         : 0
 
-      // ── Late penalty calculation ──────────────────────────────────────────
+      // ── Late penalty — cumulative "circle" rule ───────────────────────────
+      // Count qualifying late arrivals (above grace period), then
+      // every `lateMarksPerHalfDay` marks → 1 half-day deduction.
+      // Example (defaults): 3 lates = 0.5 day, 6 lates = 1 day, 12 lates = 2 days.
       let latePenaltyAmount = 0
-      let latePenaltyHalfDays = 0
-      if (latePenaltyEnabled && lateTiers.length > 0) {
-        for (const rec of attendance) {
-          if (!rec.is_late || rec.late_by_minutes === 0) continue
-          const mins = rec.late_by_minutes
-          const tier = lateTiers.find(
-            t => mins >= t.from_min && (t.to_min === null || mins <= t.to_min)
-          )
-          if (!tier) continue
-          if (tier.is_half_day) {
-            latePenaltyHalfDays += 0.5
-          } else if (tier.deduction_pct) {
-            latePenaltyAmount += Math.round(dailySalary * tier.deduction_pct / 100)
-          }
+      if (latePenaltyEnabled) {
+        const qualifiedLates = attendance.filter(
+          rec => rec.is_late && (rec.late_by_minutes ?? 0) >= lateGraceMinutes
+        ).length
+        if (qualifiedLates > 0) {
+          const halfDaysToDeduct = Math.floor(qualifiedLates / lateMarksPerHalfDay) * 0.5
+          latePenaltyAmount = Math.round(dailySalary * halfDaysToDeduct)
         }
-      }
-      if (latePenaltyHalfDays > 0) {
-        latePenaltyAmount += Math.round(dailySalary * latePenaltyHalfDays)
       }
 
       // ── Statutory deductions — respect per-org toggles ───────────────────
