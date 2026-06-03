@@ -27,6 +27,33 @@ const steps = [
 interface Department { id: string; name: string }
 interface Employee   { id: string; first_name: string; last_name: string; emp_code: string }
 
+// ── Field wrapper — defined OUTSIDE AddEmployee so it's a stable component
+// reference. Defining it inside the parent causes React to unmount/remount
+// on every keystroke (new function reference = new component type = focus lost).
+function Field({
+  id, label, required, errors, children,
+}: {
+  id: string
+  label: string
+  required?: boolean
+  errors: Record<string, string>
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>
+        {label}{required && <span className="text-destructive"> *</span>}
+      </Label>
+      {children}
+      {errors[id] && (
+        <p className="text-sm text-destructive flex items-center gap-1">
+          <AlertCircle className="h-3.5 w-3.5" />{errors[id]}
+        </p>
+      )}
+    </div>
+  )
+}
+
 const AddEmployee = () => {
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState(0)
@@ -130,22 +157,6 @@ const AddEmployee = () => {
     full_time: 'Full-time', part_time: 'Part-time', contract: 'Contract', intern: 'Intern',
   }
 
-  function Field({ id, label, required, children }: { id: string; label: string; required?: boolean; children: React.ReactNode }) {
-    return (
-      <div className="space-y-2">
-        <Label htmlFor={id}>
-          {label}{required && <span className="text-destructive"> *</span>}
-        </Label>
-        {children}
-        {errors[id] && (
-          <p className="text-sm text-destructive flex items-center gap-1">
-            <AlertCircle className="h-3.5 w-3.5" />{errors[id]}
-          </p>
-        )}
-      </div>
-    )
-  }
-
   return (
     <AppLayout title="Add New Employee">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -190,21 +201,21 @@ const AddEmployee = () => {
             <CardContent className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-                <Field id="firstName" label="First Name" required>
+                <Field id="firstName" label="First Name" required errors={errors}>
                   <Input id="firstName" placeholder="Rahul" value={firstName}
                     onChange={e => { setFirstName(e.target.value); setErrors(p => ({ ...p, firstName: '' })) }}
                     className={errors.firstName ? 'border-destructive' : firstName ? 'border-green-500' : ''}
                   />
                 </Field>
 
-                <Field id="lastName" label="Last Name" required>
+                <Field id="lastName" label="Last Name" required errors={errors}>
                   <Input id="lastName" placeholder="Sharma" value={lastName}
                     onChange={e => { setLastName(e.target.value); setErrors(p => ({ ...p, lastName: '' })) }}
                     className={errors.lastName ? 'border-destructive' : lastName ? 'border-green-500' : ''}
                   />
                 </Field>
 
-                <Field id="email" label="Work / Personal Email" required>
+                <Field id="email" label="Work / Personal Email" required errors={errors}>
                   <Input id="email" type="email" placeholder="rahul@company.com" value={email}
                     onChange={e => { setEmail(e.target.value); setErrors(p => ({ ...p, email: '' })) }}
                     className={errors.email ? 'border-destructive' : ''}
@@ -218,20 +229,20 @@ const AddEmployee = () => {
                     onChange={e => setPhone(e.target.value)} />
                 </div>
 
-                <Field id="empCode" label="Employee Code">
+                <Field id="empCode" label="Employee Code" errors={errors}>
                   <Input id="empCode" placeholder="e.g. EMP0042 (auto if blank)" value={empCode}
                     onChange={e => setEmpCode(e.target.value)} />
                   <p className="text-xs text-muted-foreground">Leave blank to auto-generate</p>
                 </Field>
 
-                <Field id="dateOfJoining" label="Date of Joining" required>
+                <Field id="dateOfJoining" label="Date of Joining" required errors={errors}>
                   <Input id="dateOfJoining" type="date" value={dateOfJoining}
                     onChange={e => { setDateOfJoining(e.target.value); setErrors(p => ({ ...p, dateOfJoining: '' })) }}
                     className={errors.dateOfJoining ? 'border-destructive' : ''}
                   />
                 </Field>
 
-                <Field id="departmentId" label="Department" required>
+                <Field id="departmentId" label="Department" required errors={errors}>
                   <Select value={departmentId} onValueChange={v => { setDepartmentId(v); setErrors(p => ({ ...p, departmentId: '' })) }}>
                     <SelectTrigger className={errors.departmentId ? 'border-destructive' : ''}>
                       <SelectValue placeholder="Select department" />
@@ -244,14 +255,14 @@ const AddEmployee = () => {
                   </Select>
                 </Field>
 
-                <Field id="designation" label="Designation" required>
+                <Field id="designation" label="Designation" required errors={errors}>
                   <Input id="designation" placeholder="e.g. Software Engineer" value={designation}
                     onChange={e => { setDesignation(e.target.value); setErrors(p => ({ ...p, designation: '' })) }}
                     className={errors.designation ? 'border-destructive' : ''}
                   />
                 </Field>
 
-                <Field id="employmentType" label="Employment Type" required>
+                <Field id="employmentType" label="Employment Type" required errors={errors}>
                   <Select value={employmentType} onValueChange={v => { setEmploymentType(v); setErrors(p => ({ ...p, employmentType: '' })) }}>
                     <SelectTrigger className={errors.employmentType ? 'border-destructive' : ''}>
                       <SelectValue placeholder="Select type" />
@@ -279,7 +290,7 @@ const AddEmployee = () => {
                   </Select>
                 </div>
 
-                <Field id="esslDeviceId" label="Biometric Device ID">
+                <Field id="esslDeviceId" label="Biometric Device ID" errors={errors}>
                   <Input id="esslDeviceId" placeholder="e.g. 25" value={esslDeviceId}
                     onChange={e => setEsslDeviceId(e.target.value)} />
                   <p className="text-xs text-muted-foreground">Employee's ID on the ZKTeco / AiFace device</p>
