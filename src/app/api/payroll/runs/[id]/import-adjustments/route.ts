@@ -249,7 +249,9 @@ export async function POST(
       const origNet        = payslip.is_manually_adjusted ? payslip.original_net_salary : payslip.net_salary
 
       diffs.push({
-        emp_code: empCode,
+        // Use the DB's canonical emp_code for display, not the spreadsheet's
+        // raw value — Excel may have stripped leading zeros or changed case.
+        emp_code: payslip.employee.emp_code,
         name: `${payslip.employee.first_name} ${payslip.employee.last_name}`,
         original_net: oldNetSalary,
         adjusted_net: newNetSalary,
