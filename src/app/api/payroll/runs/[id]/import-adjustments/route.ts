@@ -36,16 +36,38 @@ export async function POST(
 
     const headers = (rows[0] as string[]).map(h => String(h).trim())
 
-    const empCodeIdx  = headers.findIndex(h => /emp.?code/i.test(h))
-    const netSalIdx   = headers.findIndex(h => /net.?salary/i.test(h))
-    const grossIdx    = headers.findIndex(h => /gross.?salary/i.test(h))
-    const lopIdx      = headers.findIndex(h => /lop.?days/i.test(h))
-    const totalDedIdx = headers.findIndex(h => /total.?deductions/i.test(h))
-    const adjNoteIdx  = headers.findIndex(h => /adjustment.?note/i.test(h))
+    // Header detection — accept BOTH templates HR may use:
+    //
+    //   1) The simple adjustment template (basic, HRA, PF, etc. as columns)
+    //      uses "Emp Code", "Net Salary", "Gross Salary", "Total Deductions",
+    //      "LOP Days".
+    //
+    //   2) The "Export for Review" template (attendance-based payroll report)
+    //      uses just "Code" for the employee, and has TWO net-like columns:
+    //      "Net Salary" (formula from attendance — doesn't reflect HR's
+    //      adjustments) and "To be Credited" (formula AFTER HR's deductions/
+    //      advances — the amount they actually want to pay). We prefer "To
+    //      be Credited" when present.
+    //
+    // Without this, the importer matched no rows from the export template
+    // and every row got marked "unchanged" — nothing in the DB updated.
+    const empCodeIdx  = headers.findIndex(h => /^(emp(loyee)?[\s_]*)?code$/i.test(h))
+    const toCredIdx   = headers.findIndex(h => /to.?be.?credited/i.test(h))
+    const netSalRaw   = headers.findIndex(h => /^net.?(salary|pay)$/i.test(h))
+    const netSalIdx   = toCredIdx !== -1 ? toCredIdx : netSalRaw
+    const grossIdx    = headers.findIndex(h => /^(gross.?salary|total.?salary)$/i.test(h))
+    const lopIdx      = headers.findIndex(h => /^(lop.?days|loss.?of.?pay)$/i.test(h))
+    const totalDedIdx = headers.findIndex(h => /^total.?deductions?$/i.test(h))
+    // The Export-for-Review template uses "Remark Details" for the note;
+    // the simple template uses "Adjustment Note". Accept either.
+    const adjNoteIdx  = headers.findIndex(h => /^(adjustment.?note|remark.?details)$/i.test(h))
 
     if (empCodeIdx === -1 || netSalIdx === -1) {
       return NextResponse.json(
-        { success: false, error: 'File must have "Emp Code" and "Net Salary" columns. Use the "Export for Review" button to get the correct template.' },
+        {
+          success: false,
+          error: 'File must have an employee-ID column ("Code" or "Emp Code") and a target-net column ("To be Credited" or "Net Salary"). Use the "Export for Review" button to get a valid template.',
+        },
         { status: 400 }
       )
     }
@@ -78,8 +100,29 @@ export async function POST(
       const payslip = payslipMap.get(empCode)
       if (!payslip) { notFound++; continue }
 
-      const newNetSalary = Math.round(Number(row[netSalIdx]) || 0)
+      let newNetSalary = Math.round(Number(row[netSalIdx]) || 0)
       const oldNetSalary = Math.round(Number(payslip.net_salary))
+
+      // Fallback: if "To be Credited" came back empty/zero, the file was
+      // probably downloaded and re-uploaded without being opened in Excel,
+      // so the formula never evaluated. Reconstruct from the constituent
+      // columns HR types as constants:
+      //   To be Credited = Net Salary − Deductions if any − Salary Advance
+      //                  + Previous Salary add
+      if (toCredIdx !== -1 && newNetSalary === 0) {
+        const netSalCol  = headers.findIndex(h => /^net.?salary$/i.test(h))
+        const dedAnyCol  = headers.findIndex(h => /deductions?.?if.?any/i.test(h))
+        const advCol     = headers.findIndex(h => /salary.?advance/i.test(h))
+        const prevSalCol = headers.findIndex(h => /previous.?salary/i.test(h))
+        if (netSalCol !== -1) {
+          const netSal  = Math.round(Number(row[netSalCol])  || 0)
+          const dedAny  = dedAnyCol  !== -1 ? Math.round(Number(row[dedAnyCol])  || 0) : 0
+          const adv     = advCol     !== -1 ? Math.round(Number(row[advCol])     || 0) : 0
+          const prevSal = prevSalCol !== -1 ? Math.round(Number(row[prevSalCol]) || 0) : 0
+          const reconstructed = netSal - dedAny - adv + prevSal
+          if (reconstructed > 0) newNetSalary = reconstructed
+        }
+      }
 
       // Read earnings from file columns
       const newEarnings: Record<string, number> = { ...(payslip.earnings as Record<string, number>) }
