@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, CircleAlert,
   FileSpreadsheet, FileText, CheckCircle2, Loader2, Play, Settings2, Clock,
@@ -35,6 +36,9 @@ interface Payslip {
   total_deductions: number;
   net_salary: number;
   is_published: boolean;
+  // Set when this specific payslip has been HR-approved. Drives the per-row
+  // status badge and the "already approved → checkbox disabled" rule.
+  hr_approved_at: string | null;
   is_manually_adjusted: boolean;
   original_earnings: Record<string, number> | null;
   original_deductions: Record<string, number> | null;
@@ -77,6 +81,23 @@ const Payroll = () => {
   const [approving, setApproving] = useState(false)
   const [showAnomalies, setShowAnomalies] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Selection for partial approval. Tracks IDs the user has ticked.
+  // Already-approved payslips are deliberately NOT pre-selected — the
+  // approve action is no-op on them, but selecting them would inflate
+  // the "N selected" badge and confuse HR about what they're approving.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Modal mode: 'all' = legacy "Approve Payroll" (entire run), 'selected'
+  // = approve just the ticked subset. Keeps one modal component, two
+  // confirmations.
+  const [approveScope, setApproveScope] = useState<'all' | 'selected'>('all')
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
   const [otRate, setOtRate] = useState(0)
   const [showOtSettings, setShowOtSettings] = useState(false)
   const [orgInfo, setOrgInfo] = useState<{
@@ -108,6 +129,11 @@ const Payroll = () => {
 
   async function fetchPayrollData() {
     setLoading(true)
+    // Clear any partial-approval selection on every refetch — keeps the
+    // "N selected" badge in sync with the visible payslips (e.g. when HR
+    // navigates to a different month, or after the table is reloaded
+    // post-approve).
+    setSelectedIds(new Set())
     try {
       const runsRes = await fetch('/api/payroll/runs')
       const runsJson = await runsRes.json()
@@ -203,14 +229,34 @@ const Payroll = () => {
     if (!run) return
     setApproving(true)
     try {
-      const res = await fetch(`/api/payroll/runs/${run.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved' }),
-      })
+      // Two routes share this handler:
+      //   - 'selected' → bulk-approve the ticked subset (leaves the rest in Draft)
+      //   - 'all'      → legacy whole-run approve (also flips run.status to 'approved')
+      const isSelected = approveScope === 'selected'
+      const res = isSelected
+        ? await fetch('/api/payroll/payslips/bulk-approve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payslip_ids: Array.from(selectedIds) }),
+          })
+        : await fetch(`/api/payroll/runs/${run.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'approved' }),
+          })
       const json = await res.json()
       if (json.success) {
-        toast.success('Payroll approved — payslips published to employees')
+        if (isSelected) {
+          const n = json.data?.approved ?? selectedIds.size
+          toast.success(
+            json.data?.run_finalized
+              ? `${n} payslip${n === 1 ? '' : 's'} approved — entire run is now finalized`
+              : `${n} payslip${n === 1 ? '' : 's'} approved — employees will receive their payslips by email`
+          )
+          setSelectedIds(new Set())
+        } else {
+          toast.success('Payroll approved — payslips published to employees')
+        }
         setApproveModal(false)
         fetchPayrollData()
       } else {
@@ -571,6 +617,19 @@ const Payroll = () => {
 
   const isApproved = run?.status === 'approved'
 
+  // Per-payslip approval bookkeeping. Used by the selection UI, the per-row
+  // status badge, and the action bar.
+  const unapprovedPayslips = payslips.filter(p => !p.hr_approved_at)
+  const approvedCount      = payslips.length - unapprovedPayslips.length
+  const allApproved        = payslips.length > 0 && unapprovedPayslips.length === 0
+  // Only consider currently-unapproved payslips when evaluating "is everything
+  // ticked?" — already-approved rows are intentionally non-selectable.
+  const allUnapprovedTicked = unapprovedPayslips.length > 0 &&
+    unapprovedPayslips.every(p => selectedIds.has(p.id))
+  const selectedNetTotal = payslips
+    .filter(p => selectedIds.has(p.id))
+    .reduce((sum, p) => sum + Number(p.net_salary), 0)
+
   return (
     <AppLayout title="Payroll">
 
@@ -779,6 +838,25 @@ const Payroll = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-9">
+                      {/* Header checkbox = select/clear all *unapproved* payslips.
+                          We deliberately scope this to unapproved rows: ticking
+                          rows that are already approved would inflate the
+                          "N selected" count without changing what gets approved. */}
+                      {unapprovedPayslips.length > 0 && (
+                        <Checkbox
+                          checked={allUnapprovedTicked}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedIds(new Set(unapprovedPayslips.map(p => p.id)))
+                            } else {
+                              setSelectedIds(new Set())
+                            }
+                          }}
+                          aria-label="Select all unapproved payslips"
+                        />
+                      )}
+                    </TableHead>
                     <TableHead>Employee</TableHead>
                     <TableHead className="text-right">Basic</TableHead>
                     <TableHead className="text-right">HRA</TableHead>
@@ -818,6 +896,18 @@ const Payroll = () => {
                           className="cursor-pointer hover:bg-muted/40 transition-colors"
                           onClick={() => setExpandedId(isExpanded ? null : p.id)}
                         >
+                          {/* Selection checkbox. Disabled (and hidden) for already-
+                              approved rows — approval is one-way through this UI;
+                              "unapprove" still lives on the individual payslip view. */}
+                          <TableCell className="w-9" onClick={e => e.stopPropagation()}>
+                            {!p.hr_approved_at && (
+                              <Checkbox
+                                checked={selectedIds.has(p.id)}
+                                onCheckedChange={() => toggleSelected(p.id)}
+                                aria-label={`Select payslip for ${p.employee.first_name} ${p.employee.last_name}`}
+                              />
+                            )}
+                          </TableCell>
                           <TableCell className="font-medium whitespace-nowrap">
                             <div className="flex items-center gap-1.5">
                               {isExpanded
@@ -847,8 +937,12 @@ const Payroll = () => {
                           <TableCell className={`text-right tabular-nums font-semibold ${p.net_salary > 0 ? 'text-kpi-green' : 'text-destructive'}`}>{fmt(p.net_salary)}</TableCell>
                           <TableCell className="text-center" onClick={e => e.stopPropagation()}>
                             <div className="flex flex-col items-center gap-1">
-                              <Badge variant={isApproved ? 'active' : 'secondary'} className="text-[10px]">
-                                {isApproved ? 'Approved' : 'Draft'}
+                              {/* Drive the badge off the per-payslip approval stamp,
+                                  not the run status — once partial approval lands,
+                                  the run can stay in 'draft' while some rows are
+                                  individually approved. */}
+                              <Badge variant={p.hr_approved_at ? 'active' : 'secondary'} className="text-[10px]">
+                                {p.hr_approved_at ? 'Approved' : 'Draft'}
                               </Badge>
                               {p.is_manually_adjusted && (
                                 <Badge variant="notice" className="text-[10px]">Adjusted</Badge>
@@ -868,7 +962,7 @@ const Payroll = () => {
                         {/* Expanded breakdown row */}
                         {isExpanded && (
                           <TableRow key={`${p.id}-detail`} className="bg-muted/20 hover:bg-muted/20">
-                            <TableCell colSpan={13} className="p-0">
+                            <TableCell colSpan={14} className="p-0">
                               <div className="px-6 py-4 border-t border-border">
                                 {/* Attendance strip */}
                                 <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-4 pb-3 border-b border-border">
@@ -1079,14 +1173,41 @@ const Payroll = () => {
               <Upload className="h-4 w-4 mr-1.5" /> Upload Adjustments
             </Button>
           </div>
-          <Button
-            variant="outline" size="sm"
-            disabled={isApproved || payslips.length === 0}
-            onClick={() => setApproveModal(true)}
-          >
-            <CheckCircle2 className="h-4 w-4 mr-1.5" />
-            {isApproved ? 'Payroll Approved ✓' : 'Approve Payroll'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* "Approve Selected" appears once HR ticks ≥1 row. We keep it next
+                to the existing button rather than as a separate floating bar
+                because the action area is already the home for the approve
+                affordance — discoverability + muscle memory. */}
+            {selectedIds.size > 0 && (
+              <Button
+                size="sm"
+                onClick={() => { setApproveScope('selected'); setApproveModal(true) }}
+                disabled={isApproved || approving}
+              >
+                <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                Approve Selected ({selectedIds.size})
+              </Button>
+            )}
+            <Button
+              variant="outline" size="sm"
+              disabled={allApproved || payslips.length === 0}
+              onClick={() => { setApproveScope('all'); setApproveModal(true) }}
+              title={
+                allApproved
+                  ? 'All payslips in this run are already approved'
+                  : approvedCount > 0
+                    ? `Approve the remaining ${unapprovedPayslips.length} payslip(s)`
+                    : undefined
+              }
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1.5" />
+              {allApproved
+                ? 'Payroll Approved ✓'
+                : approvedCount > 0
+                  ? `Approve Remaining (${unapprovedPayslips.length})`
+                  : 'Approve Payroll'}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -1216,22 +1337,49 @@ const Payroll = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Approve Modal */}
+      {/* Approve Modal — reused for both whole-run and selective approval.
+          The copy + totals shift based on `approveScope` so HR can't confuse
+          the two; everything else (the spinner, the API call dispatch) lives
+          in handleApprove and reads the same state. */}
       <Dialog open={approveModal} onOpenChange={setApproveModal}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Approve Payroll</DialogTitle>
+            <DialogTitle>
+              {approveScope === 'selected'
+                ? `Approve ${selectedIds.size} Selected Payslip${selectedIds.size === 1 ? '' : 's'}`
+                : approvedCount > 0
+                  ? `Approve Remaining ${unapprovedPayslips.length} Payslip${unapprovedPayslips.length === 1 ? '' : 's'}`
+                  : 'Approve Payroll'}
+            </DialogTitle>
             <DialogDescription>
-              You are about to approve payroll for {monthLabel} — Net payout:{' '}
-              {run ? fmt(Number(run.total_net)) : '—'} for {payslips.length} employees.
-              This will publish payslips to all employees. This cannot be undone.
+              {approveScope === 'selected' ? (
+                <>
+                  You are about to approve {selectedIds.size} payslip{selectedIds.size === 1 ? '' : 's'} for{' '}
+                  {monthLabel}. Net payout for the selected employees:{' '}
+                  <strong>{fmt(selectedNetTotal)}</strong>. These payslips will be published
+                  and emailed immediately. The rest of the run will stay in Draft.
+                </>
+              ) : approvedCount > 0 ? (
+                <>
+                  You are about to approve the remaining {unapprovedPayslips.length} payslip
+                  {unapprovedPayslips.length === 1 ? '' : 's'} for {monthLabel}. The {approvedCount}{' '}
+                  already-approved payslip{approvedCount === 1 ? '' : 's'} will not be re-sent.
+                  This will finalize the run.
+                </>
+              ) : (
+                <>
+                  You are about to approve payroll for {monthLabel} — Net payout:{' '}
+                  {run ? fmt(Number(run.total_net)) : '—'} for {payslips.length} employees.
+                  This will publish payslips to all employees. This cannot be undone.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setApproveModal(false)}>Cancel</Button>
             <Button
               onClick={handleApprove}
-              disabled={approving}
+              disabled={approving || (approveScope === 'selected' && selectedIds.size === 0)}
             >
               {approving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Approving...</> : 'Confirm Approve'}
             </Button>

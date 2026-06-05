@@ -35,14 +35,24 @@ export async function PATCH(
       },
     })
 
-    // Publish payslips when approved
+    // Publish payslips when approved.
+    // We also stamp hr_approved_at / hr_approved_by here — without it,
+    // the employee-facing /api/payroll/payslips filter (which requires
+    // hr_approved_at IS NOT NULL) would hide payslips even after a
+    // whole-run approval. The bulk-approve path also sets these, so
+    // both code paths leave payslips in the same observable state.
     if (status === 'approved') {
       await prisma.payslip.updateMany({
         where: {
           org_id: session.user.org_id,
           payroll_run_id: id,
+          hr_approved_at: null, // don't overwrite per-payslip approvals
         },
-        data: { is_published: true },
+        data: {
+          is_published:   true,
+          hr_approved_at: new Date(),
+          hr_approved_by: session.user.id,
+        },
       })
 
       const { notifyHRAdmins } = await import('@/lib/notifications')

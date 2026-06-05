@@ -129,6 +129,18 @@ export async function POST(
         continue
       }
 
+      // Refuse to silently overwrite a payslip that's already been HR-approved.
+      // Without this guard, HR could approve Alice's payslip and later upload
+      // an adjustments file that mutates Alice's row — the audit trail
+      // (hr_approved_at) would still claim "approved at T0" while the numbers
+      // had quietly drifted. Force HR to unapprove first if they really want
+      // to re-adjust.
+      if (payslip.hr_approved_at) {
+        unchanged++ // count it under unchanged so it shows up in the modal totals
+        noteSkip(i + 1, rawCode, 'payslip already HR-approved — unapprove it from the employee\'s payslip page before re-adjusting')
+        continue
+      }
+
       let newNetSalary = Math.round(Number(row[netSalIdx]) || 0)
       const oldNetSalary = Math.round(Number(payslip.net_salary))
 
