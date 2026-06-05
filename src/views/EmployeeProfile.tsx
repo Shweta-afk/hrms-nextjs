@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -165,6 +165,26 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   const [copiedId, setCopiedId] = useState(false)
   const [sendingInvite, setSendingInvite] = useState(false)
   const router = useRouter()
+
+  // Tab state is controlled (not just defaulted) so deep-links like
+  // `/employees/[id]?tab=documents` from the dashboard's pending-verifications
+  // panel land HR directly on the right tab. We also push tab changes back
+  // to the URL so refresh/share preserves the active tab.
+  const searchParams = useSearchParams()
+  const VALID_TABS = ['personal', 'employment', 'attendance', 'leave', 'payroll', 'biometrics', 'documents'] as const
+  type TabValue = typeof VALID_TABS[number]
+  const urlTab = searchParams?.get('tab')
+  const initialTab: TabValue = (VALID_TABS as readonly string[]).includes(urlTab ?? '')
+    ? (urlTab as TabValue)
+    : 'personal'
+  const [activeTab, setActiveTab] = useState<TabValue>(initialTab)
+  const handleTabChange = (value: string) => {
+    setActiveTab(value as TabValue)
+    // Update URL without scroll-jump so refresh / browser-back keeps the tab.
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    params.set('tab', value)
+    router.replace(`?${params.toString()}`, { scroll: false })
+  }
 
   // Draft state for edit forms
   const [personalDraft, setPersonalDraft] = useState<Partial<Employee>>({})
@@ -539,7 +559,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
       </Card>
 
       {/* Tabs */}
-      <Tabs defaultValue="personal" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList className="w-full justify-start bg-card border h-auto p-1 flex-wrap">
           {[
             { value: 'personal', label: 'Personal Info' },

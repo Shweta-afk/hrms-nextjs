@@ -4,6 +4,7 @@ import AttendanceChart from "@/components/dashboard/AttendanceChart";
 import LeaveDistributionChart from "@/components/dashboard/LeaveDistributionChart";
 import RecentActivity from "@/components/dashboard/RecentActivity";
 import UpcomingPanel from "@/components/dashboard/UpcomingPanel";
+import PendingVerificationsPanel from "@/components/dashboard/PendingVerificationsPanel";
 
 const Index = () => {
   return (
@@ -18,11 +19,17 @@ const Index = () => {
           <LeaveDistributionChart />
         </div>
 
-        {/* Panels Row */}
+        {/* Panels Row: Recent + Upcoming on top, document verification queue below.
+            Verification panel is given its own row (rather than stuffed alongside)
+            so the per-row employee list has room to breathe — squeezing it into
+            a half-width column truncated department names and made the chips
+            wrap awkwardly. */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <RecentActivity />
           <UpcomingPanel />
         </div>
+
+        <PendingVerificationsPanel />
       </div>
     </AppLayout>
   );
