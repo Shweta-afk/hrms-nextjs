@@ -84,8 +84,8 @@ function LoginForm() {
   return (
     <div className="bg-card text-card-foreground p-8 rounded-lg shadow-md w-full max-w-md border border-border">
       <div className="flex justify-center mb-5">
-        <img src="/lightmodelogo.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain dark:hidden" />
-        <img src="/darkmodelogo.png" alt="Axiotta HRMS" className="h-10 w-auto object-contain hidden dark:block" />
+        <img src="/lightmodelogo.webp" alt="Axiotta HRMS" className="h-10 w-auto object-contain dark:hidden" />
+        <img src="/darkmodelogo.webp" alt="Axiotta HRMS" className="h-10 w-auto object-contain hidden dark:block" />
       </div>
       <p className="text-muted-foreground mb-6 text-center">Sign in to your account</p>
 

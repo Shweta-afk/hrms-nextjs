@@ -122,7 +122,7 @@ const Payslip = () => {
 
     const logoHtml = co.logo_url
       ? `<img src="${co.logo_url}" style="height:60px;width:auto;object-fit:contain" />`
-      : `<img src="/axiotta-hrms.png" style="height:60px;width:auto;object-fit:contain" />`
+      : `<img src="/lightmodelogo.png" style="height:60px;width:auto;object-fit:contain" />`
 
     const metaParts = [
       co.phone      ? `Tel: ${co.phone}`          : '',
@@ -319,7 +319,8 @@ const Payslip = () => {
       {/* Top Nav */}
       <header className="no-print sticky top-0 z-30 border-b bg-white shadow-sm">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
-          <img src="/axiotta-hrms.png" alt="Axiotta HRMS" className="h-7 w-auto object-contain" />
+          <img src="/lightmodelogo.webp" alt="Axiotta HRMS" className="h-7 w-auto object-contain dark:hidden" />
+          <img src="/darkmodelogo.webp" alt="Axiotta HRMS" className="h-7 w-auto object-contain hidden dark:block" />
           <span className="text-sm text-gray-500">
             {payslip ? `${payslip.employee.first_name} ${payslip.employee.last_name}` : 'Loading...'}
           </span>
@@ -373,7 +374,7 @@ const Payslip = () => {
             <div className="flex items-center gap-4 px-8 py-5 border-b-2 border-[#1a3a6b]">
               {orgInfo.logo_url
                 ? <img src={orgInfo.logo_url} alt="Logo" className="h-14 w-auto object-contain" />
-                : <img src="/axiotta-hrms.png" alt="Logo" className="h-14 w-auto object-contain" />
+                : <img src="/lightmodelogo.png" alt="Logo" className="h-14 w-auto object-contain" />
               }
               <div className="flex-1 text-center">
                 <h2 className="text-xl font-bold uppercase text-[#1a3a6b]">

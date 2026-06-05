@@ -59,8 +59,8 @@ export default function PortalShell({ children }: { children: React.ReactNode })
           {/* Logo + desktop nav */}
           <div className="flex items-center gap-6">
             <Link href="/portal" className="shrink-0">
-              <img src="/lightmodelogo.png" alt="Axiotta HRMS" className="h-7 w-auto object-contain dark:hidden" />
-              <img src="/darkmodelogo.png"  alt="Axiotta HRMS" className="h-7 w-auto object-contain hidden dark:block" />
+              <img src="/lightmodelogo.webp" alt="Axiotta HRMS" className="h-7 w-auto object-contain dark:hidden" />
+              <img src="/darkmodelogo.webp"  alt="Axiotta HRMS" className="h-7 w-auto object-contain hidden dark:block" />
             </Link>
 
             {/* Desktop nav links */}

@@ -4,6 +4,7 @@ import { Bell, Search, ChevronDown, Menu, X, Check, Moon, Sun } from "lucide-rea
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 
 interface Notification {
   id: string;
@@ -44,70 +45,75 @@ const AppHeader = ({ title, onMenuToggle }: AppHeaderProps) => {
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted && resolvedTheme === "dark";
   const [open, setOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const qc = useQueryClient();
 
-  // Fetch notifications
-  async function fetchNotifications() {
-    setLoading(true);
-    try {
+  // Notifications via TanStack Query. The component is mounted on EVERY HR
+  // page, so without caching every navigation paid for a fresh /api/notifications
+  // round-trip. With staleTime=30s + the shared cache, tab-switching is free.
+  const { data: notifData, isLoading: loading } = useQuery<{
+    notifications: Notification[];
+    unread_count: number;
+  }>({
+    queryKey: ['notifications'],
+    queryFn: async () => {
       const res = await fetch('/api/notifications');
       const json = await res.json();
-      if (json.success) {
-        setNotifications(json.data.notifications);
-        setUnreadCount(json.data.unread_count);
-      }
-    } catch (err) {
-      console.error('Failed to fetch notifications', err);
-    } finally {
-      setLoading(false);
-    }
-  }
+      if (!json.success) throw new Error(json.error ?? 'fetch failed');
+      return json.data;
+    },
+    // Refresh in the background every minute so the bell badge stays current
+    // without us needing to poll manually.
+    refetchInterval: 60_000,
+  });
+  const notifications = notifData?.notifications ?? [];
+  const unreadCount = notifData?.unread_count ?? 0;
 
-  // Mark all as read
-  async function markAllRead() {
-    try {
-      await fetch('/api/notifications', { method: 'PATCH' });
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-      setUnreadCount(0);
-    } catch (err) {
-      console.error('Failed to mark as read', err);
-    }
-  }
-
-  // Mark single as read
-  async function markOneRead(id: string) {
-    try {
-      await fetch(`/api/notifications/${id}`, { method: 'PATCH' });
-      setNotifications(prev =>
-        prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+  // Optimistic mark-all-read: flip local cache immediately, then sync.
+  const markAllReadMutation = useMutation({
+    mutationFn: () => fetch('/api/notifications', { method: 'PATCH' }),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ['notifications'] });
+      const prev = qc.getQueryData<typeof notifData>(['notifications']);
+      qc.setQueryData(['notifications'], (old: typeof notifData) =>
+        old ? { ...old, notifications: old.notifications.map(n => ({ ...n, is_read: true })), unread_count: 0 } : old
       );
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (err) {
-      console.error('Failed to mark notification as read', err);
-    }
-  }
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => { if (ctx?.prev) qc.setQueryData(['notifications'], ctx.prev); },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+  });
+
+  const markOneReadMutation = useMutation({
+    mutationFn: (id: string) => fetch(`/api/notifications/${id}`, { method: 'PATCH' }),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ['notifications'] });
+      const prev = qc.getQueryData<typeof notifData>(['notifications']);
+      qc.setQueryData(['notifications'], (old: typeof notifData) => {
+        if (!old) return old;
+        const wasUnread = old.notifications.find(n => n.id === id)?.is_read === false;
+        return {
+          ...old,
+          notifications: old.notifications.map(n => n.id === id ? { ...n, is_read: true } : n),
+          unread_count: Math.max(0, old.unread_count - (wasUnread ? 1 : 0)),
+        };
+      });
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => { if (ctx?.prev) qc.setQueryData(['notifications'], ctx.prev); },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+  });
+
+  function markAllRead() { markAllReadMutation.mutate(); }
 
   // Handle notification click
   function handleNotificationClick(n: Notification) {
-    markOneRead(n.id);
+    markOneReadMutation.mutate(n.id);
     if (n.link) {
       router.push(n.link);
     }
     setOpen(false);
   }
-
-  // Fetch on open
-  useEffect(() => {
-    if (open) fetchNotifications();
-  }, [open]);
-
-  // Fetch count on mount
-  useEffect(() => {
-    fetchNotifications();
-  }, []);
 
   // Close on outside click
   useEffect(() => {

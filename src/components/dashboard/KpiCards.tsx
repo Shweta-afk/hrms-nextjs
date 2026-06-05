@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Users, UserCheck, UserX, CalendarOff, Briefcase, TrendingUp, Loader2 } from "lucide-react";
 
 interface KpiData {
@@ -13,62 +13,18 @@ interface KpiData {
 }
 
 const KpiCards = () => {
-  const [data, setData] = useState<KpiData | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    async function fetchKpis() {
-      try {
-        const [empRes, attRes, leaveRes, recruitRes] = await Promise.all([
-          fetch('/api/employees?limit=1&payroll_only=true'),
-          fetch('/api/attendance?limit=1'),
-          fetch('/api/leave/requests?status=approved&limit=200'),
-          fetch('/api/recruitment/jobs'),
-        ])
-
-        const [empJson, attJson, leaveJson, recruitJson] = await Promise.all([
-          empRes.json(), attRes.json(), leaveRes.json(), recruitRes.json(),
-        ])
-
-        const totalEmployees = empJson.success ? empJson.data.total : 0
-        const presentToday   = attJson.success ? attJson.data.summary.present : 0
-        const absentToday    = attJson.success ? attJson.data.summary.absent  : 0
-        const attendanceRate = totalEmployees > 0
-          ? Math.round((presentToday / totalEmployees) * 100)
-          : 0
-
-        const openPositions = recruitJson.success
-          ? recruitJson.data
-              .filter((j: { status: string; openings: number }) => j.status === 'open')
-              .reduce((sum: number, j: { openings: number }) => sum + j.openings, 0)
-          : 0
-
-        // Date-string comparison avoids UTC-midnight vs IST timezone traps
-        const todayStr = new Date().toISOString().slice(0, 10)
-        const onLeaveToday = leaveJson.success
-          ? leaveJson.data.requests.filter((r: { from_date: string; to_date: string }) => {
-              const from = (r.from_date ?? '').slice(0, 10)
-              const to   = (r.to_date   ?? '').slice(0, 10)
-              return from <= todayStr && todayStr <= to
-            }).length
-          : 0
-
-        setData({
-          total_employees: totalEmployees,
-          present_today:   presentToday,
-          absent_today:    absentToday,
-          on_leave_today:  onLeaveToday,
-          open_positions:  openPositions,
-          attendance_rate: attendanceRate,
-        })
-      } catch (err) {
-        console.error('Failed to fetch KPIs', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchKpis()
-  }, [])
+  // Single aggregate endpoint — collapses what was 4 parallel network
+  // round-trips + client-side filtering down to one request. Cached via
+  // TanStack so going Dashboard → Employees → Dashboard hits the cache.
+  const { data, isLoading: loading } = useQuery<KpiData>({
+    queryKey: ['dashboard-summary'],
+    queryFn: async () => {
+      const res = await fetch('/api/dashboard/summary')
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error ?? 'fetch failed')
+      return json.data
+    },
+  })
 
   if (loading) {
     return (

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
+import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
 // Lazy-load recharts — keeps it out of the initial JS bundle
@@ -16,49 +16,20 @@ const ResponsiveContainer = dynamic(() => import("recharts").then(m => m.Respons
 interface MonthData { month: string; attendance: number }
 
 const AttendanceChart = () => {
-  const [data, setData] = useState<MonthData[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const now = new Date()
-
-        // Build all 6 month params upfront
-        const months = Array.from({ length: 6 }, (_, i) => {
-          const date = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1)
-          return {
-            month: date.getMonth() + 1,
-            year: date.getFullYear(),
-            label: date.toLocaleDateString('en-IN', { month: 'short' }),
-          }
-        })
-
-        // Fire all 6 requests in parallel instead of sequentially
-        const results = await Promise.all(
-          months.map(({ month, year }) =>
-            fetch(`/api/attendance?month=${month}&year=${year}&limit=1`).then(r => r.json())
-          )
-        )
-
-        const chartData: MonthData[] = results.map((json, i) => {
-          if (json.success) {
-            const { present, absent } = json.data.summary
-            const total = present + absent
-            return { month: months[i].label, attendance: total > 0 ? Math.round((present / total) * 100) : 0 }
-          }
-          return { month: months[i].label, attendance: 0 }
-        })
-
-        setData(chartData)
-      } catch (err) {
-        console.error('Failed to fetch attendance chart data', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchData()
-  }, [])
+  // Single endpoint returns all 6 months in one DB roundtrip. Cached via
+  // TanStack — re-mounting the dashboard within 30s is free.
+  const { data = [], isLoading: loading } = useQuery<MonthData[]>({
+    queryKey: ['attendance-trend', 6],
+    queryFn: async () => {
+      const res = await fetch('/api/attendance/trend?months=6')
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error ?? 'fetch failed')
+      return json.data as MonthData[]
+    },
+    // Monthly attendance is even more stable than KPIs — bump staleTime up
+    // so navigating around the app doesn't refetch.
+    staleTime: 5 * 60_000,
+  })
 
   return (
     <div className="bg-card rounded-lg border border-border p-5 shadow-sm">

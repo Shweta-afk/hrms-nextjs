@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard,
   Users,
@@ -50,19 +51,25 @@ const AppSidebar = ({ className = '' }: { className?: string }) => {
 
   const isOnAttendance = Boolean(pathname?.startsWith('/attendance'))
   const [attendanceOpen, setAttendanceOpen] = useState(isOnAttendance)
-  const [openRequests, setOpenRequests] = useState(0)
 
   useEffect(() => {
     if (pathname?.startsWith('/attendance')) setAttendanceOpen(true)
   }, [pathname])
 
-  useEffect(() => {
-    if (session?.user?.role !== 'hr_admin') return
-    fetch('/api/requests?status=open&limit=1')
-      .then(r => r.json())
-      .then(j => { if (j.success) setOpenRequests(j.data.total) })
-      .catch(() => {})
-  }, [session?.user?.role])
+  // Open-requests badge — sidebar is mounted on every HR page, so without
+  // caching every navigation re-hits /api/requests just to read .total.
+  const isHrAdmin = session?.user?.role === 'hr_admin'
+  const { data: openRequests = 0 } = useQuery<number>({
+    queryKey: ['open-requests-count'],
+    queryFn: async () => {
+      const res = await fetch('/api/requests?status=open&limit=1')
+      const json = await res.json()
+      return json.success ? (json.data.total as number) : 0
+    },
+    enabled: isHrAdmin,
+    // Badge changes slowly; once a minute background refresh keeps it fresh.
+    refetchInterval: 60_000,
+  })
 
   const initials = session?.user?.email
     ? session.user.email.substring(0, 2).toUpperCase()
@@ -72,8 +79,8 @@ const AppSidebar = ({ className = '' }: { className?: string }) => {
     <aside className={cn("flex flex-col w-60 min-h-screen bg-sidebar text-sidebar-foreground shrink-0", className)}>
       {/* Logo */}
       <div className="flex items-center px-4 h-16 border-b border-sidebar-border">
-        <img src="/lightmodelogo.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain dark:hidden" />
-        <img src="/darkmodelogo.png" alt="Axiotta HRMS" className="h-8 w-auto object-contain hidden dark:block" />
+        <img src="/lightmodelogo.webp" alt="Axiotta HRMS" className="h-8 w-auto object-contain dark:hidden" />
+        <img src="/darkmodelogo.webp" alt="Axiotta HRMS" className="h-8 w-auto object-contain hidden dark:block" />
       </div>
 
       {/* Nav */}
