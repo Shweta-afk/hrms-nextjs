@@ -99,6 +99,7 @@ const Payroll = () => {
   const [adjResult, setAdjResult] = useState<{
     adjusted: number; unchanged: number; not_found: number;
     diffs: Array<{ emp_code: string; name: string; original_net: number; adjusted_net: number }>
+    skipped?: Array<{ row: number; emp_code: string; reason: string }>
   } | null>(null)
 
   const currentMonth = ((now.getMonth() + monthOffset) % 12) + 1
@@ -1164,6 +1165,36 @@ const Payroll = () => {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* Skipped rows — surfaces the per-row reason so HR can
+                  diagnose "0 updated" without guessing. */}
+              {adjResult.skipped && adjResult.skipped.length > 0 && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-50 dark:bg-amber-900/10">
+                  <div className="px-3 py-2 border-b border-amber-500/20 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                    Rows not adjusted ({adjResult.skipped.length})
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-amber-100/50 dark:bg-amber-900/20 sticky top-0">
+                        <tr>
+                          <th className="text-left px-3 py-1.5 w-14">Row</th>
+                          <th className="text-left px-3 py-1.5 w-28">Emp Code</th>
+                          <th className="text-left px-3 py-1.5">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adjResult.skipped.map((s, i) => (
+                          <tr key={i} className="border-t border-amber-500/10">
+                            <td className="px-3 py-1.5 tabular-nums">{s.row}</td>
+                            <td className="px-3 py-1.5 font-mono">{s.emp_code || '—'}</td>
+                            <td className="px-3 py-1.5 text-muted-foreground">{s.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>

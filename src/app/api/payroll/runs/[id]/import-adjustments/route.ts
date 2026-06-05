@@ -49,18 +49,31 @@ export async function POST(
     //      advances — the amount they actually want to pay). We prefer "To
     //      be Credited" when present.
     //
-    // Without this, the importer matched no rows from the export template
-    // and every row got marked "unchanged" — nothing in the DB updated.
-    const empCodeIdx  = headers.findIndex(h => /^(emp(loyee)?[\s_]*)?code$/i.test(h))
-    const toCredIdx   = headers.findIndex(h => /to.?be.?credited/i.test(h))
-    const netSalRaw   = headers.findIndex(h => /^net.?(salary|pay)$/i.test(h))
+    //   3) The attendance-report template uses "Emp Code", "Net Salary (₹)",
+    //      etc. with currency suffixes.
+    //
+    // Regexes use `.test()` against trimmed/lowercased header strings, with
+    // generous whitespace tolerance, currency-symbol stripping, and partial
+    // matching. Without this, the importer matched no rows on some
+    // templates and every row got marked "unchanged" — nothing updated.
+    const norm = (s: string) =>
+      s.toLowerCase()
+        .replace(/[(₹$₨inr).,]/g, '')   // strip currency symbols / parens / dots
+        .replace(/[_-]/g, ' ')           // treat _ and - as space
+        .replace(/\s+/g, ' ')            // collapse whitespace
+        .trim()
+    const findHeader = (predicate: (h: string) => boolean) =>
+      headers.findIndex(h => predicate(norm(h)))
+
+    const empCodeIdx  = findHeader(h => h === 'code' || h === 'emp code' || h === 'employee code')
+    const toCredIdx   = findHeader(h => /to\s*be\s*credited/.test(h))
+    const netSalRaw   = findHeader(h => /^net\s*(salary|pay)$/.test(h) || /^net\s*(salary|pay)\s/.test(h))
     const netSalIdx   = toCredIdx !== -1 ? toCredIdx : netSalRaw
-    const grossIdx    = headers.findIndex(h => /^(gross.?salary|total.?salary)$/i.test(h))
-    const lopIdx      = headers.findIndex(h => /^(lop.?days|loss.?of.?pay)$/i.test(h))
-    const totalDedIdx = headers.findIndex(h => /^total.?deductions?$/i.test(h))
-    // The Export-for-Review template uses "Remark Details" for the note;
-    // the simple template uses "Adjustment Note". Accept either.
-    const adjNoteIdx  = headers.findIndex(h => /^(adjustment.?note|remark.?details)$/i.test(h))
+    const grossIdx    = findHeader(h => /^(gross|total)\s*salary$/.test(h) || /^(gross|total)\s*salary\s/.test(h))
+    const lopIdx      = findHeader(h => /^lop\s*days?$/.test(h) || /^loss\s*of\s*pay/.test(h))
+    const totalDedIdx = findHeader(h => /^total\s*deductions?$/.test(h) || /^total\s*deductions?\s/.test(h))
+    // Export-for-Review uses "Remark Details"; simple template uses "Adjustment Note".
+    const adjNoteIdx  = findHeader(h => h === 'adjustment note' || h === 'remark details' || h === 'remarks')
 
     if (empCodeIdx === -1 || netSalIdx === -1) {
       return NextResponse.json(
@@ -85,20 +98,36 @@ export async function POST(
       where: { org_id: session.user.org_id, payroll_run_id: id },
       include: { employee: { select: { emp_code: true, first_name: true, last_name: true } } },
     })
-    const payslipMap = new Map(payslips.map(p => [p.employee.emp_code, p]))
+    // Normalize emp_code for lookup: lowercase, strip whitespace and leading
+    // zeros. Excel sometimes converts "0001" to integer 1, and HR may copy
+    // codes with different casing. Without this normalization a perfectly
+    // valid spreadsheet row silently falls through as not_found.
+    const normCode = (s: unknown) =>
+      String(s ?? '').trim().toLowerCase().replace(/^0+/, '')
+    const payslipMap = new Map(payslips.map(p => [normCode(p.employee.emp_code), p]))
 
     let adjusted = 0
     let unchanged = 0
     let notFound = 0
     const diffs: Array<{ emp_code: string; name: string; original_net: number; adjusted_net: number }> = []
+    // Per-row reason, so HR can see WHY a row didn't update when the totals
+    // surprise them. Capped to avoid blowing up the response on huge files.
+    const skipped: Array<{ row: number; emp_code: string; reason: string }> = []
+    const noteSkip = (row: number, emp_code: string, reason: string) => {
+      if (skipped.length < 100) skipped.push({ row, emp_code, reason })
+    }
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i] as any[]
-      const empCode = String(row[empCodeIdx] ?? '').trim()
-      if (!empCode) continue
+      const rawCode = String(row[empCodeIdx] ?? '').trim()
+      if (!rawCode) continue   // blank row — silent skip is OK
 
-      const payslip = payslipMap.get(empCode)
-      if (!payslip) { notFound++; continue }
+      const payslip = payslipMap.get(normCode(rawCode))
+      if (!payslip) {
+        notFound++
+        noteSkip(i + 1, rawCode, 'no payslip in this run for this employee code')
+        continue
+      }
 
       let newNetSalary = Math.round(Number(row[netSalIdx]) || 0)
       const oldNetSalary = Math.round(Number(payslip.net_salary))
@@ -208,7 +237,11 @@ export async function POST(
       const newTotalDed = sum(newDeductions)
       const adjNote = adjNoteIdx !== -1 ? String(row[adjNoteIdx] ?? '').trim() : ''
 
-      if (newNetSalary === oldNetSalary) { unchanged++; continue }
+      if (newNetSalary === oldNetSalary) {
+        unchanged++
+        noteSkip(i + 1, rawCode, `net unchanged (₹${oldNetSalary}). If you edited the file, make sure the "To be Credited" or "Net Salary" column reflects the new amount — open in Excel to let the formula re-evaluate, or type the new value directly.`)
+        continue
+      }
 
       // Preserve the original values on first adjustment
       const origEarnings   = payslip.is_manually_adjusted ? payslip.original_earnings   : payslip.earnings
@@ -242,7 +275,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      data: { adjusted, unchanged, not_found: notFound, diffs },
+      data: { adjusted, unchanged, not_found: notFound, diffs, skipped },
     })
   } catch (error) {
     console.error('Import adjustments error:', error)
