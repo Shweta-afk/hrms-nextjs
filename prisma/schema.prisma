@@ -170,6 +170,11 @@ model Employee {
 
   @@unique([org_id, emp_code])
   @@unique([org_id, email])
+  // Hot paths: employee list filtered by status, attendance/payroll summaries
+  // filtered by (status, exclude_from_payroll). Without these, every dashboard
+  // hit does a sequential scan of `employees`.
+  @@index([org_id, status])
+  @@index([org_id, exclude_from_payroll, status])
   @@map("employees")
 }
 
@@ -202,6 +207,9 @@ model AttendanceRecord {
   // Hot path: cron job + live attendance dashboard query `WHERE org_id = ? AND date = ?`
   // Covers both ascending and descending scans within an org.
   @@index([org_id, date])
+  // Today/monthly summary cards count rows per status — index lets Postgres
+  // skip the table scan and answer count() from the index alone.
+  @@index([org_id, status, date])
   @@map("attendance_records")
 }
 
@@ -317,6 +325,9 @@ model LeaveRequest {
   // Hot path: HR approval queue filters `WHERE org_id = ? AND status = 'pending'`
   @@index([org_id, status])
   @@index([employee_id, status])
+  // Dashboard "on-leave today" — narrow approved leaves by from_date so the
+  // overlap check (from_date <= today AND today <= to_date) hits an index.
+  @@index([org_id, status, from_date])
   @@map("leave_requests")
 }
 
