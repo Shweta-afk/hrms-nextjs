@@ -47,6 +47,7 @@ interface AttendanceRecord {
 }
 
 interface Summary { present: number; absent: number; late: number }
+interface TodaySummary { present: number; absent: number; on_leave: number; late: number; wfh: number }
 
 interface MonthSummary {
   month: number; present: number; absent: number; late: number; ot_hours: number;
@@ -81,6 +82,7 @@ const Attendance = () => {
   const [monthOffset, setMonthOffset] = useState(0)
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [summary, setSummary] = useState<Summary>({ present: 0, absent: 0, late: 0 })
+  const [today, setToday] = useState<TodaySummary>({ present: 0, absent: 0, on_leave: 0, late: 0, wfh: 0 })
   const [loading, setLoading] = useState(true)
 
   // Import modal
@@ -160,6 +162,9 @@ const Attendance = () => {
       if (json.success) {
         setRecords(json.data.records)
         setSummary(json.data.summary)
+        // `today` is always today's headcount snapshot; safe-fallback to zeroes
+        // if an older API build doesn't return it yet.
+        if (json.data.today) setToday(json.data.today)
       } else toast.error('Failed to load attendance')
     } catch { toast.error('Failed to load attendance') }
     finally { setLoading(false) }
@@ -712,11 +717,16 @@ const Attendance = () => {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           {[
-            { label: "Present Today",   value: summary.present, icon: Users,        color: "text-kpi-green",   bg: "bg-kpi-green/10" },
-            { label: "Absent",          value: summary.absent,  icon: UserX,        color: "text-kpi-red",     bg: "bg-kpi-red/10" },
-            { label: "On Leave",        value: 0,               icon: CalendarDays, color: "text-primary",     bg: "bg-primary/10" },
-            { label: "Late Arrivals",   value: summary.late,    icon: Clock,        color: "text-kpi-amber",   bg: "bg-kpi-amber/10" },
-            { label: "Work from Home",  value: 0,               icon: Home,         color: "text-kpi-purple",  bg: "bg-kpi-purple/10" },
+            // KPI strip = TODAY's headcount (not month-aggregate). Sourced
+            // from `today` rather than `summary` because `summary` switches to
+            // employee-days when a month is queried — which made these cards
+            // misleading (e.g. "Present Today: 65" was actually June's running
+            // total of person-days).
+            { label: "Present Today",   value: today.present,  icon: Users,        color: "text-kpi-green",   bg: "bg-kpi-green/10" },
+            { label: "Absent",          value: today.absent,   icon: UserX,        color: "text-kpi-red",     bg: "bg-kpi-red/10" },
+            { label: "On Leave",        value: today.on_leave, icon: CalendarDays, color: "text-primary",     bg: "bg-primary/10" },
+            { label: "Late Arrivals",   value: today.late,     icon: Clock,        color: "text-kpi-amber",   bg: "bg-kpi-amber/10" },
+            { label: "Work from Home",  value: today.wfh,      icon: Home,         color: "text-kpi-purple",  bg: "bg-kpi-purple/10" },
           ].map((s) => (
             <Card key={s.label}>
               <CardContent className="p-4 flex items-center gap-3">

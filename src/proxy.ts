@@ -78,5 +78,18 @@ export default async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|public).*)'],
+  // Exclude:
+  //   - Next.js internals (_next/static, _next/image)
+  //   - favicon.ico
+  //   - Any path ending in a static asset extension (png/jpg/svg/webp/ico/font/etc.)
+  //
+  // Why the extension list: files in `public/` are served from the ROOT URL
+  // (e.g. /lightmodelogo.png, not /public/lightmodelogo.png). The previous
+  // `|public` exclusion did nothing because no request actually starts with
+  // `/public`. Without this, the auth middleware would redirect logo / icon
+  // PNG requests to /login, the browser would receive HTML in place of an
+  // image, and <img> tags would fall back to their alt text.
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|avif|woff|woff2|ttf|otf|eot|map)$).*)',
+  ],
 }

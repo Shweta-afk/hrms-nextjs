@@ -148,6 +148,62 @@ export async function GET(req: NextRequest) {
       summaryLate    = lateToday
     }
 
+    // ── "Today" headcount snapshot ────────────────────────────────────────
+    // Always returned regardless of which month is being browsed, because the
+    // UI's KPI strip labels these as "Present Today" / "On Leave" / etc.
+    // (The monthly `summary` above is intentionally different — it returns
+    // employee-DAYS for the dashboard chart's attendance-rate calculation.)
+    //
+    // Status semantics:
+    //   present  = attendance row with status in ['present', 'late', 'half_day']
+    //   wfh      = attendance row with status = 'wfh'              (counted separately)
+    //   on_leave = attendance row with status = 'leave'            (counted separately)
+    //   late     = is_late = true (subset of present)
+    //   absent   = totalActive - (present + wfh + on_leave)
+    const [
+      todayPresentCount,
+      todayWfhCount,
+      todayLeaveCount,
+      todayLateCount,
+    ] = await Promise.all([
+      prisma.attendanceRecord.count({
+        where: {
+          org_id: session.user.org_id,
+          date: todayUTC,
+          status: { in: ['present', 'late', 'half_day'] },
+          employee: { status: 'active', exclude_from_payroll: false },
+        },
+      }),
+      prisma.attendanceRecord.count({
+        where: {
+          org_id: session.user.org_id,
+          date: todayUTC,
+          status: 'wfh',
+          employee: { status: 'active', exclude_from_payroll: false },
+        },
+      }),
+      prisma.attendanceRecord.count({
+        where: {
+          org_id: session.user.org_id,
+          date: todayUTC,
+          status: 'leave',
+          employee: { status: 'active', exclude_from_payroll: false },
+        },
+      }),
+      prisma.attendanceRecord.count({
+        where: {
+          org_id: session.user.org_id,
+          date: todayUTC,
+          is_late: true,
+          employee: { status: 'active', exclude_from_payroll: false },
+        },
+      }),
+    ])
+    const todayAbsentCount = Math.max(
+      0,
+      totalActive - (todayPresentCount + todayWfhCount + todayLeaveCount)
+    )
+
     return NextResponse.json({
       success: true,
       data: {
@@ -156,6 +212,13 @@ export async function GET(req: NextRequest) {
         page,
         pages: Math.ceil(total / limit),
         summary: { present: summaryPresent, absent: summaryAbsent, late: summaryLate },
+        today: {
+          present:  todayPresentCount,
+          absent:   todayAbsentCount,
+          on_leave: todayLeaveCount,
+          late:     todayLateCount,
+          wfh:      todayWfhCount,
+        },
       },
     })
   } catch (error) {

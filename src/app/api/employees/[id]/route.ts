@@ -175,6 +175,22 @@ export async function PATCH(
       const msg = error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
       return NextResponse.json({ success: false, error: msg }, { status: 400 })
     }
+    // Prisma unique-constraint violation. Most common case here is HR trying
+    // to set an emp_code that another employee already uses — surface that as
+    // a clear 409 instead of a generic 500.
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code: string }).code === 'P2002'
+    ) {
+      const target = (error as { meta?: { target?: string[] } }).meta?.target
+      const fields = Array.isArray(target) ? target.join(', ') : 'field'
+      const friendly = fields.includes('emp_code')
+        ? 'That Employee ID is already in use by someone else in your org.'
+        : `Duplicate value for ${fields}. This ${fields} is already in use.`
+      return NextResponse.json({ success: false, error: friendly }, { status: 409 })
+    }
     console.error('Employee PATCH error:', error)
     return NextResponse.json({ success: false, error: 'Failed to update employee' }, { status: 500 })
   }

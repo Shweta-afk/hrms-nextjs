@@ -169,10 +169,10 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   // Draft state for edit forms
   const [personalDraft, setPersonalDraft] = useState<Partial<Employee>>({})
   const [empDraft, setEmpDraft] = useState<{
-    department_id: string; employment_type: string
+    emp_code: string; department_id: string; employment_type: string
     ctc_annual: string; salary_structure_id: string; date_of_joining: string
     designation_id: string
-  }>({ department_id: '', employment_type: '', ctc_annual: '', salary_structure_id: '', date_of_joining: '', designation_id: '' })
+  }>({ emp_code: '', department_id: '', employment_type: '', ctc_annual: '', salary_structure_id: '', date_of_joining: '', designation_id: '' })
   const [transferDept, setTransferDept] = useState('')
 
   const fetchEmployee = useCallback(async () => {
@@ -392,6 +392,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
     // UI shows monthly salary; store as annual (×12) in ctc_annual
     const monthly = empDraft.ctc_annual ? parseFloat(empDraft.ctc_annual) : undefined
     const ok = await patch({
+      emp_code: empDraft.emp_code?.trim() || undefined,
       department_id: empDraft.department_id || undefined,
       employment_type: empDraft.employment_type || undefined,
       designation_id: empDraft.designation_id || undefined,
@@ -680,6 +681,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                 <Button variant="ghost" size="sm" onClick={() => {
                   setEditEmployment(true)
                   setEmpDraft({
+                    emp_code: employee.emp_code || '',
                     department_id: employee.department_id || '',
                     employment_type: employee.employment_type,
                     designation_id: employee.designation_id || '',
@@ -696,6 +698,22 @@ const EmployeeProfile = ({ employeeId }: Props) => {
             <CardContent>
               {editEmployment ? (
                 <div className="space-y-4 max-w-lg">
+                  <div className="space-y-1.5">
+                    <Label>Employee ID</Label>
+                    <Input
+                      value={empDraft.emp_code}
+                      onChange={e => setEmpDraft(p => ({ ...p, emp_code: e.target.value }))}
+                      placeholder="e.g. EMP0042"
+                    />
+                    {/* Warn HR before they change emp_code — it's the key
+                        biometric devices and historical reports use. Editing
+                        it doesn't migrate old punch logs or payslip filenames. */}
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      ⚠ Changing the Employee ID affects biometric device sync and
+                      how historical attendance data is keyed. Update the device's
+                      enrollment to match if you change this.
+                    </p>
+                  </div>
                   <div className="space-y-1.5">
                     <Label>Department</Label>
                     <Select value={empDraft.department_id} onValueChange={v => setEmpDraft(p => ({ ...p, department_id: v }))}>

@@ -112,3 +112,103 @@ export function getClientIp(req: Request): string {
   if (real) return real.trim()
   return 'unknown'
 }
+
+/**
+ * Like getClientIp but accepts NextAuth v4's `authorize(req)` shape, where
+ * `headers` is a plain `IncomingHttpHeaders`-like object (lowercase keys).
+ */
+export function getClientIpFromHeaders(
+  headers: Record<string, string | string[] | undefined> | undefined
+): string {
+  if (!headers) return 'unknown'
+  const pick = (h: string | string[] | undefined) =>
+    Array.isArray(h) ? h[0] : h
+  const fwd = pick(headers['x-forwarded-for'])
+  if (fwd) return fwd.split(',')[0].trim()
+  const real = pick(headers['x-real-ip'])
+  if (real) return real.trim()
+  return 'unknown'
+}
+
+/**
+ * Read the current bucket WITHOUT incrementing it. Use this when you want to
+ * decide whether to allow an action based on past failures alone — e.g. only
+ * count failed login attempts toward the limit, not successful ones.
+ *
+ * Fails open: a DB / table problem returns { allowed: true }.
+ */
+export async function peekRateLimit(
+  key: string,
+  opts: RateLimitOptions
+): Promise<RateLimitResult> {
+  const now = new Date()
+  try {
+    const existing = await prisma.rateLimitEntry.findUnique({ where: { key } })
+    if (!existing || existing.expires_at <= now) {
+      return { allowed: true, remaining: opts.max, retryAfterSeconds: 0 }
+    }
+    if (existing.count >= opts.max) {
+      return {
+        allowed: false,
+        remaining: 0,
+        retryAfterSeconds: Math.ceil(
+          (existing.expires_at.getTime() - now.getTime()) / 1000
+        ),
+      }
+    }
+    return {
+      allowed: true,
+      remaining: Math.max(opts.max - existing.count, 0),
+      retryAfterSeconds: 0,
+    }
+  } catch {
+    return ALLOW
+  }
+}
+
+/**
+ * Increment the bucket. Use after a failed action to "spend" one attempt.
+ * If the bucket is missing or expired, starts a fresh window at count=1.
+ */
+export async function incrementRateLimit(
+  key: string,
+  opts: RateLimitOptions
+): Promise<void> {
+  const now = new Date()
+  try {
+    const existing = await prisma.rateLimitEntry.findUnique({ where: { key } })
+    if (!existing || existing.expires_at <= now) {
+      await prisma.rateLimitEntry.upsert({
+        where: { key },
+        create: {
+          key,
+          count: 1,
+          expires_at: new Date(now.getTime() + opts.windowMs),
+        },
+        update: {
+          count: 1,
+          expires_at: new Date(now.getTime() + opts.windowMs),
+        },
+      })
+      return
+    }
+    await prisma.rateLimitEntry.update({
+      where: { key },
+      data: { count: { increment: 1 } },
+    })
+  } catch {
+    // fail open
+  }
+}
+
+/**
+ * Wipe a bucket — call on success when you don't want a partially-filled
+ * window to penalize the next legitimate attempt.
+ */
+export async function resetRateLimit(key: string): Promise<void> {
+  try {
+    await prisma.rateLimitEntry.delete({ where: { key } })
+  } catch {
+    // already gone or table missing — no-op
+  }
+}

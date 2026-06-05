@@ -95,12 +95,37 @@ export async function POST(
         if (dedHeaders[j]) newDeductions[dedHeaders[j]] = val
       }
 
-      const newGross = Math.round(
-        Object.values(newEarnings).reduce((a, b) => a + b, 0)
-      )
-      const newTotalDed = Math.round(
-        Object.values(newDeductions).reduce((a, b) => a + b, 0)
-      )
+      // ── Reconcile net against line items ──────────────────────────────
+      // The natural HR workflow is: download the export, change ONLY the
+      // Net Salary column to the amount they want to pay, re-upload. In
+      // that case the earnings/deductions columns are still the original
+      // values, so blindly trusting them would leave the payslip showing
+      // OLD Basic/HRA/PF/etc. with a NEW net at the bottom — math broken.
+      //
+      // Instead: compute what the net WOULD be from the line items HR
+      // submitted, then synthesize an "Adjustment" line to absorb the
+      // gap so the payslip math balances and the change is visible.
+      //
+      // If HR did edit the line items AND set net consistently, the gap
+      // is zero and no Adjustment line is added.
+      const sum = (obj: Record<string, number>) =>
+        Math.round(Object.values(obj).reduce((a, b) => a + b, 0))
+
+      const grossFromLines = sum(newEarnings)
+      const dedFromLines   = sum(newDeductions)
+      const netFromLines   = grossFromLines - dedFromLines
+      const delta          = newNetSalary - netFromLines
+
+      if (delta > 0) {
+        // HR wants to pay MORE than the line items add up to → positive earning
+        newEarnings['Adjustment'] = (newEarnings['Adjustment'] ?? 0) + delta
+      } else if (delta < 0) {
+        // HR wants to pay LESS than the line items add up to → deduction
+        newDeductions['Adjustment'] = (newDeductions['Adjustment'] ?? 0) + (-delta)
+      }
+
+      const newGross    = sum(newEarnings)
+      const newTotalDed = sum(newDeductions)
       const adjNote = adjNoteIdx !== -1 ? String(row[adjNoteIdx] ?? '').trim() : ''
 
       if (newNetSalary === oldNetSalary) { unchanged++; continue }

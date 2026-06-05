@@ -100,6 +100,22 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json()
     const data = CreateEmployeeSchema.parse(body)
+    const email = data.email.trim().toLowerCase()
+
+    // Pre-check: is this email already in use by another user?
+    // The `users.email` column is UNIQUE, so without this guard the insert
+    // would still fail downstream — but with a generic "Failed to create
+    // employee" message that hides the real cause from HR.
+    const existingUser = await prisma.user.findUnique({ where: { email } })
+    if (existingUser) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'A user with this email already exists. Use a different email or remove the existing account first.',
+        },
+        { status: 409 }
+      )
+    }
 
     // Use HR-provided emp_code if given, otherwise auto-generate
     const count = await prisma.employee.count({
@@ -107,31 +123,45 @@ export async function POST(req: NextRequest) {
     })
     const emp_code = data.emp_code?.trim() || `EMP${String(count + 1).padStart(4, '0')}`
 
-    const employee = await prisma.employee.create({
-      data: {
-        ...data,
-        org_id: session.user.org_id,
-        emp_code,
-        date_of_joining: new Date(data.date_of_joining),
-      },
-      include: {
-        department: true,
-        designation: true,
-      },
-    })
-
-    // Auto-create user account for the employee
+    // Hash password BEFORE the transaction so bcrypt's ~65ms doesn't hold a
+    // DB transaction open.
     const tempPassword = `Hrms@${Math.floor(1000 + Math.random() * 9000)}`
-    const hashedPwd = await import('bcryptjs').then(b => b.hash(tempPassword, 10))
+    const bcrypt = await import('bcryptjs')
+    const hashedPwd = await bcrypt.hash(tempPassword, 10)
 
-    const empUser = await prisma.user.create({
-      data: {
-        org_id: session.user.org_id,
-        email: data.email,
-        password: hashedPwd,
-        role: 'employee',
-        employee_id: employee.id,
-      },
+    // Atomic: create the Employee + linked User together. If either fails,
+    // BOTH roll back — no orphan Employee rows when the User insert errors.
+    const employee = await prisma.$transaction(async (tx) => {
+      const emp = await tx.employee.create({
+        data: {
+          ...data,
+          email,
+          org_id: session.user.org_id,
+          emp_code,
+          date_of_joining: new Date(data.date_of_joining),
+        },
+        include: {
+          department: true,
+          designation: true,
+        },
+      })
+
+      await tx.user.create({
+        data: {
+          org_id: session.user.org_id,
+          email,
+          password: hashedPwd,
+          role: 'employee',
+          employee_id: emp.id,
+          // HR vouches for this employee — mark them verified so they can
+          // log in immediately with the temp password sent in the welcome
+          // email. Without this, NextAuth's authorize() throws
+          // EMAIL_NOT_VERIFIED and the employee is permanently locked out.
+          email_verified_at: new Date(),
+        },
+      })
+
+      return emp
     })
 
     // Send welcome email
@@ -161,10 +191,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, data: employee }, { status: 201 })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ success: false, error: error.issues }, { status: 400 })
+      // Surface validation issues so HR can see WHICH field is wrong.
+      const firstIssue = error.issues[0]
+      const fieldPath = firstIssue?.path?.join('.') ?? 'field'
+      const message = firstIssue
+        ? `${fieldPath}: ${firstIssue.message}`
+        : 'Invalid input'
+      return NextResponse.json(
+        { success: false, error: message, issues: error.issues },
+        { status: 400 }
+      )
+    }
+    // Prisma unique-constraint violation (race with another HR adding the
+    // same email at the same time, or a stale row our pre-check missed).
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code: string }).code === 'P2002'
+    ) {
+      const target = (error as { meta?: { target?: string[] } }).meta?.target
+      const field = Array.isArray(target) ? target.join(', ') : 'field'
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Duplicate value for ${field}. This ${field} is already in use.`,
+        },
+        { status: 409 }
+      )
     }
     console.error('Employee POST error:', error)
-    return NextResponse.json({ success: false, error: 'Failed to create employee' }, { status: 500 })
+    return NextResponse.json(
+      { success: false, error: 'Failed to create employee' },
+      { status: 500 }
+    )
   }
 }
 
