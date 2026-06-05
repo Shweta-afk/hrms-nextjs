@@ -37,6 +37,7 @@ export async function GET() {
       requests,
       holidays,
       employee,
+      birthdayEmployees,
     ] = await Promise.all([
       // Leave balance parts (need both to compute balance)
       prisma.leaveType.findMany({ where: { org_id } }),
@@ -128,6 +129,22 @@ export async function GET() {
           statutory_info: true,
         },
       }),
+
+      // Active employees with personal_info, used downstream to compute
+      // the upcoming-birthdays list. We pull the whole list here (rather
+      // than a second API round-trip from the client) so the portal stays
+      // a single network call.
+      prisma.employee.findMany({
+        where: { org_id, status: 'active' },
+        select: {
+          id:            true,
+          emp_code:      true,
+          first_name:    true,
+          last_name:     true,
+          personal_info: true,
+          department:    { select: { name: true } },
+        },
+      }),
     ])
 
     // ── Compute leave balances ────────────────────────────────────────────────
@@ -153,6 +170,15 @@ export async function GET() {
         }
       : null
 
+    // Compute upcoming birthdays in-process — same util the HR dashboard
+    // endpoint uses, so both surfaces show the same list. Excludes the
+    // viewing employee themselves.
+    const { computeUpcomingBirthdays } = await import('@/lib/birthdays')
+    const upcomingBirthdays = computeUpcomingBirthdays(birthdayEmployees, {
+      windowDays:        14,
+      excludeEmployeeId: employee_id,
+    })
+
     return NextResponse.json({
       success: true,
       data: {
@@ -164,6 +190,7 @@ export async function GET() {
         requests,
         holidays,
         employee: employeeData,
+        upcoming_birthdays: upcomingBirthdays,
       },
     })
   } catch (error) {

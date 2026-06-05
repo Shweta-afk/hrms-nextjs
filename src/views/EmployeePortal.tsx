@@ -10,6 +10,7 @@ import {
   Bell, CalendarDays, Download, Clock, FileText, User, HelpCircle,
   CheckCircle2, Megaphone, ArrowRight,
   CalendarCheck, CreditCard, Shield, Loader2, X, Receipt, PlusCircle,
+  Cake, Gift,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
@@ -113,6 +114,13 @@ const EmployeePortal = () => {
   const [requestDesc, setRequestDesc] = useState('')
   const [requestSubmitting, setRequestSubmitting] = useState(false)
   const [holidays, setHolidays] = useState<{ id: string; name: string; date: string; type: string }[]>([])
+  // Coworker birthdays in the next 14 days. Pre-computed server-side by the
+  // portal-summary endpoint so this surface stays a single network call.
+  const [birthdays, setBirthdays] = useState<{
+    employee_id: string; name: string; emp_code: string;
+    department: string | null; date_label: string;
+    days_away: number; is_today: boolean;
+  }[]>([])
 
   // Reimbursements
   const [reimbursements, setReimbursements] = useState<Reimbursement[]>([])
@@ -142,7 +150,8 @@ const EmployeePortal = () => {
       if (!json.success) throw new Error(json.error)
 
       const { leaveBalances, attendance, notifications, payslip,
-              reimbursements, requests, holidays, employee } = json.data
+              reimbursements, requests, holidays, employee,
+              upcoming_birthdays } = json.data
 
       setLeaveBalances(leaveBalances)
       setAttendance(attendance.slice(0, 7))
@@ -152,6 +161,7 @@ const EmployeePortal = () => {
       setReimbursements(reimbursements)
       setMyRequests(requests)
       setHolidays(holidays)
+      setBirthdays(upcoming_birthdays ?? [])
       if (employee) {
         const fn: string = employee.first_name ?? ''
         const ln: string = employee.last_name ?? ''
@@ -516,6 +526,51 @@ const EmployeePortal = () => {
                 </div>
               )}
             </section>
+
+            {/* Upcoming Birthdays — coworker birthdays in the next 14 days.
+                Source-of-truth is Employee.personal_info.date_of_birth, which
+                is already captured during onboarding/profile editing. We
+                deliberately don't display age (only "Mon DD" + "in N days"). */}
+            {birthdays.length > 0 && (
+              <section>
+                <h2 className="text-lg font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <Cake className="h-5 w-5 text-primary" /> Upcoming Birthdays
+                </h2>
+                <div className="grid md:grid-cols-3 gap-4">
+                  {birthdays.slice(0, 6).map(b => (
+                    <Card
+                      key={b.employee_id}
+                      className={`hover:shadow-md transition-shadow ${
+                        b.is_today
+                          ? 'border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-900/10'
+                          : ''
+                      }`}
+                    >
+                      <CardContent className="p-5">
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0">
+                            <p className="text-xs text-muted-foreground mb-1">{b.date_label}</p>
+                            <h3 className="text-sm font-semibold text-foreground truncate">{b.name}</h3>
+                            {b.department && (
+                              <p className="text-xs text-muted-foreground mt-0.5 truncate">{b.department}</p>
+                            )}
+                          </div>
+                          {b.is_today ? (
+                            <Badge className="bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300 text-[10px] flex items-center gap-1">
+                              <Gift className="h-3 w-3" /> Today
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="text-[10px]">
+                              {b.days_away === 1 ? 'Tomorrow' : `in ${b.days_away}d`}
+                            </Badge>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {/* My Reimbursements */}
             <section id="reimbursements">

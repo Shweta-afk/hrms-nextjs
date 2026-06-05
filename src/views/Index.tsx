@@ -5,6 +5,7 @@ import LeaveDistributionChart from "@/components/dashboard/LeaveDistributionChar
 import RecentActivity from "@/components/dashboard/RecentActivity";
 import UpcomingPanel from "@/components/dashboard/UpcomingPanel";
 import PendingVerificationsPanel from "@/components/dashboard/PendingVerificationsPanel";
+import BirthdaysPanel from "@/components/dashboard/BirthdaysPanel";
 
 const Index = () => {
   return (
@@ -19,17 +20,20 @@ const Index = () => {
           <LeaveDistributionChart />
         </div>
 
-        {/* Panels Row: Recent + Upcoming on top, document verification queue below.
-            Verification panel is given its own row (rather than stuffed alongside)
-            so the per-row employee list has room to breathe — squeezing it into
-            a half-width column truncated department names and made the chips
-            wrap awkwardly. */}
+        {/* Panels Row: Recent + Upcoming on top, then the actionable HR queues
+            (document verification + birthdays). Verification keeps its own row
+            because the employee list there needs room to breathe; Birthdays
+            sits half-width alongside other concise lists when we grow the
+            dashboard further. */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <RecentActivity />
           <UpcomingPanel />
         </div>
 
-        <PendingVerificationsPanel />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <PendingVerificationsPanel />
+          <BirthdaysPanel />
+        </div>
       </div>
     </AppLayout>
   );
