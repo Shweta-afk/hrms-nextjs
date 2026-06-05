@@ -140,28 +140,65 @@ export async function POST(
 
       // ── Reconcile net against line items ──────────────────────────────
       // The natural HR workflow is: download the export, change ONLY the
-      // Net Salary column to the amount they want to pay, re-upload. In
-      // that case the earnings/deductions columns are still the original
-      // values, so blindly trusting them would leave the payslip showing
-      // OLD Basic/HRA/PF/etc. with a NEW net at the bottom — math broken.
+      // Net Salary column (or "To be Credited") to the amount they want to
+      // pay, re-upload. The earning/deduction columns are still the
+      // original values, so blindly trusting them would leave the payslip
+      // showing OLD Basic/HRA/PF/etc. with a NEW net at the bottom — math
+      // broken.
       //
-      // Instead: compute what the net WOULD be from the line items HR
-      // submitted, then synthesize an "Adjustment" line to absorb the
-      // gap so the payslip math balances and the change is visible.
-      //
-      // If HR did edit the line items AND set net consistently, the gap
-      // is zero and no Adjustment line is added.
+      // Compute what the net WOULD be from the line items HR submitted,
+      // then reconcile the gap:
+      //   delta > 0  (HR pays MORE) — typically because they're reversing
+      //               a performance-based deduction (Loss of Pay, Late
+      //               Penalty, Half Day). Reduce those deductions in
+      //               priority order before falling back to a positive
+      //               "Adjustment" earning. This way the payslip visibly
+      //               shows the deduction gone, matching HR's intent
+      //               (not just a counter-earning that hides the original
+      //               deduction).
+      //   delta < 0  (HR pays LESS) — add a negative "Adjustment" entry
+      //               as a deduction.
       const sum = (obj: Record<string, number>) =>
         Math.round(Object.values(obj).reduce((a, b) => a + b, 0))
 
       const grossFromLines = sum(newEarnings)
       const dedFromLines   = sum(newDeductions)
       const netFromLines   = grossFromLines - dedFromLines
-      const delta          = newNetSalary - netFromLines
+      let delta            = newNetSalary - netFromLines
 
       if (delta > 0) {
-        // HR wants to pay MORE than the line items add up to → positive earning
-        newEarnings['Adjustment'] = (newEarnings['Adjustment'] ?? 0) + delta
+        // Performance-discretionary deductions, most-reversible first.
+        // PF / ESI / Professional Tax / TDS are statutory and intentionally
+        // NOT in this list — those should never be auto-reversed.
+        const REVERSIBLE_DEDUCTIONS = [
+          'Loss of Pay',
+          'Late Penalty',
+          'Half Day for Late Mark',
+          'Half Day Late Mark',
+          'Actual Half Day',
+          'Half Day',
+        ]
+        for (const key of REVERSIBLE_DEDUCTIONS) {
+          if (delta <= 0) break
+          const existing = newDeductions[key] ?? 0
+          if (existing <= 0) continue
+          const reduceBy = Math.min(delta, existing)
+          const remaining = existing - reduceBy
+          if (remaining > 0) {
+            newDeductions[key] = remaining
+          } else {
+            // Fully reversed — drop the line so it doesn't show as "₹0" on
+            // the payslip. The payslip view skips zero-amount lines anyway,
+            // but deleting is cleaner.
+            delete newDeductions[key]
+          }
+          delta -= reduceBy
+        }
+        if (delta > 0) {
+          // Excess after reducing reversible deductions — record as an
+          // Adjustment earning so HR's target net is still honored.
+          newEarnings['Adjustment'] = (newEarnings['Adjustment'] ?? 0) + delta
+        }
       } else if (delta < 0) {
         // HR wants to pay LESS than the line items add up to → deduction
         newDeductions['Adjustment'] = (newDeductions['Adjustment'] ?? 0) + (-delta)
