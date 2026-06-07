@@ -7,8 +7,8 @@ export function CTABanner() {
     <section className="py-24">
       <div className="mx-auto max-w-6xl px-6">
         <div className="relative overflow-hidden rounded-3xl bg-blue-50 px-8 py-20 text-center dark:bg-blue-950/40">
-          {/* editorial rule */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 mx-auto h-px max-w-md bg-gradient-to-r from-transparent via-blue-600/60 to-transparent" />
+          {/* Solid editorial tab — same vocabulary as the Hero. Block color, no gradient. */}
+          <div className="pointer-events-none absolute left-1/2 top-0 h-1.5 w-16 -translate-x-1/2 bg-blue-600" />
           <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-blue-600">
             One more thing
           </p>
@@ -34,7 +34,7 @@ export function CTABanner() {
               variant="outline"
               className="h-12 border-zinc-300 px-6 text-base hover:bg-white dark:border-zinc-700 dark:hover:bg-zinc-900"
             >
-              <Link href="mailto:hello@acmehr.in">Talk to us about pricing</Link>
+              <Link href="mailto:hrms@axiotta.com">Talk to us about pricing</Link>
             </Button>
           </div>
         </div>

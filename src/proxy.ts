@@ -4,7 +4,11 @@ import { getToken } from 'next-auth/jwt'
 
 // Pages that don't require auth.
 // IMPORTANT: '/' must be exact-match (not prefix) — startsWith('/') would match every URL.
-const PUBLIC_PAGE_EXACT = new Set(['/', '/demo', '/verify-email'])
+// Legal pages (/privacy, /terms) MUST be public — they're linked from the footer of
+// every marketing surface AND referenced as legal documents from signup. Gating them
+// behind auth would also break payment-processor / DPDP-Act compliance checks that
+// expect a publicly-readable Privacy Policy and ToS URL.
+const PUBLIC_PAGE_EXACT = new Set(['/', '/demo', '/verify-email', '/privacy', '/terms'])
 const PUBLIC_PAGE_PREFIXES = ['/login', '/signup', '/forgot-password', '/reset-password', '/billing']
 
 // Routes only HR admins can access (employees are redirected to /portal)

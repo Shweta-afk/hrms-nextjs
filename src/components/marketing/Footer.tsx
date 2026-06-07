@@ -12,7 +12,7 @@ const cols = [
   {
     title: "Company",
     links: [
-      { label: "Contact", href: "mailto:hello@acmehr.in" },
+      { label: "Contact", href: "mailto:hrms@axiotta.com" },
     ],
   },
   {
@@ -58,7 +58,7 @@ export function Footer() {
         </div>
 
         <div className="mt-14 border-t border-zinc-200 pt-6 text-sm text-zinc-500 dark:border-zinc-800">
-          <p>© {new Date().getFullYear()} Axiotta Technologies. Made in Bengaluru 🇮🇳</p>
+          <p>© {new Date().getFullYear()} Axiotta Technologies. Made in Mumbai.</p>
         </div>
       </div>
     </footer>

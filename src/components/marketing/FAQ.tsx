@@ -41,7 +41,7 @@ export function FAQ() {
           </h2>
           <p className="mt-4 max-w-sm text-sm text-zinc-600 dark:text-zinc-400">
             Still not sure?{" "}
-            <a href="mailto:hello@acmehr.in" className="text-blue-600 underline-offset-4 hover:underline">
+            <a href="mailto:hrms@axiotta.com" className="text-blue-600 underline-offset-4 hover:underline">
               Email us
             </a>{" "}
             — we reply in hours, not days.

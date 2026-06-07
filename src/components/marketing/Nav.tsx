@@ -10,7 +10,7 @@ import { ThemeToggle } from "./ThemeToggle";
 const links = [
   { href: "#features", label: "Features" },
   { href: "#why", label: "Why us" },
-  { href: "mailto:hello@acmehr.in", label: "Contact" },
+  { href: "mailto:hrms@axiotta.com", label: "Contact" },
 ];
 
 export function Nav() {
