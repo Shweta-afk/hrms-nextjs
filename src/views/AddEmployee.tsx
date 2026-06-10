@@ -69,6 +69,10 @@ const AddEmployee = () => {
   const [phone,          setPhone]          = useState("")
   const [empCode,        setEmpCode]        = useState("")
   const [dateOfJoining,  setDateOfJoining]  = useState("")
+  // DOB is optional at onboarding (some HRs key it in later from documents),
+  // but capturing it upfront populates the org-wide birthday panel without
+  // requiring the employee to log into the portal first.
+  const [dateOfBirth,    setDateOfBirth]    = useState("")
   const [departmentId,   setDepartmentId]   = useState("")
   const [designation,    setDesignation]    = useState("")
   const [managerId,      setManagerId]      = useState("")
@@ -121,6 +125,12 @@ const AddEmployee = () => {
         essl_device_id:  esslDeviceId || undefined,
         // UI accepts monthly salary; store as annual (×12) in ctc_annual
         ctc_annual:      ctcAnnual ? parseFloat(ctcAnnual) * 12 : undefined,
+        // personal_info is a JSON column — send only the keys we collected
+        // here. The employee can fill the rest (gender, addresses, etc.)
+        // from their own portal.
+        ...(dateOfBirth && {
+          personal_info: { date_of_birth: dateOfBirth },
+        }),
       }
       // designation is a free-text field; map it as a name-based lookup or store in notes
       // The API accepts designation_id; we'll pass it as text via a separate field if needed
@@ -243,6 +253,18 @@ const AddEmployee = () => {
                   />
                 </Field>
 
+                {/* Optional — drives the birthday panels. Capped at today's
+                    date because future DOBs are obviously wrong, and we
+                    don't want a typo to surface as a 100-year-old joining
+                    today on the dashboard. */}
+                <div className="space-y-2">
+                  <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                  <Input id="dateOfBirth" type="date" value={dateOfBirth}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={e => setDateOfBirth(e.target.value)} />
+                  <p className="text-xs text-muted-foreground">Optional. Used for the birthday panel — month/day only is shown.</p>
+                </div>
+
                 <Field id="departmentId" label="Department" required errors={errors}>
                   <Select value={departmentId} onValueChange={v => { setDepartmentId(v); setErrors(p => ({ ...p, departmentId: '' })) }}>
                     <SelectTrigger className={errors.departmentId ? 'border-destructive' : ''}>
@@ -334,6 +356,9 @@ const AddEmployee = () => {
                   ['Employee Code',    empCode.trim() || 'Auto-generated'],
                   ['Date of Joining',  dateOfJoining
                     ? new Date(dateOfJoining).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })
+                    : '—'],
+                  ['Date of Birth',    dateOfBirth
+                    ? new Date(dateOfBirth).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })
                     : '—'],
                   ['Department',       deptName],
                   ['Designation',      designation],

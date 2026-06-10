@@ -392,11 +392,27 @@ const EmployeeProfile = ({ employeeId }: Props) => {
     const wasPlaceholder = employee?.email?.endsWith('@company.com')
     const newEmailIsReal = personalDraft.email && !personalDraft.email.endsWith('@company.com')
 
+    // Merge the edited personal_info (today: just date_of_birth) into the
+    // existing record so we don't overwrite anything the employee set from
+    // their own portal (gender, blood group, addresses, emergency contact).
+    // Only include personal_info in the patch if it actually changed —
+    // sending it unconditionally would clobber the employee's portal edits
+    // with the snapshot we took on mount.
+    const draftDob = (personalDraft.personal_info as Record<string, unknown> | undefined)?.date_of_birth
+    const currentDob = (employee?.personal_info as Record<string, unknown> | undefined)?.date_of_birth
+    const personalInfoChanged = draftDob !== currentDob
+
     const ok = await patch({
       first_name: personalDraft.first_name,
       last_name:  personalDraft.last_name,
       phone:      personalDraft.phone,
       email:      personalDraft.email,
+      ...(personalInfoChanged && {
+        personal_info: {
+          ...(employee?.personal_info ?? {}),
+          date_of_birth: draftDob ?? null,
+        },
+      }),
     })
     if (!ok) return
     setEditPersonal(false)
@@ -619,6 +635,28 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                         <Label>Phone</Label>
                         <Input value={(personalDraft.phone as string) || ''} onChange={e => setPersonalDraft(p => ({ ...p, phone: e.target.value }))} />
                       </div>
+                      {/* Date of Birth — drives the org-wide birthday panel
+                          on the HR dashboard and the employee portal. Stored
+                          in personal_info JSON, kept separate from the flat
+                          Employee columns above. */}
+                      <div className="space-y-1.5 col-span-2">
+                        <Label>Date of Birth</Label>
+                        <Input
+                          type="date"
+                          value={String((personalDraft.personal_info as Record<string, unknown> | undefined)?.date_of_birth ?? '')}
+                          max={new Date().toISOString().slice(0, 10)}
+                          onChange={e => setPersonalDraft(p => ({
+                            ...p,
+                            personal_info: {
+                              ...(p.personal_info as Record<string, unknown> | undefined ?? {}),
+                              date_of_birth: e.target.value,
+                            },
+                          }))}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Only the month and day are shown on the birthday panel — the year is never displayed to colleagues.
+                        </p>
+                      </div>
                     </div>
                     {/* Send invite hint when real email is being entered */}
                     {personalDraft.email && !personalDraft.email.endsWith('@company.com') &&
@@ -645,9 +683,38 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                     </div>
                     <Separator className="my-2" />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-                      {employee.personal_info && Object.entries(employee.personal_info).map(([k, v]) => (
-                        <InfoRow key={k} label={k.replace(/_/g, ' ')} value={String(v)} />
-                      ))}
+                      {/* Dedicated Date of Birth row — formatted as a friendly
+                          IN-locale date with computed age, instead of the
+                          raw "1990-05-14" the generic personal_info loop
+                          would show. We skip date_of_birth from the loop
+                          below so it doesn't render twice. */}
+                      {(() => {
+                        const dob = (employee.personal_info as Record<string, unknown> | undefined)?.date_of_birth
+                        if (!dob || typeof dob !== 'string') {
+                          return <InfoRow label="Date of Birth" value="—" />
+                        }
+                        const d = new Date(dob)
+                        if (isNaN(d.getTime())) {
+                          return <InfoRow label="Date of Birth" value="—" />
+                        }
+                        // Age = floor((now − dob) / year), accounting for
+                        // whether the birthday has occurred this year yet.
+                        const now = new Date()
+                        let age = now.getUTCFullYear() - d.getUTCFullYear()
+                        const m = now.getUTCMonth() - d.getUTCMonth()
+                        if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) age--
+                        const formatted = d.toLocaleDateString('en-IN', {
+                          day: '2-digit', month: 'long', year: 'numeric',
+                        })
+                        return (
+                          <InfoRow label="Date of Birth" value={`${formatted} (age ${age})`} />
+                        )
+                      })()}
+                      {employee.personal_info && Object.entries(employee.personal_info)
+                        .filter(([k]) => k !== 'date_of_birth')
+                        .map(([k, v]) => (
+                          <InfoRow key={k} label={k.replace(/_/g, ' ')} value={String(v)} />
+                        ))}
                     </div>
                   </>
                 )}

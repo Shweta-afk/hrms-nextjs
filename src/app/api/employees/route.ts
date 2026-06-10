@@ -17,6 +17,12 @@ const CreateEmployeeSchema = z.object({
   employment_type:  z.enum(['full_time', 'part_time', 'contract', 'intern']),
   essl_device_id:   z.string().optional(),
   ctc_annual:       z.number().optional(),
+  // Free-form JSON for personal info (date_of_birth, gender, marital status,
+  // addresses, blood group, emergency contact). HR's Add Employee form
+  // currently sends only date_of_birth here; the employee can fill the rest
+  // from their own portal. Loose schema so the field stays extensible
+  // without requiring a code change on every new sub-field.
+  personal_info:    z.record(z.string(), z.unknown()).optional(),
 })
 
 // GET — list all employees
@@ -129,16 +135,26 @@ export async function POST(req: NextRequest) {
     const bcrypt = await import('bcryptjs')
     const hashedPwd = await bcrypt.hash(tempPassword, 10)
 
+    // Pull personal_info out of `data` so the generic `...data` spread
+    // doesn't re-introduce the broader Record<string, unknown> type that
+    // Prisma's strict JSON input rejects.
+    const { personal_info, ...rest } = data
+
     // Atomic: create the Employee + linked User together. If either fails,
     // BOTH roll back — no orphan Employee rows when the User insert errors.
     const employee = await prisma.$transaction(async (tx) => {
       const emp = await tx.employee.create({
         data: {
-          ...data,
+          ...rest,
           email,
           org_id: session.user.org_id,
           emp_code,
           date_of_joining: new Date(data.date_of_joining),
+          // Prisma's InputJsonValue is structurally narrower than zod's
+          // Record<string, unknown>. Cast at the boundary — zod has
+          // already validated the shape, and the DB column is
+          // `Json @default("{}")` so the runtime contract is permissive.
+          ...(personal_info && { personal_info: personal_info as any }),
         },
         include: {
           department: true,
