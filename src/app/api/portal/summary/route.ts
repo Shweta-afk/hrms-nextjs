@@ -117,7 +117,10 @@ export async function GET() {
         take: 3,
       }),
 
-      // Employee profile — only the fields the portal actually uses
+      // Employee profile — only the fields the portal actually uses.
+      // personal_info is included so the home screen knows whether to show
+      // the "tell us your birthday" nudge; we don't surface the full JSON
+      // to the client, just a derived flag below.
       prisma.employee.findFirst({
         where: { id: employee_id, org_id },
         select: {
@@ -127,6 +130,7 @@ export async function GET() {
           phone: true,
           bank_details: true,
           statutory_info: true,
+          personal_info: true,
         },
       }),
 
@@ -162,11 +166,25 @@ export async function GET() {
     }))
 
     // ── Decrypt sensitive fields ──────────────────────────────────────────────
+    // Derive a single boolean for the birthday-nudge banner so the client
+    // doesn't have to parse the personal_info JSON. The banner disappears
+    // automatically once dob_missing is false.
+    const personalInfo = (employee?.personal_info ?? {}) as Record<string, unknown>
+    const dobMissing = !personalInfo.date_of_birth ||
+                       typeof personalInfo.date_of_birth !== 'string' ||
+                       personalInfo.date_of_birth.trim() === ''
+
     const employeeData = employee
       ? {
           ...employee,
           bank_details: safeDecrypt(employee.bank_details),
           statutory_info: safeDecrypt(employee.statutory_info),
+          // Strip personal_info from the response — the rest of the portal
+          // doesn't use it and we already have what we need (dob_missing).
+          // Avoids accidentally surfacing fields like blood_group to a future
+          // component that shouldn't display them.
+          personal_info: undefined,
+          dob_missing: dobMissing,
         }
       : null
 

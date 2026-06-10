@@ -107,6 +107,11 @@ const EmployeePortal = () => {
   const [latestPayslip, setLatestPayslip] = useState<Payslip | null>(null)
   const [loading, setLoading] = useState(true)
   const [profileIncomplete, setProfileIncomplete] = useState<string[]>([])
+  // Drives the friendly "tell us your birthday" banner. Source of truth is
+  // the dob_missing flag computed server-side in /api/portal/summary, so the
+  // banner disappears automatically the moment the employee saves their DOB
+  // on /portal/profile — no manual dismiss needed.
+  const [dobMissing, setDobMissing] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [requestModal, setRequestModal] = useState(false)
   const [requestType, setRequestType] = useState('')
@@ -172,6 +177,10 @@ const EmployeePortal = () => {
         if (!employee.statutory_info?.pan) missing.push('PAN / Statutory info')
         if (!employee.phone) missing.push('Phone number')
         setProfileIncomplete(missing)
+        // Source the birthday-banner flag from the server-derived boolean,
+        // not personal_info itself — the API deliberately strips that JSON
+        // from the response so we can't accidentally re-derive it the wrong way.
+        setDobMissing(!!employee.dob_missing)
       }
     } catch {
       toast.error('Failed to load portal data')
@@ -377,6 +386,34 @@ const EmployeePortal = () => {
                     </div>
                   </div>
                   <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </div>
+              </Link>
+            )}
+
+            {/* Birthday nudge — friendlier tone than the profile-incomplete
+                banner above (which is purely transactional / "you need this for
+                payroll"). This one is opt-in and chatty, because asking
+                someone for their birthday should feel warm, not bureaucratic.
+                Disappears automatically once dob_missing flips false on the
+                server (employee saves DOB on /portal/profile). No dismiss
+                button — we want it to come back if they later clear it,
+                because the birthday panel can't show what we don't know. */}
+            {dobMissing && (
+              <Link href="/portal/profile">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-pink-200 dark:border-pink-900/60 bg-pink-50/70 dark:bg-pink-900/15 px-4 py-3 cursor-pointer hover:bg-pink-100/70 dark:hover:bg-pink-900/25 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <Cake className="h-5 w-5 text-pink-600 dark:text-pink-400 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        We&apos;d love to celebrate you
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Add your date of birth so the team can wish you on the day.
+                        Only the month and day are ever shown to colleagues — your year stays private.
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-pink-600 dark:text-pink-400 shrink-0" />
                 </div>
               </Link>
             )}

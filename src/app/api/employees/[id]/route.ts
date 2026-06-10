@@ -148,6 +148,14 @@ export async function PATCH(
       })
     }
 
+    // Capture pre-update DOB so we can notify HR if it changed. Done BEFORE
+    // the update so we have an honest "before" snapshot — pulling it after
+    // would always equal the new value. Cheap because `existing` is already
+    // in memory; we just dig into its JSON column.
+    const oldPersonalInfo = (existing.personal_info ?? {}) as Record<string, unknown>
+    const oldDob = typeof oldPersonalInfo.date_of_birth === 'string'
+      ? oldPersonalInfo.date_of_birth : null
+
     const updated = await prisma.employee.update({
       where: { id: id },
       data: updatePayload,
@@ -160,6 +168,45 @@ export async function PATCH(
         where: { employee_id: id, org_id: session.user.org_id },
         data: { email: updatePayload.email as string },
       }).catch(() => {})
+    }
+
+    // Notify HR when an EMPLOYEE (not HR themselves) sets or changes their
+    // date of birth. Useful for two reasons: (a) HR can verify the DOB
+    // against the employee's documents, and (b) HR sees the birthday panel
+    // populate in real time as employees respond to the portal nudge.
+    // We deliberately don't notify on HR's own edits — HR knows what they
+    // did and doesn't need a notification about it.
+    if (isEmployee) {
+      const newPersonalInfo = (updated.personal_info ?? {}) as Record<string, unknown>
+      const newDob = typeof newPersonalInfo.date_of_birth === 'string'
+        ? newPersonalInfo.date_of_birth : null
+      if (newDob !== oldDob) {
+        try {
+          const { notifyHRAdmins } = await import('@/lib/notifications')
+          const fmt = (s: string | null) => {
+            if (!s) return 'blank'
+            const d = new Date(s)
+            return isNaN(d.getTime())
+              ? s
+              : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
+          }
+          const empName = `${updated.first_name} ${updated.last_name}`.trim()
+          const title   = oldDob ? 'Employee updated their date of birth' : 'Employee added their date of birth'
+          const message = oldDob
+            ? `${empName} changed their date of birth from ${fmt(oldDob)} to ${fmt(newDob)}. Verify against onboarding documents if needed.`
+            : `${empName} added their date of birth: ${fmt(newDob)}. They will now appear on the upcoming-birthdays panel.`
+          await notifyHRAdmins(
+            session.user.org_id,
+            title,
+            message,
+            oldDob ? 'warning' : 'info',
+            `/employees/${id}?tab=personal`
+          )
+        } catch (notifyErr) {
+          // Notification failure shouldn't fail the save — log and continue.
+          console.error('DOB-change HR notification failed:', notifyErr)
+        }
+      }
     }
 
     return NextResponse.json({
