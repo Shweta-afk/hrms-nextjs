@@ -9,7 +9,7 @@ import { prisma } from '@/lib/prisma'
 import { notifyLateArrival } from '@/lib/notifications'
 
 // ── Org-level shift settings cache (1 min TTL per org) ───────────────────────
-interface ShiftSettings {
+export interface ShiftSettings {
   shiftStartHour: number
   shiftStartMin:  number
   shiftEndHour:   number
@@ -20,7 +20,11 @@ interface ShiftSettings {
 const shiftCache = new Map<string, ShiftSettings>()
 const CACHE_TTL_MS = 60_000
 
-async function getShiftSettings(org_id: string): Promise<ShiftSettings> {
+// Exported so the bulk-correct admin endpoint can reuse the same shift
+// rules — otherwise corrections would compute late-by-minutes against a
+// hardcoded shift start (the legacy POST /api/attendance does this and
+// gets it wrong for any org not on a 9:00 IST shift).
+export async function getShiftSettings(org_id: string): Promise<ShiftSettings> {
   const cached = shiftCache.get(org_id)
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached
 
@@ -76,8 +80,11 @@ function dateOnly(dt: Date): Date {
   return new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()))
 }
 
-/** Calculate whether a first-in time is late and by how many minutes. */
-function lateCalc(firstIn: Date, s: ShiftSettings): { isLate: boolean; lateByMinutes: number } {
+/** Calculate whether a first-in time is late and by how many minutes.
+ *  Exported for reuse by the bulk-correct endpoint — same rules as the
+ *  live punch pipeline so a corrected record reads is_late identically
+ *  to one that came in from the device. */
+export function lateCalc(firstIn: Date, s: ShiftSettings): { isLate: boolean; lateByMinutes: number } {
   const graceLimit = new Date(firstIn)
   graceLimit.setUTCHours(
     // shift times are in device local (IST), but firstIn is UTC — convert

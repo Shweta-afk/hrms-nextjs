@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import {
   ChevronLeft, ChevronRight, Download, Upload, Users, UserX,
   CalendarDays, Clock, Home, Wifi, Loader2, BarChart3, FileSpreadsheet,
-  Mail, CheckCircle2, UserPlus, Filter,
+  Mail, CheckCircle2, UserPlus, Filter, Wand2,
 } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -636,6 +637,15 @@ const Attendance = () => {
             </Button>
             <Button variant="outline" size="sm" onClick={() => { setImportModal(true); setImportResult(null); loadBiometricConfig() }}>
               <Upload className="h-4 w-4 mr-2" /> Import Report
+            </Button>
+            {/* Batch correction tool — surfaced here (not under a menu) because
+                this is the single most-asked-for feature whenever a biometric
+                clock misfires for >1 day, and burying it costs an extra two
+                clicks every time HR needs to fix a fresh mess. */}
+            <Button asChild variant="outline" size="sm">
+              <Link href="/attendance/bulk-correct">
+                <Wand2 className="h-4 w-4 mr-2" /> Bulk Correct
+              </Link>
             </Button>
             <Button variant="outline" size="sm" onClick={handleDownloadReport}>
               <Download className="h-4 w-4 mr-2" /> Download
