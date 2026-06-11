@@ -17,9 +17,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, CircleAlert,
   FileSpreadsheet, FileText, CheckCircle2, Loader2, Play, Settings2, Clock,
-  Upload, ArrowLeftRight, Download,
+  Upload, ArrowLeftRight, Download, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
+import EditPayslipModal from "@/components/payroll/EditPayslipModal";
 
 const fmt = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 
@@ -81,6 +82,13 @@ const Payroll = () => {
   const [approving, setApproving] = useState(false)
   const [showAnomalies, setShowAnomalies] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Per-payslip line-item editor — opened from the Edit button in the
+  // payslip table. State lifted here (not into the modal) so closing the
+  // dialog cleanly resets to "no payslip", and so we can also re-fetch
+  // payroll data on save without prop-drilling.
+  const [editPayslip, setEditPayslip] = useState<Payslip | null>(null)
+  const [editOpen,    setEditOpen]    = useState(false)
 
   // Selection for partial approval. Tracks IDs the user has ticked.
   // Already-approved payslips are deliberately NOT pre-selected — the
@@ -950,12 +958,27 @@ const Payroll = () => {
                             </div>
                           </TableCell>
                           <TableCell className="text-center" onClick={e => e.stopPropagation()}>
-                            <button
-                              onClick={() => handleViewPayslip(p.id)}
-                              className="text-xs font-medium text-primary hover:underline"
-                            >
-                              View / Print
-                            </button>
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => handleViewPayslip(p.id)}
+                                className="text-xs font-medium text-primary hover:underline"
+                              >
+                                View / Print
+                              </button>
+                              {/* Edit button — gated visually (not disabled)
+                                  when the payslip is already approved, so
+                                  HR still sees the affordance and the modal
+                                  itself shows the unapprove-first guidance.
+                                  Less mystery than a greyed-out button. */}
+                              <button
+                                onClick={() => { setEditPayslip(p); setEditOpen(true) }}
+                                className="text-xs font-medium text-muted-foreground hover:text-primary inline-flex items-center gap-1"
+                                title="Edit line items (Basic, HRA, PF, ESI, etc.)"
+                              >
+                                <Pencil className="h-3 w-3" />
+                                Edit
+                              </button>
+                            </div>
                           </TableCell>
                         </TableRow>
 
@@ -1386,6 +1409,16 @@ const Payroll = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Per-payslip line-item editor. Lives at the page root (not inside
+          the payslip row) so the dialog backdrop covers the full viewport
+          and isn't constrained by the table's overflow rules. */}
+      <EditPayslipModal
+        payslip={editPayslip}
+        open={editOpen}
+        onOpenChange={(v) => { setEditOpen(v); if (!v) setEditPayslip(null) }}
+        onSaved={() => fetchPayrollData()}
+      />
 
     </AppLayout>
   )
