@@ -19,7 +19,13 @@ export async function POST(req: NextRequest) {
   // Gate on an EXPLICIT opt-in env var, not NODE_ENV. Vercel/Netlify preview
   // deployments don't have NODE_ENV='production', so the old check leaked
   // this endpoint to every preview URL. Now it's off unless ALLOW_DEV_ENDPOINTS=1.
-  if (process.env.ALLOW_DEV_ENDPOINTS !== '1') {
+  // Double-gated: ALLOW_DEV_ENDPOINTS must be explicitly set AND the runtime
+  // must not be production. Either guard alone can be bypassed by misconfiguration;
+  // together they require two independent mistakes.
+  if (
+    process.env.ALLOW_DEV_ENDPOINTS !== '1' ||
+    process.env.NODE_ENV === 'production'
+  ) {
     return NextResponse.json(
       { success: false, error: 'Not available' },
       { status: 403 }
