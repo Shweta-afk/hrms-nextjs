@@ -42,6 +42,42 @@ const nextConfig: NextConfig = {
   // Gzip/Brotli compression for all responses
   compress: true,
 
+  // Rewrite barrel imports (`import { X } from 'pkg'`) into direct deep
+  // imports at compile time. These packages each re-export hundreds of
+  // modules from one entry point; without this, importing a single icon or
+  // one Radix primitive pulls the whole barrel into the route's module graph.
+  // Result: fewer modules compiled per route (faster cold builds + HMR) and
+  // smaller client JS — with zero change in behavior.
+  experimental: {
+    optimizePackageImports: [
+      "lucide-react",
+      "recharts",
+      "date-fns",
+      "@tanstack/react-query",
+      "@radix-ui/react-accordion",
+      "@radix-ui/react-alert-dialog",
+      "@radix-ui/react-avatar",
+      "@radix-ui/react-checkbox",
+      "@radix-ui/react-dialog",
+      "@radix-ui/react-dropdown-menu",
+      "@radix-ui/react-hover-card",
+      "@radix-ui/react-label",
+      "@radix-ui/react-menubar",
+      "@radix-ui/react-navigation-menu",
+      "@radix-ui/react-popover",
+      "@radix-ui/react-progress",
+      "@radix-ui/react-radio-group",
+      "@radix-ui/react-scroll-area",
+      "@radix-ui/react-select",
+      "@radix-ui/react-separator",
+      "@radix-ui/react-slider",
+      "@radix-ui/react-switch",
+      "@radix-ui/react-tabs",
+      "@radix-ui/react-toast",
+      "@radix-ui/react-tooltip",
+    ],
+  },
+
   // Allow next/image to optimize images from S3 and external org logos
   images: {
     remotePatterns: [
