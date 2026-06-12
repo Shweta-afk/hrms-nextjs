@@ -295,19 +295,36 @@ const AttendanceLive = () => {
           {/* ── Two-column layout: punch feed + device status ── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
 
-            {/* LEFT — Live Punch Feed */}
+            {/* LEFT — Today's Punch Feed (chronological: start of day → now) */}
             <Card className="lg:col-span-2 shadow-sm">
               <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <CardTitle className="text-sm font-semibold flex flex-wrap items-center gap-2">
                   <Activity className="h-4 w-4 text-primary" />
-                  ⚡ Live Punch Feed
-                  <Badge variant="secondary" className="ml-auto text-xs">
-                    {data.recent_punches.length} today
-                  </Badge>
+                  Today&apos;s Punches
+                  <span className="text-xs font-normal text-muted-foreground">
+                    start of day → now
+                  </span>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    {/* Total + direction breakdown — at a glance HR sees whether
+                        IN and OUT counts are roughly balanced for the time of day. */}
+                    <Badge variant="secondary" className="text-xs">
+                      {data.recent_punches.length} total
+                    </Badge>
+                    <Badge className="text-xs bg-green-500/15 text-green-700 dark:text-green-400 border-0 hover:bg-green-500/15">
+                      {data.recent_punches.filter(p => p.direction === 'IN').length} IN
+                    </Badge>
+                    <Badge className="text-xs bg-red-500/15 text-red-700 dark:text-red-400 border-0 hover:bg-red-500/15">
+                      {data.recent_punches.filter(p => p.direction === 'OUT').length} OUT
+                    </Badge>
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-auto max-h-[380px]">
+                {/* Removed the 380px max-height cap — HR explicitly wants the
+                    full day visible. On busy days the feed still scrolls
+                    naturally with the page rather than inside a small
+                    window-within-a-window. */}
+                <div className="overflow-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>

@@ -57,11 +57,15 @@ export async function GET(req: NextRequest) {
         },
       }),
 
-      // All punch logs for today (up to 500), newest first — full day history
+      // All punch logs for today, oldest first so the UI can render a
+      // natural "start of day → now" chronological feed without flipping
+      // on the client. Cap raised to 1000 — a 100-employee office with
+      // 4 punches/day plus device retries hits ~500, so 1000 leaves
+      // headroom before we ever clip the feed.
       prisma.punchLog.findMany({
         where: { org_id, punch_time: { gte: todayStart, lt: todayEnd } },
-        orderBy: { punch_time: 'desc' },
-        take: 500,
+        orderBy: { punch_time: 'asc' },
+        take: 1000,
       }),
 
       // All devices with heartbeat for online/offline status
