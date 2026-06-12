@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { format } from 'date-fns'
 import {
   Activity, AlertTriangle, ChevronDown, ChevronUp,
-  Clock, Loader2, Timer, UserCheck, UserX, Users, Wifi, WifiOff,
+  Clock, Loader2, Timer, UserCheck, UserX, Users, Wifi, WifiOff, Search, X,
 } from 'lucide-react'
 import AppLayout from '@/components/AppLayout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -110,6 +111,15 @@ const AttendanceLive = () => {
   const [showNotArrived, setShowNotArrived] = useState(false)
   const [newPunchIds, setNewPunchIds]     = useState<Set<string>>(new Set())
 
+  // ── Filter state ─────────────────────────────────────────────────────────
+  // Pure client-side filter: the API already ships every punch for today, so
+  // changing filters is instant and doesn't need a re-fetch. Two axes:
+  //   - free-text name search (case-insensitive substring on employee_name,
+  //     also matches emp_code so HR can paste a code from somewhere else)
+  //   - direction toggle (All / IN / OUT)
+  const [nameFilter, setNameFilter]           = useState('')
+  const [directionFilter, setDirectionFilter] = useState<'all' | 'IN' | 'OUT'>('all')
+
   const prevPunchIds   = useRef<Set<string>>(new Set())
   const lastFetchedAt  = useRef<Date>(new Date())
   const flashTimer     = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -178,6 +188,25 @@ const AttendanceLive = () => {
   const hasOffline = data?.devices?.some(
     (d) => d.status === 'offline' || d.status === 'never_connected'
   )
+
+  // ── Filtered punch list ───────────────────────────────────────────────────
+  // Computed from the raw API data + the two filter axes. useMemo keeps the
+  // filter cheap on every keystroke even when there are 800+ punches in the
+  // feed (we'd otherwise recompute on each newPunchIds flash too).
+  const filteredPunches = useMemo(() => {
+    if (!data) return []
+    const q = nameFilter.trim().toLowerCase()
+    return data.recent_punches.filter(p => {
+      if (directionFilter !== 'all' && p.direction !== directionFilter) return false
+      if (q) {
+        const hay = `${p.employee_name} ${p.emp_code}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [data, nameFilter, directionFilter])
+
+  const filterIsActive = nameFilter.trim() !== '' || directionFilter !== 'all'
 
   // ── Summary card config ───────────────────────────────────────────────────
 
@@ -297,27 +326,82 @@ const AttendanceLive = () => {
 
             {/* LEFT — Today's Punch Feed (chronological: start of day → now) */}
             <Card className="lg:col-span-2 shadow-sm">
-              <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm font-semibold flex flex-wrap items-center gap-2">
+              <CardHeader className="pb-2 pt-4 px-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <Activity className="h-4 w-4 text-primary" />
-                  Today&apos;s Punches
+                  <CardTitle className="text-sm font-semibold">Today&apos;s Punches</CardTitle>
                   <span className="text-xs font-normal text-muted-foreground">
                     start of day → now
                   </span>
                   <div className="ml-auto flex items-center gap-1.5">
-                    {/* Total + direction breakdown — at a glance HR sees whether
-                        IN and OUT counts are roughly balanced for the time of day. */}
+                    {/* Counts reflect the FILTERED set so HR can see "showing
+                        12 of 234" implicitly via the gap. When no filter is
+                        active these match the totals. */}
                     <Badge variant="secondary" className="text-xs">
-                      {data.recent_punches.length} total
+                      {filteredPunches.length}{filterIsActive ? ` of ${data.recent_punches.length}` : ' total'}
                     </Badge>
                     <Badge className="text-xs bg-green-500/15 text-green-700 dark:text-green-400 border-0 hover:bg-green-500/15">
-                      {data.recent_punches.filter(p => p.direction === 'IN').length} IN
+                      {filteredPunches.filter(p => p.direction === 'IN').length} IN
                     </Badge>
                     <Badge className="text-xs bg-red-500/15 text-red-700 dark:text-red-400 border-0 hover:bg-red-500/15">
-                      {data.recent_punches.filter(p => p.direction === 'OUT').length} OUT
+                      {filteredPunches.filter(p => p.direction === 'OUT').length} OUT
                     </Badge>
                   </div>
-                </CardTitle>
+                </div>
+
+                {/* Filter row — search by name/emp_code on the left, direction
+                    toggle on the right. Both update the filtered list
+                    instantly on each keystroke. */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-[180px] max-w-sm">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                    <Input
+                      value={nameFilter}
+                      onChange={e => setNameFilter(e.target.value)}
+                      placeholder="Search name or emp code…"
+                      className="h-8 pl-8 pr-8 text-xs"
+                    />
+                    {nameFilter && (
+                      <button
+                        onClick={() => setNameFilter('')}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 rounded hover:bg-muted flex items-center justify-center text-muted-foreground"
+                        aria-label="Clear search"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  {/* Three-way toggle for direction. Using buttons (not a Select)
+                      so the active state is visible at a glance. */}
+                  <div className="inline-flex rounded-md border border-border overflow-hidden">
+                    {(['all', 'IN', 'OUT'] as const).map(dir => (
+                      <button
+                        key={dir}
+                        onClick={() => setDirectionFilter(dir)}
+                        className={cn(
+                          'px-3 py-1 text-xs font-medium transition-colors',
+                          directionFilter === dir
+                            ? dir === 'IN'  ? 'bg-green-500/15 text-green-700 dark:text-green-400'
+                            : dir === 'OUT' ? 'bg-red-500/15 text-red-700 dark:text-red-400'
+                            : 'bg-primary/15 text-primary'
+                            : 'text-muted-foreground hover:bg-muted'
+                        )}
+                      >
+                        {dir === 'all' ? 'All' : dir}
+                      </button>
+                    ))}
+                  </div>
+                  {filterIsActive && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setNameFilter(''); setDirectionFilter('all') }}
+                      className="h-8 text-xs text-muted-foreground"
+                    >
+                      <X className="h-3 w-3 mr-1" /> Reset
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 {/* Removed the 380px max-height cap — HR explicitly wants the
@@ -335,14 +419,16 @@ const AttendanceLive = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.recent_punches.length === 0 ? (
+                      {filteredPunches.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={4} className="text-center text-muted-foreground text-sm py-10">
-                            No punches recorded today
+                            {filterIsActive
+                              ? 'No punches match your filter — try widening the search or resetting'
+                              : 'No punches recorded today'}
                           </TableCell>
                         </TableRow>
                       ) : (
-                        data.recent_punches.map((punch) => {
+                        filteredPunches.map((punch) => {
                           const isNew    = newPunchIds.has(punch.id)
                           const isLate   = punch.direction === 'IN' && lateEmpCodes.has(punch.emp_code)
                           const devName  = deviceMap.get(punch.device_id) ?? '—'
