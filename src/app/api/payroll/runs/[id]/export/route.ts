@@ -294,27 +294,45 @@ export async function GET(
       setNum(C.LATE_MARK,      row, lateCount)
       setNum(C.ACT_SALARY,     row, actualSalary)
 
-      // Per Day = Actual Salary / Total Days
+      // Per Day, Total Salary, Half Day computations remain as formulas so
+      // HR can see how the attendance-driven base salary is derived. These
+      // are intermediate display columns, not the values the importer reads.
       setFormula(C.PER_DAY, row, `${cActSalary}${Rn}/${cTotDays}${Rn}`)
-      // Total Salary = Per Day × Salary Days
       setFormula(C.TOT_SALARY, row, `${cPerDay}${Rn}*${cSalDays}${Rn}`)
-      // Actual Half Day deduction = Per Day × Half Day Count × 0.5
       setFormula(C.ACT_HALF_DAY, row, `${cPerDay}${Rn}*${cHdCount}${Rn}*0.5`)
-      // Half day for late mark = circle_count × 0.5 × per_day
       setFormula(C.HD_LATE_DED, row, `${colLetter(C.CIRCLE_COUNT)}${Rn}*0.5*${cPerDay}${Rn}`)
-      // Late Mark = direct % deduction from policy (deduction_pct tiers)
       setNum(C.LATE_DED, row, lateDirectDed)
-      // Net Salary = Total Salary - Actual Half Day - Half Day for Late Mark - Late Mark
-      setFormula(C.NET_SALARY, row, `${cTotSalary}${Rn}-${cActHD}${Rn}-${cHDLateDed}${Rn}-${cLateDed}${Rn}`)
 
-      // Manual columns (HR fills these in)
+      // Net Salary: write the ACTUAL payslip net as a value, not a formula.
+      //
+      // Why this matters: the previous formula only subtracted
+      // attendance-side penalties (half day + late mark) from Total Salary
+      // — it ignored PF, ESI, Professional Tax, TDS and LOP, which is
+      // typically 80%+ of the actual deductions. The formula result was
+      // therefore much higher than the payslip's real net. When HR
+      // re-uploaded the file without editing anything, the importer treated
+      // that wrong number as the new target net and silently rewrote
+      // the payslip. From HR's perspective the salary just changed for no
+      // reason after an "adjustment" upload.
+      //
+      // Writing the actual net as a value means: what HR sees in the file
+      // matches what's actually on the payslip, and re-uploading without
+      // edits is a true no-op.
+      setNum(C.NET_SALARY, row, Math.round(Number(ps.net_salary)))
+
+      // Manual columns (HR fills these in if applying ad-hoc deductions
+      // or advances on top of payroll-calculated values).
       setNum(C.DEDUCTIONS,  row, 0)
       setNum(C.SAL_ADVANCE, row, 0)
       setNum(C.PREV_SAL,    row, 0)
 
-      // To be Credited = Net Salary - Deductions - Salary Advance + Previous Salary
-      setFormula(C.TO_CREDIT, row, `${cNetSal}${Rn}-${cDeds}${Rn}-${cSalAdv}${Rn}+${cPrevSal}${Rn}`)
-      // Total Deduction = Deductions + Salary Advance
+      // To be Credited: same logic — write the actual net as a value, not
+      // a formula. With Deductions/Salary Advance/Previous Sal at 0 by
+      // default, To be Credited == Net Salary. HR overrides this directly
+      // when they want to pay a different amount.
+      setNum(C.TO_CREDIT, row, Math.round(Number(ps.net_salary)))
+      // Total Deduction = Deductions + Salary Advance (manual columns,
+      // formula is harmless because both feeders default to 0).
       setFormula(C.TOT_DEDUCTION, row, `${cDeds}${Rn}+${cSalAdv}${Rn}`)
 
       // Adjustment (manual) or from payslip adjustment note

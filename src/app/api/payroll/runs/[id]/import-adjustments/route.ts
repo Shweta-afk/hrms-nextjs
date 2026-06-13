@@ -34,7 +34,49 @@ export async function POST(
 
     if (rows.length < 2) return NextResponse.json({ success: false, error: 'File is empty' }, { status: 400 })
 
-    const headers = (rows[0] as string[]).map(h => String(h).trim())
+    // Find the header row. Most files have headers in row 1, but a common
+    // failure mode is HR opening the export in Excel, accidentally inserting
+    // a title or blank row, and re-saving — pushing the real headers to row
+    // 2 or 3. The importer was rejecting these as "missing Code column"
+    // because it only looked at row 1. We now scan the first 5 rows and
+    // pick whichever one actually has a `Code`/`Emp Code` cell — that's
+    // unambiguous enough to identify the header row even when something
+    // else is above it.
+    const looksLikeHeaderRow = (row: any[]): boolean => {
+      if (!row || row.length < 2) return false
+      // Use the same normalization the column detection below uses, just
+      // limited here to the employee-code check.
+      const cleaned = row
+        .map(c => String(c ?? '')
+          .replace(/ /g, ' ')   // strip non-breaking spaces Excel sometimes inserts
+          .toLowerCase()
+          .replace(/[(₹$₨inr).,]/g, '')
+          .replace(/[_-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        )
+      return cleaned.some(c => c === 'code' || c === 'emp code' || c === 'employee code')
+    }
+
+    let headerRowIdx = -1
+    for (let i = 0; i < Math.min(5, rows.length); i++) {
+      if (looksLikeHeaderRow(rows[i])) { headerRowIdx = i; break }
+    }
+    if (headerRowIdx === -1) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'File must have an employee-ID column ("Code" or "Emp Code") in the first 5 rows. Use the "Export for Review" button to get a valid template.',
+        },
+        { status: 400 }
+      )
+    }
+    // Also remember the data rows start AFTER the detected header row, not
+    // at row 1 — otherwise the loop below would mis-treat the rows between
+    // a title and the headers as data.
+    const headers = (rows[headerRowIdx] as string[])
+      .map(h => String(h).replace(/ /g, ' ').trim())
+    const dataStartIdx = headerRowIdx + 1
 
     // Header detection — accept BOTH templates HR may use:
     //
@@ -117,7 +159,7 @@ export async function POST(
       if (skipped.length < 100) skipped.push({ row, emp_code, reason })
     }
 
-    for (let i = 1; i < rows.length; i++) {
+    for (let i = dataStartIdx; i < rows.length; i++) {
       const row = rows[i] as any[]
       const rawCode = String(row[empCodeIdx] ?? '').trim()
       if (!rawCode) continue   // blank row — silent skip is OK
