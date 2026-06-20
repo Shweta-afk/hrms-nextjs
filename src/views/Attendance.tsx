@@ -81,6 +81,7 @@ const formatTime = (dateStr: string | null) => {
 const Attendance = () => {
   const now = new Date()
   const [monthOffset, setMonthOffset] = useState(0)
+  const [selectedDate, setSelectedDate] = useState('')   // "YYYY-MM-DD" — filters table to a single day
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [summary, setSummary] = useState<Summary>({ present: 0, absent: 0, late: 0 })
   const [today, setToday] = useState<TodaySummary>({ present: 0, absent: 0, on_leave: 0, late: 0, wfh: 0 })
@@ -625,19 +626,33 @@ const Attendance = () => {
             <Button variant="outline" size="icon" onClick={() => setMonthOffset(p => p + 1)}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            {/* Date jump — pick any date to navigate directly to that month */}
-            <input
-              type="date"
-              title="Jump to date"
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring w-36"
-              onChange={e => {
-                const d = new Date(e.target.value)
-                if (!isNaN(d.getTime())) {
-                  const diff = (d.getFullYear() - now.getFullYear()) * 12 + (d.getMonth() - now.getMonth())
-                  setMonthOffset(diff)
-                }
-              }}
-            />
+            {/* Date picker — loads that specific day's attendance */}
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                title="View a specific date"
+                value={selectedDate}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring w-36"
+                onChange={e => {
+                  const val = e.target.value
+                  setSelectedDate(val)
+                  if (val) {
+                    const d = new Date(val)
+                    if (!isNaN(d.getTime())) {
+                      const diff = (d.getFullYear() - now.getFullYear()) * 12 + (d.getMonth() - now.getMonth())
+                      setMonthOffset(diff)
+                    }
+                  }
+                }}
+              />
+              {selectedDate && (
+                <button
+                  onClick={() => setSelectedDate('')}
+                  className="text-xs text-muted-foreground hover:text-foreground px-1"
+                  title="Clear date filter"
+                >✕</button>
+              )}
+            </div>
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button
@@ -771,18 +786,33 @@ const Attendance = () => {
           {/* Attendance Table */}
           <Card className="lg:col-span-3">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                {monthOffset === 0 ? `Today's Attendance (${todayAllRows.length} employees)` : `Attendance — ${monthLabel}`}
-              </CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">
+                  {selectedDate
+                    ? `Attendance — ${new Date(selectedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}`
+                    : monthOffset === 0
+                      ? `Today's Attendance (${todayAllRows.length} employees)`
+                      : `Attendance — ${monthLabel}`}
+                </CardTitle>
+                {selectedDate && (
+                  <span className="text-xs text-muted-foreground">
+                    {records.filter(r => (r.date as string).slice(0, 10) === selectedDate).length} records
+                  </span>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               {loading ? (
                 <div className="flex justify-center py-12">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-              ) : (monthOffset === 0 ? todayAllRows : records).length === 0 ? (
+              ) : (() => {
+                const tableRows = selectedDate
+                  ? records.filter(r => (r.date as string).slice(0, 10) === selectedDate)
+                  : monthOffset === 0 ? todayAllRows : records
+                return tableRows.length === 0 ? (
                 <div className="text-center py-12 text-sm text-muted-foreground">
-                  No attendance records for this period
+                  {selectedDate ? `No attendance records for ${selectedDate}` : 'No attendance records for this period'}
                 </div>
               ) : (
                 <div className="overflow-auto max-h-[480px]">
@@ -799,7 +829,7 @@ const Attendance = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {(monthOffset === 0 ? todayAllRows : records).map((r) => (
+                      {tableRows.map((r) => (
                         <TableRow key={r.id}>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -844,7 +874,8 @@ const Attendance = () => {
                     </TableBody>
                   </Table>
                 </div>
-              )}
+              )
+              })()}
             </CardContent>
           </Card>
 
