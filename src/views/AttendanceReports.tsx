@@ -89,6 +89,25 @@ const MONTHS = [
   'July','August','September','October','November','December',
 ]
 
+// Cell colour for a single-letter status code in the wide-format range
+// grid. Coloured cells let HR scan absences/lates at a glance across a
+// 30+ column date strip without reading each value. Leave-type codes
+// (SL, CL, EL, ML, etc.) all collapse into the same neutral colour so
+// HR can read off the actual code without it being lost in heavy tinting.
+function codeColor(code: string): string {
+  switch (code) {
+    case 'P':   return 'bg-emerald-50/60 dark:bg-emerald-900/15 text-emerald-700 dark:text-emerald-400'
+    case 'L':   return 'bg-amber-50/60 dark:bg-amber-900/15 text-amber-700 dark:text-amber-400 font-semibold'
+    case 'HD':  return 'bg-blue-50/60 dark:bg-blue-900/15 text-blue-700 dark:text-blue-400'
+    case 'A':   return 'bg-red-50/60 dark:bg-red-900/15 text-red-600 dark:text-red-400 font-semibold'
+    case 'WFH': return 'bg-violet-50/60 dark:bg-violet-900/15 text-violet-700 dark:text-violet-400'
+    case 'H':   return 'bg-orange-50/60 dark:bg-orange-900/15 text-orange-700 dark:text-orange-400'
+    case 'WO':  return 'bg-muted/40 text-muted-foreground'
+    case 'PR':  return 'bg-yellow-50/60 dark:bg-yellow-900/15 text-yellow-700 dark:text-yellow-400'
+    default:    return 'bg-zinc-50/60 dark:bg-zinc-900/15 text-zinc-700 dark:text-zinc-300' // leave-type codes
+  }
+}
+
 function statusBadge(status: string) {
   const cfg: Record<string, { label: string; className: string }> = {
     Present:   { label: 'Present',  className: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-0' },
@@ -130,14 +149,21 @@ export default function AttendanceReports() {
   const [dailyLoading, setDailyLoading] = useState(false)
   const [dailyDownloading, setDailyDownloading] = useState(false)
 
-  // Range report state — HR picks from/to, sees one row per (employee × day)
-  // covering the whole window. Defaults to "last 7 days ending yesterday" —
-  // the most common "what happened this past week?" ask. Doesn't auto-fetch
-  // (range reports can be slow); HR clicks Preview explicitly.
+  // Range report state — wide format: one row per employee, date columns
+  // span the range, summary columns at the right edge. Defaults to "last 7
+  // days ending yesterday" — the most common "what happened this past
+  // week?" ask. No auto-fetch (range reports can be slow); HR clicks
+  // Preview explicitly.
   const [rangeFrom, setRangeFrom] = useState(format(subDays(today, 7), 'yyyy-MM-dd'))
   const [rangeTo,   setRangeTo]   = useState(format(subDays(today, 1), 'yyyy-MM-dd'))
-  const [rangeRows, setRangeRows] = useState<DailyRow[]>([])
-  const [rangeMeta, setRangeMeta] = useState<{ total: number; employees: number; days: number; truncated: boolean } | null>(null)
+  const [rangeGrid, setRangeGrid] = useState<{
+    fixed_left_headers: string[]
+    date_headers:       string[]
+    summary_headers:    string[]
+    rows:               (string | number)[][]
+    employees:          number
+    days:               number
+  } | null>(null)
   const [rangeLoading, setRangeLoading]         = useState(false)
   const [rangeDownloading, setRangeDownloading] = useState(false)
 
@@ -200,16 +226,7 @@ export default function AttendanceReports() {
       const res = await fetch(`/api/reports/attendance/range?from=${rangeFrom}&to=${rangeTo}&format=json`)
       const json = await res.json()
       if (json.success) {
-        setRangeRows(json.data.rows)
-        setRangeMeta({
-          total:      json.data.total_rows,
-          employees:  json.data.employees,
-          days:       json.data.days,
-          truncated:  json.data.truncated,
-        })
-        if (json.data.truncated) {
-          toast.message(`Showing first 500 of ${json.data.total_rows} rows — download for full data`)
-        }
+        setRangeGrid(json.data)
       } else {
         toast.error(json.error ?? 'Failed to load range preview')
       }
@@ -457,10 +474,9 @@ export default function AttendanceReports() {
                 </Button>
               </div>
             </div>
-            {rangeMeta && (
+            {rangeGrid && (
               <p className="text-xs text-muted-foreground mt-2">
-                {rangeMeta.employees} employees × {rangeMeta.days} days · {rangeMeta.total.toLocaleString()} rows
-                {rangeMeta.truncated && <span className="text-amber-600 ml-1.5">(preview shows first 500 — download for full data)</span>}
+                {rangeGrid.employees} employees × {rangeGrid.days} days · payroll-included only
               </p>
             )}
           </CardHeader>
@@ -469,53 +485,112 @@ export default function AttendanceReports() {
               <div className="flex justify-center py-10">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-            ) : rangeRows.length === 0 ? (
+            ) : !rangeGrid || rangeGrid.rows.length === 0 ? (
               <div className="text-center py-10 text-sm text-muted-foreground">
-                Pick a date range and click Preview to see the data — or just click Download Excel
+                Pick a date range and click Preview to see the grid — or just click Download Excel
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/40">
-                      <TableHead className="text-[11px] font-semibold w-10">#</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Code</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Employee</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Department</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Date</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Day</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Status</TableHead>
-                      <TableHead className="text-[11px] font-semibold">In</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Out</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Hours</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Late (min)</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Leave Type</TableHead>
-                      <TableHead className="text-[11px] font-semibold">Remarks</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rangeRows.map((row, idx) => (
-                      <TableRow key={`${row['Employee Code']}-${row['Date']}-${idx}`} className="text-xs hover:bg-muted/30">
-                        <TableCell className="text-muted-foreground">{row['Sl No']}</TableCell>
-                        <TableCell className="font-mono text-[11px]">{row['Employee Code']}</TableCell>
-                        <TableCell className="font-medium">{row['Employee Name']}</TableCell>
-                        <TableCell className="text-muted-foreground">{row['Department']}</TableCell>
-                        <TableCell className="font-mono text-[11px]">{row['Date']}</TableCell>
-                        <TableCell className="text-muted-foreground">{row['Day']}</TableCell>
-                        <TableCell>{statusBadge(row['Status'])}</TableCell>
-                        <TableCell className="font-mono text-[11px]">{row['Time In']}</TableCell>
-                        <TableCell className="font-mono text-[11px]">{row['Time Out']}</TableCell>
-                        <TableCell>{row['Work Hours']}</TableCell>
-                        <TableCell className={row['Late By (min)'] > 0 ? 'text-amber-600 font-medium' : 'text-muted-foreground'}>
-                          {row['Late By (min)'] > 0 ? row['Late By (min)'] : '—'}
-                        </TableCell>
-                        <TableCell className="text-[10px]">{(row as unknown as Record<string, string | number>)['Leave Type'] ?? '—'}</TableCell>
-                        <TableCell className="text-muted-foreground text-[10px]">{row['Remarks']}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <>
+                {/* Legend so HR knows what the single-letter codes mean.
+                    Smart Office uses the same vocabulary — keep parity. */}
+                <div className="flex flex-wrap items-center gap-3 px-4 py-2 text-[10px] text-muted-foreground border-b border-border">
+                  <span><b className="text-emerald-600">P</b> Present</span>
+                  <span><b className="text-amber-600">L</b> Late</span>
+                  <span><b className="text-blue-600">HD</b> Half Day</span>
+                  <span><b className="text-red-600">A</b> Absent</span>
+                  <span><b className="text-violet-600">WFH</b> Work From Home</span>
+                  <span><b className="text-muted-foreground">LV/SL/CL/EL</b> Leave (type code)</span>
+                  <span><b className="text-orange-600">H</b> Holiday</span>
+                  <span><b className="text-muted-foreground">WO</b> Weekly Off</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-muted/40">
+                        {/* Fixed-left headers — sticky so the date strip can
+                            scroll past them and HR keeps employee identity in view. */}
+                        {rangeGrid.fixed_left_headers.map((h, i) => (
+                          <th
+                            key={h}
+                            className={cn(
+                              'text-[11px] font-semibold px-2 py-2 text-left border-b border-r border-border bg-card sticky z-10',
+                              i === 0 && 'left-0 w-10',
+                              i === 1 && 'left-10',
+                              // Only the first two columns stay sticky on
+                              // narrow screens to avoid covering too much
+                              // of the date strip. Department / designation
+                              // scroll along with the dates.
+                            )}
+                            style={{ minWidth: i === 0 ? 40 : i === 1 ? 80 : 120 }}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                        {rangeGrid.date_headers.map((d) => (
+                          <th
+                            key={d}
+                            className="text-[10px] font-semibold px-1 py-2 text-center border-b border-r border-border bg-card w-12 whitespace-nowrap"
+                          >
+                            {d}
+                          </th>
+                        ))}
+                        {rangeGrid.summary_headers.map((s) => (
+                          <th
+                            key={s}
+                            className="text-[10px] font-semibold px-2 py-2 text-center border-b border-r border-border bg-muted/60 whitespace-nowrap"
+                          >
+                            {s}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rangeGrid.rows.map((row, idx) => {
+                        const leftCols = rangeGrid.fixed_left_headers.length
+                        const dateCols = rangeGrid.date_headers.length
+                        const sumStart = leftCols + dateCols
+                        return (
+                          <tr key={idx} className="hover:bg-muted/20">
+                            {row.slice(0, leftCols).map((v, i) => (
+                              <td
+                                key={i}
+                                className={cn(
+                                  'px-2 py-1.5 border-b border-r border-border bg-card sticky z-10',
+                                  i === 0 && 'left-0 text-muted-foreground',
+                                  i === 1 && 'left-10 font-mono text-[11px]',
+                                  i === 2 && 'font-medium',
+                                  i >= 3 && 'text-muted-foreground',
+                                )}
+                              >
+                                {v}
+                              </td>
+                            ))}
+                            {row.slice(leftCols, sumStart).map((v, i) => (
+                              <td
+                                key={`d-${i}`}
+                                className={cn(
+                                  'text-center px-1 py-1.5 border-b border-r border-border font-mono text-[11px]',
+                                  codeColor(String(v)),
+                                )}
+                              >
+                                {v}
+                              </td>
+                            ))}
+                            {row.slice(sumStart).map((v, i) => (
+                              <td
+                                key={`s-${i}`}
+                                className="text-center px-2 py-1.5 border-b border-r border-border tabular-nums text-[11px] bg-muted/20"
+                              >
+                                {v}
+                              </td>
+                            ))}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
