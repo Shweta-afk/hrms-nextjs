@@ -208,33 +208,78 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, data: { date_headers: dateHeaders, employees: empBlocks } })
     }
 
-    // ── Excel: one sheet ──────────────────────────────────────────────────────
-    const aoaRows: (string | number)[][] = []
+    // ── Excel with full color formatting using ExcelJS ───────────────────────
+    const ExcelJS = await import('exceljs')
+    const wb2 = new ExcelJS.Workbook()
+    wb2.creator = 'HRMS'
+    const ws2 = wb2.addWorksheet('Detail Attendance', {
+      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1 },
+    })
 
-    // Title
-    aoaRows.push([`Attendance Detail Report — ${format(fromDate, 'dd MMM yyyy')} to ${format(toDate, 'dd MMM yyyy')}`])
-    aoaRows.push([])
-
-    // Date header row (shared across all employee blocks)
-    const dateHeaderRow: string[] = ['', '']
-    for (const day of days) {
-      dateHeaderRow.push(`${format(day, 'd')}-${format(day, 'EEE')}`)
+    // ── Color palette ────────────────────────────────────────────────────────
+    const C = {
+      empHeader:  { bg: '1E3A5F', fg: 'FFFFFF' },   // deep navy
+      dateHeader: { bg: '2C5282', fg: 'FFFFFF' },   // medium blue
+      summary:    { bg: 'EBF4FF', fg: '1A365D' },   // light blue tint
+      rowLabel:   { bg: 'F7FAFC', fg: '2D3748' },   // near-white
+      present:    { bg: 'C6F6D5', fg: '22543D' },   // green
+      absent:     { bg: 'FED7D7', fg: '742A2A' },   // red
+      halfDay:    { bg: 'BEE3F8', fg: '2A4365' },   // blue
+      late:       { bg: 'FEFCBF', fg: '744210' },   // amber
+      holiday:    { bg: 'FEEBC8', fg: '7B341E' },   // orange
+      weekend:    { bg: 'EDF2F7', fg: '718096' },   // grey
+      leave:      { bg: 'FAF5FF', fg: '553C9A' },   // purple
+      lateVal:    { bg: 'FFFBEB', fg: 'B45309' },   // amber tint for Late By values
+      earlyVal:   { bg: 'EFF6FF', fg: '1D4ED8' },   // blue tint for Early By values
+      totalsCol:  { bg: 'EBF4FF', fg: '1A365D' },   // totals column
+      separator:  { bg: 'FFFFFF', fg: 'FFFFFF' },
     }
-    dateHeaderRow.push('Total')
 
+    type FillColor = { bg: string; fg: string }
+
+    function cell(r: number, c: number) { return ws2.getCell(r, c) }
+
+    function styleFill(r: number, c: number, color: FillColor, opts?: {
+      bold?: boolean; italic?: boolean; size?: number; align?: 'left'|'center'|'right'; wrap?: boolean; border?: boolean
+    }) {
+      const cl = cell(r, c)
+      cl.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color.bg } }
+      cl.font = { color: { argb: 'FF' + color.fg }, bold: opts?.bold, italic: opts?.italic, size: opts?.size ?? 9, name: 'Calibri' }
+      cl.alignment = { horizontal: opts?.align ?? 'center', vertical: 'middle', wrapText: opts?.wrap }
+      if (opts?.border) {
+        const bStyle = { style: 'thin' as const, color: { argb: 'FFD0D5DB' } }
+        cl.border = { top: bStyle, left: bStyle, bottom: bStyle, right: bStyle }
+      }
+    }
+
+    function statusFill(st: string): FillColor {
+      if (st === 'P')            return C.present
+      if (st === 'A')            return C.absent
+      if (st === 'HD')           return C.halfDay
+      if (st === 'L')            return C.leave
+      if (st === 'H')            return C.holiday
+      if (st === 'W' || st === 'WO') return C.weekend
+      return C.rowLabel
+    }
+
+    // ── Title row ────────────────────────────────────────────────────────────
+    const totalCols = 2 + days.length + 1   // label + days + Total
+    ws2.addRow([])
+    const titleRow = ws2.addRow([`Attendance Detail Report   ${format(fromDate, 'dd MMM yyyy')}  to  ${format(toDate, 'dd MMM yyyy')}`])
+    ws2.mergeCells(titleRow.number, 1, titleRow.number, totalCols)
+    const titleCell = cell(titleRow.number, 1)
+    titleCell.value = `Attendance Detail Report   ${format(fromDate, 'dd MMM yyyy')}  to  ${format(toDate, 'dd MMM yyyy')}`
+    titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } }
+    titleCell.font  = { bold: true, size: 13, color: { argb: 'FFFFFFFF' }, name: 'Calibri' }
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+    titleRow.height = 22
+    ws2.addRow([])
+
+    // ── Per-employee blocks ───────────────────────────────────────────────────
     for (const emp of employees) {
       const empRecs = recIndex.get(emp.id) ?? new Map()
 
-      // Per-day computed values
-      const shiftRow: string[]    = ['Shift', '']
-      const inRow: string[]       = ['In Time', '']
-      const outRow: string[]      = ['Out Time', '']
-      const lateRow: string[]     = ['Late By', '']
-      const earlyRow: string[]    = ['Early By', '']
-      const otRow: string[]       = ['Total OT', '']
-      const durRow: string[]      = ['T Duration', '']
-      const statusRow: string[]   = ['Status', '']
-
+      const dataRows: { shift: string; in_time: string; out_time: string; late_by: string; early_by: string; total_ot: string; t_duration: string; status: string; lateMins: number; earlyMins: number }[] = []
       let totalPresent = 0, totalAbsent = 0, totalLeave = 0, totalWO = 0, totalHO = 0
       let totalLateMins = 0, totalEarlyMins = 0, totalDurMins = 0, totalOTMins = 0
 
@@ -242,9 +287,7 @@ export async function GET(req: NextRequest) {
         const ds  = format(day, 'yyyy-MM-dd')
         const rec = empRecs.get(ds)
         const st  = dayStatus(rec, ds)
-
-        const isHoliday = st === 'H'
-        const isWeekOff = st === 'W'
+        const isH = st === 'H', isW = st === 'W'
 
         if (st === 'P' || st === 'HD' || st === 'WFH') totalPresent++
         else if (st === 'L') totalLeave++
@@ -252,92 +295,142 @@ export async function GET(req: NextRequest) {
         else if (st === 'W') totalWO++
         else if (st === 'H') totalHO++
 
-        const shiftLabel = isHoliday ? 'H' : isWeekOff ? 'WO' : 'FS'
-        shiftRow.push(shiftLabel)
-
-        if (rec?.first_in) {
-          inRow.push(fmtHHMMSS(rec.first_in))
-        } else {
-          inRow.push('00:00:00')
-        }
-
-        if (rec?.last_out) {
-          outRow.push(fmtHHMMSS(rec.last_out))
-        } else {
-          outRow.push('00:00:00')
-        }
-
         const lateMins  = rec?.late_by_minutes ?? 0
         const earlyMins = rec ? earlyByMinutes(rec.last_out) : 0
         const durMins   = rec?.total_hours ? Math.round(Number(rec.total_hours) * 60) : 0
         const otMins    = rec?.overtime_hours ? Math.round(Number(rec.overtime_hours) * 60) : 0
+        totalLateMins += lateMins; totalEarlyMins += earlyMins
+        totalDurMins  += durMins;  totalOTMins    += otMins
 
-        lateRow.push(lateMins   ? fmtMinutes(lateMins)  : '00:00')
-        earlyRow.push(earlyMins ? fmtMinutes(earlyMins) : '00:00')
-        otRow.push(otMins       ? fmtMinutes(otMins)    : '00:00')
-        durRow.push(durMins     ? fmtMinutes(durMins)   : '00:00')
-        statusRow.push(st)
-
-        totalLateMins  += lateMins
-        totalEarlyMins += earlyMins
-        totalDurMins   += durMins
-        totalOTMins    += otMins
+        dataRows.push({
+          shift:      isH ? 'H' : isW ? 'WO' : 'FS',
+          in_time:    rec?.first_in ? fmtHHMMSS(rec.first_in) : '00:00:00',
+          out_time:   rec?.last_out ? fmtHHMMSS(rec.last_out) : '00:00:00',
+          late_by:    lateMins  ? fmtMinutes(lateMins)  : '00:00',
+          early_by:   earlyMins ? fmtMinutes(earlyMins) : '00:00',
+          total_ot:   otMins    ? fmtMinutes(otMins)    : '00:00',
+          t_duration: durMins   ? fmtMinutes(durMins)   : '00:00',
+          status: st, lateMins, earlyMins,
+        })
       }
 
-      // Totals column
-      shiftRow.push('')
-      inRow.push('')
-      outRow.push('')
-      lateRow.push(fmtMinutes(totalLateMins))
-      earlyRow.push(fmtMinutes(totalEarlyMins))
-      otRow.push(fmtMinutes(totalOTMins))
-      durRow.push(fmtMinutes(totalDurMins))
-      statusRow.push('')
+      const startRow = ws2.rowCount + 1
 
-      // ── Employee block ────────────────────────────────────────────────────
-      // Header: code | name
-      aoaRows.push([
-        `EmployeeCode  ${emp.emp_code}`,
-        '',
-        ...Array(days.length).fill(''),
-        `EmployeeName  ${emp.first_name} ${emp.last_name}`,
-      ])
+      // ── Row 1: Employee header ──────────────────────────────────────────
+      const empRow = ws2.addRow([])
+      empRow.height = 20
+      const er = empRow.number
+      ws2.mergeCells(er, 1, er, 2)
+      cell(er, 1).value = `Employee Code:  ${emp.emp_code}`
+      styleFill(er, 1, C.empHeader, { bold: true, size: 10, align: 'left' })
+      const midCol = Math.floor(totalCols / 2)
+      for (let c = 3; c <= midCol; c++) styleFill(er, c, C.empHeader)
+      ws2.mergeCells(er, midCol + 1, er, totalCols)
+      cell(er, midCol + 1).value = `${emp.first_name} ${emp.last_name}  (${emp.department?.name ?? ''})`
+      styleFill(er, midCol + 1, C.empHeader, { bold: true, size: 10, align: 'right' })
 
-      // Date header
-      aoaRows.push(dateHeaderRow)
+      // ── Row 2: Date headers ─────────────────────────────────────────────
+      const dhRow = ws2.addRow([])
+      dhRow.height = 18
+      const dr = dhRow.number
+      cell(dr, 1).value = ''
+      styleFill(dr, 1, C.dateHeader, { bold: true })
+      cell(dr, 2).value = ''
+      styleFill(dr, 2, C.dateHeader)
+      days.forEach((day, i) => {
+        const col = 3 + i
+        cell(dr, col).value = `${format(day, 'd')}-${format(day, 'EEE')}`
+        const isWknd = isWeekend(day)
+        const isHol  = holidaySet.has(format(day, 'yyyy-MM-dd'))
+        styleFill(dr, col, isHol ? C.holiday : isWknd ? C.weekend : C.dateHeader, { bold: true, size: 8 })
+      })
+      cell(dr, totalCols).value = 'Total'
+      styleFill(dr, totalCols, C.totalsCol, { bold: true })
 
-      // Summary line
-      aoaRows.push([
-        `Total Present - ${totalPresent}  Total Absent - ${totalAbsent}  Total Leave Taken - ${totalLeave}  Total Weekly Off Present - ${totalWO}  Total Duration - ${fmtMinutes(totalDurMins)}  Total T.Duration - ${fmtMinutes(totalDurMins)}  Total Over Time - ${fmtMinutes(totalOTMins)}  Total WO Count ${totalWO}  Total HO Count ${totalHO}  Total LateBy - ${fmtMinutes(totalLateMins)} (Hrs.)  Total EarlyBy - ${fmtMinutes(totalEarlyMins)} (Hrs.)  Total Regular OT - ${fmtMinutes(totalOTMins)} (Hrs.)`,
-      ])
+      // ── Row 3: Summary ──────────────────────────────────────────────────
+      const sumRow = ws2.addRow([])
+      sumRow.height = 16
+      const sr = sumRow.number
+      ws2.mergeCells(sr, 1, sr, totalCols)
+      cell(sr, 1).value =
+        `Present: ${totalPresent}   Absent: ${totalAbsent}   Leave: ${totalLeave}   WO: ${totalWO}   HO: ${totalHO}   ` +
+        `Duration: ${fmtMinutes(totalDurMins)}   Late By: ${fmtMinutes(totalLateMins)} hrs   ` +
+        `Early By: ${fmtMinutes(totalEarlyMins)} hrs   OT: ${fmtMinutes(totalOTMins)}`
+      styleFill(sr, 1, C.summary, { bold: false, size: 8, align: 'left' })
 
-      aoaRows.push(shiftRow)
-      aoaRows.push(inRow)
-      aoaRows.push(outRow)
-      aoaRows.push(lateRow)
-      aoaRows.push(earlyRow)
-      aoaRows.push(otRow)
-      aoaRows.push(durRow)
-      aoaRows.push(statusRow)
-      aoaRows.push([]) // blank separator
+      // ── Rows 4-11: Data rows ────────────────────────────────────────────
+      const ROW_DEFS = [
+        { label: 'Shift',      key: 'shift'      as const, total: ''                         },
+        { label: 'In Time',    key: 'in_time'    as const, total: ''                         },
+        { label: 'Out Time',   key: 'out_time'   as const, total: ''                         },
+        { label: 'Late By',    key: 'late_by'    as const, total: fmtMinutes(totalLateMins)  },
+        { label: 'Early By',   key: 'early_by'   as const, total: fmtMinutes(totalEarlyMins) },
+        { label: 'Total OT',   key: 'total_ot'   as const, total: fmtMinutes(totalOTMins)    },
+        { label: 'T Duration', key: 't_duration' as const, total: fmtMinutes(totalDurMins)   },
+        { label: 'Status',     key: 'status'     as const, total: `${totalPresent}P/${totalAbsent}A` },
+      ]
+
+      for (const def of ROW_DEFS) {
+        const dataRow = ws2.addRow([])
+        dataRow.height = def.key === 'in_time' || def.key === 'out_time' ? 16 : 15
+        const rn = dataRow.number
+
+        // Label cell
+        cell(rn, 1).value = def.label
+        styleFill(rn, 1, C.rowLabel, { bold: true, size: 9, align: 'left', border: true })
+        // Spacer
+        styleFill(rn, 2, C.rowLabel, { border: true })
+
+        // Day cells
+        dataRows.forEach((d, i) => {
+          const col = 3 + i
+          const val = d[def.key]
+          let fillColor: FillColor = C.rowLabel
+
+          if (def.key === 'status') {
+            fillColor = statusFill(val)
+          } else if (def.key === 'late_by' && d.lateMins > 0) {
+            fillColor = C.lateVal
+          } else if (def.key === 'early_by' && d.earlyMins > 0) {
+            fillColor = C.earlyVal
+          } else if (d.status === 'A') {
+            fillColor = { bg: 'F9FAFB', fg: 'CBD5E0' }
+          } else if (d.status === 'W' || d.status === 'H') {
+            fillColor = C.weekend
+          }
+
+          const isEmpty = val === '00:00' || val === '00:00:00'
+          cell(rn, col).value = isEmpty && def.key !== 'status' ? '' : val
+          styleFill(rn, col, fillColor, {
+            bold: def.key === 'status',
+            size: def.key === 'in_time' || def.key === 'out_time' ? 8 : 9,
+            border: true,
+          })
+        })
+
+        // Total cell
+        cell(rn, totalCols).value = def.total
+        styleFill(rn, totalCols, C.totalsCol, { bold: true, border: true })
+      }
+
+      // ── Separator row ───────────────────────────────────────────────────
+      const sepRow = ws2.addRow([])
+      sepRow.height = 8
+      void startRow // suppress unused-var warning
+
+      ws2.addRow([])
     }
 
-    const ws = XLSX.utils.aoa_to_sheet(aoaRows)
+    // ── Column widths ─────────────────────────────────────────────────────────
+    ws2.getColumn(1).width = 12  // row label
+    ws2.getColumn(2).width = 2   // spacer
+    for (let i = 0; i < days.length; i++) ws2.getColumn(3 + i).width = 9
+    ws2.getColumn(totalCols).width = 10
 
-    // Fixed col widths: label col + date cols
-    ws['!cols'] = [
-      { wch: 14 }, // row label
-      { wch: 4  }, // spacer
-      ...days.map(() => ({ wch: 11 })),
-      { wch: 8 },  // Total
-    ]
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Detail')
-
-    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+    const buffer2 = await wb2.xlsx.writeBuffer()
     const filename = `attendance_detail_${fromStr}_to_${toStr}.xlsx`
 
-    return new NextResponse(buffer, {
+    return new NextResponse(Buffer.from(buffer2), {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

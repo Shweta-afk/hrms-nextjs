@@ -625,6 +625,19 @@ const Attendance = () => {
             <Button variant="outline" size="icon" onClick={() => setMonthOffset(p => p + 1)}>
               <ChevronRight className="h-4 w-4" />
             </Button>
+            {/* Date jump — pick any date to navigate directly to that month */}
+            <input
+              type="date"
+              title="Jump to date"
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring w-36"
+              onChange={e => {
+                const d = new Date(e.target.value)
+                if (!isNaN(d.getTime())) {
+                  const diff = (d.getFullYear() - now.getFullYear()) * 12 + (d.getMonth() - now.getMonth())
+                  setMonthOffset(diff)
+                }
+              }}
+            />
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button
