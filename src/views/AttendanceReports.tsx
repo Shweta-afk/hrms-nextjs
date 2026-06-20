@@ -5,6 +5,9 @@ import AppLayout from '@/components/AppLayout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -17,6 +20,7 @@ import {
 import {
   FileBarChart2, Download, Eye, RefreshCw, Loader2,
   Cpu, CheckCircle2, XCircle, AlertCircle, Users,
+  ChevronDown, ChevronUp, Filter, Building2, User,
 } from 'lucide-react'
 import { format, subDays } from 'date-fns'
 import { cn } from '@/lib/utils'
@@ -140,23 +144,45 @@ function enrollBadge(hrmsStatus: string, onDevice: boolean | null) {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
+type ReportType =
+  | 'basic' | 'detailed' | 'summary' | 'work_duration' | 'total_duration'
+  | 'period_wise' | 'ot1_ot2' | 'form_j' | 'muster_roll' | 'monthly_matrix'
+  | 'period_wise_detailed' | 'ot_summary'
+
 export default function AttendanceReports() {
   const today = new Date()
+  const prevMonth = today.getMonth() === 0 ? 11 : today.getMonth() - 1
+  const prevYear  = today.getMonth() === 0 ? today.getFullYear() - 1 : today.getFullYear()
 
-  // Daily report state
-  const [dailyDate, setDailyDate] = useState(format(subDays(today, 1), 'yyyy-MM-dd'))
-  const [dailyRows, setDailyRows] = useState<DailyRow[]>([])
-  const [dailyLoading, setDailyLoading] = useState(false)
-  const [dailyDownloading, setDailyDownloading] = useState(false)
+  // ── Unified date range (shared across all reports) ─────────────────────
+  const [fromDate, setFromDate] = useState(format(new Date(prevYear, prevMonth, 21), 'yyyy-MM-dd'))
+  const [toDate,   setToDate]   = useState(format(new Date(today.getFullYear(), today.getMonth(), 20), 'yyyy-MM-dd'))
+  const [groupBy,  setGroupBy]  = useState('employee')
+  const [sortBy,   setSortBy]   = useState('emp_code')
+  const [recalculate, setRecalculate] = useState(true)
 
-  // Range report state — wide format: one row per employee, date columns
-  // span the range, summary columns at the right edge. Defaults to "last 7
-  // days ending yesterday" — the most common "what happened this past
-  // week?" ask. No auto-fetch (range reports can be slow); HR clicks
-  // Preview explicitly.
-  const [rangeFrom, setRangeFrom] = useState(format(subDays(today, 7), 'yyyy-MM-dd'))
-  const [rangeTo,   setRangeTo]   = useState(format(subDays(today, 1), 'yyyy-MM-dd'))
-  const [rangeGrid, setRangeGrid] = useState<{
+  // ── Employee filters ───────────────────────────────────────────────────
+  const [filtersOpen,  setFiltersOpen]  = useState(true)
+  const [deptOpen,     setDeptOpen]     = useState(false)
+  const [empCode,      setEmpCode]      = useState('')
+  const [empName,      setEmpName]      = useState('')
+  const [exactMatch,   setExactMatch]   = useState(false)
+  const [filterDept,   setFilterDept]   = useState('all')
+  const [filterDesig,  setFilterDesig]  = useState('all')
+  const [filterEmpType,setFilterEmpType]= useState('all')
+  const [filterStatus, setFilterStatus] = useState('all')
+
+  // ── Departments / designations for filter dropdowns ────────────────────
+  const [departments,  setDepartments]  = useState<{id:string;name:string}[]>([])
+  const [designations, setDesignations] = useState<{id:string;name:string}[]>([])
+
+  // ── Active report + results ────────────────────────────────────────────
+  const [activeReport, setActiveReport] = useState<ReportType | null>(null)
+  const [loading,      setLoading]      = useState(false)
+
+  // results for each report type
+  const [dailyRows,    setDailyRows]    = useState<DailyRow[]>([])
+  const [rangeGrid,    setRangeGrid]    = useState<{
     fixed_left_headers: string[]
     date_headers:       string[]
     summary_headers:    string[]
@@ -164,235 +190,432 @@ export default function AttendanceReports() {
     employees:          number
     days:               number
   } | null>(null)
-  const [rangeLoading, setRangeLoading]         = useState(false)
-  const [rangeDownloading, setRangeDownloading] = useState(false)
-
-  // Monthly report state
-  const [monthlyMonth, setMonthlyMonth] = useState(today.getMonth() + 1)
-  const [monthlyYear, setMonthlyYear] = useState(today.getFullYear())
-  const [monthlyRows, setMonthlyRows] = useState<MonthlyRow[]>([])
-  const [monthlyLoading, setMonthlyLoading] = useState(false)
-  const [monthlyDownloading, setMonthlyDownloading] = useState(false)
+  const [monthlyRows,    setMonthlyRows]    = useState<MonthlyRow[]>([])
   const [monthlyColumns, setMonthlyColumns] = useState<string[]>([])
+  const [detailData, setDetailData] = useState<{
+    date_headers: string[]
+    employees: {
+      emp_code: string
+      name: string
+      department: string
+      summary: {
+        total_present: number; total_absent: number; total_leave: number
+        total_wo: number; total_ho: number; total_duration: string
+        total_late_by: string; total_early_by: string; total_ot: string
+      }
+      days: {
+        shift: string; in_time: string; out_time: string
+        late_by: string; early_by: string; total_ot: string
+        t_duration: string; status: string
+      }[]
+    }[]
+  } | null>(null)
 
-  // Device panel state
-  const [devices, setDevices] = useState<Device[]>([])
-  const [devicesLoading, setDevicesLoading] = useState(false)
+  // ── Device panel ───────────────────────────────────────────────────────
+  const [devices,           setDevices]           = useState<Device[]>([])
+  const [devicesLoading,    setDevicesLoading]    = useState(false)
   const [peoplePanelDevice, setPeoplePanelDevice] = useState<Device | null>(null)
-  const [devicePeople, setDevicePeople] = useState<DeviceEmployee[]>([])
+  const [devicePeople,      setDevicePeople]      = useState<DeviceEmployee[]>([])
   const [devicePeopleLoading, setDevicePeopleLoading] = useState(false)
 
-  // ── Fetch daily preview ────────────────────────────────────────────────
-  const fetchDailyPreview = useCallback(async () => {
-    setDailyLoading(true)
-    try {
-      const res = await fetch(`/api/reports/attendance/daily?date=${dailyDate}&format=json`)
-      const json = await res.json()
-      if (json.success) setDailyRows(json.data)
-      else toast.error(json.error ?? 'Failed to load daily preview')
-    } catch {
-      toast.error('Failed to load daily preview')
-    } finally {
-      setDailyLoading(false)
-    }
-  }, [dailyDate])
-
-  // ── Download daily Excel ───────────────────────────────────────────────
-  async function downloadDaily() {
-    setDailyDownloading(true)
-    try {
-      const res = await fetch(`/api/reports/attendance/daily?date=${dailyDate}&format=excel`)
-      if (!res.ok) { toast.error('Download failed'); return }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `attendance_daily_${dailyDate}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast.error('Download failed')
-    } finally {
-      setDailyDownloading(false)
-    }
+  // ── Filter param builder ───────────────────────────────────────────────
+  function filterParams() {
+    const p = new URLSearchParams()
+    if (empCode)                    p.set('emp_code',    empCode)
+    if (empName)                    p.set('emp_name',    empName)
+    if (exactMatch)                 p.set('exact',       '1')
+    if (filterDept   !== 'all')     p.set('dept_id',     filterDept)
+    if (filterDesig  !== 'all')     p.set('desig_id',    filterDesig)
+    if (filterEmpType !== 'all')    p.set('emp_type',    filterEmpType)
+    if (filterStatus !== 'all')     p.set('status',      filterStatus)
+    return p.toString() ? `&${p.toString()}` : ''
   }
 
-  // ── Fetch range preview ────────────────────────────────────────────────
-  async function fetchRangePreview() {
-    if (!rangeFrom || !rangeTo) { toast.error('Pick a from and to date'); return }
-    if (rangeFrom > rangeTo) { toast.error('“From” date must be on or before “To” date'); return }
-    setRangeLoading(true)
+  // ── Generic Excel downloader ───────────────────────────────────────────
+  async function downloadExcel(url: string, filename: string) {
+    const res = await fetch(url)
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '')
+      toast.error(txt.includes('too large') || txt.includes('Date range') ? 'Date range too large for this report' : 'Download failed')
+      return
+    }
+    const blob = await res.blob()
+    const a    = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename })
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  // ── Generate / download a report ──────────────────────────────────────
+  async function generate(type: ReportType, download = false) {
+    if (fromDate > toDate) { toast.error('"From" must be on or before "To"'); return }
+    const fp = filterParams()
+    const month = new Date(fromDate).getMonth() + 1
+    const year  = new Date(fromDate).getFullYear()
+
+    if (download) {
+      setLoading(true)
+      try {
+        switch (type) {
+          case 'basic':
+            await downloadExcel(`/api/reports/attendance/daily?date=${fromDate}&format=excel${fp}`, `attendance_basic_${fromDate}.xlsx`)
+            break
+          case 'detailed':
+          case 'period_wise_detailed':
+            await downloadExcel(`/api/reports/attendance/detail?from=${fromDate}&to=${toDate}&format=excel${fp}`, `attendance_detail_${fromDate}_to_${toDate}.xlsx`)
+            break
+          case 'period_wise':
+          case 'work_duration':
+          case 'total_duration':
+            await downloadExcel(`/api/reports/attendance/range?from=${fromDate}&to=${toDate}&format=excel${fp}`, `attendance_range_${fromDate}_to_${toDate}.xlsx`)
+            break
+          case 'summary':
+          case 'monthly_matrix':
+            await downloadExcel(`/api/reports/attendance/monthly?month=${month}&year=${year}&format=excel${fp}`, `attendance_monthly_${MONTHS[month-1]}_${year}.xlsx`)
+            break
+          default:
+            toast.info('This report type download is coming soon')
+        }
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    // Preview
+    setActiveReport(type)
+    setLoading(true)
+    setDailyRows([]); setRangeGrid(null); setMonthlyRows([]); setDetailData(null)
     try {
-      const res = await fetch(`/api/reports/attendance/range?from=${rangeFrom}&to=${rangeTo}&format=json`)
-      const json = await res.json()
-      if (json.success) {
-        setRangeGrid(json.data)
-      } else {
-        toast.error(json.error ?? 'Failed to load range preview')
+      switch (type) {
+        case 'basic': {
+          const res  = await fetch(`/api/reports/attendance/daily?date=${fromDate}&format=json${fp}`)
+          const json = await res.json()
+          if (json.success) setDailyRows(json.data)
+          else toast.error(json.error ?? 'Failed')
+          break
+        }
+        case 'detailed':
+        case 'period_wise_detailed': {
+          const res  = await fetch(`/api/reports/attendance/detail?from=${fromDate}&to=${toDate}&format=json${fp}`)
+          const json = await res.json()
+          if (json.success) setDetailData(json.data)
+          else toast.error(json.error ?? 'Failed')
+          break
+        }
+        case 'period_wise':
+        case 'work_duration':
+        case 'total_duration': {
+          const res  = await fetch(`/api/reports/attendance/range?from=${fromDate}&to=${toDate}&format=json${fp}`)
+          const json = await res.json()
+          if (json.success) setRangeGrid(json.data)
+          else toast.error(json.error ?? 'Failed')
+          break
+        }
+        case 'summary':
+        case 'monthly_matrix': {
+          const res  = await fetch(`/api/reports/attendance/monthly?month=${month}&year=${year}&format=json${fp}`)
+          const json = await res.json()
+          if (json.success) {
+            setMonthlyRows(json.data)
+            if (json.data.length > 0) setMonthlyColumns(Object.keys(json.data[0]))
+          } else toast.error(json.error ?? 'Failed')
+          break
+        }
+        default:
+          toast.info('Preview for this report type is coming soon')
+          setActiveReport(null)
       }
     } catch {
-      toast.error('Failed to load range preview')
+      toast.error('Failed to load report')
+      setActiveReport(null)
     } finally {
-      setRangeLoading(false)
+      setLoading(false)
     }
   }
 
-  // ── Download range Excel ───────────────────────────────────────────────
-  async function downloadRange() {
-    if (!rangeFrom || !rangeTo) { toast.error('Pick a from and to date'); return }
-    if (rangeFrom > rangeTo) { toast.error('“From” date must be on or before “To” date'); return }
-    setRangeDownloading(true)
+  // ── Fetch departments / designations ───────────────────────────────────
+  const fetchFilters = useCallback(async () => {
     try {
-      const res = await fetch(`/api/reports/attendance/range?from=${rangeFrom}&to=${rangeTo}&format=excel`)
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        toast.error(txt.includes('Date range too large') ? 'Range too large — max 92 days' : 'Download failed')
-        return
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `attendance_${rangeFrom}_to_${rangeTo}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast.error('Download failed')
-    } finally {
-      setRangeDownloading(false)
-    }
-  }
+      const [d, g] = await Promise.all([
+        fetch('/api/departments').then(r => r.json()),
+        fetch('/api/designations').then(r => r.json()),
+      ])
+      if (d.success) setDepartments(d.data ?? [])
+      if (g.success) setDesignations(g.data ?? [])
+    } catch { /* silent */ }
+  }, [])
 
-  // ── Fetch monthly preview ──────────────────────────────────────────────
-  const fetchMonthlyPreview = useCallback(async () => {
-    setMonthlyLoading(true)
-    try {
-      const res = await fetch(`/api/reports/attendance/monthly?month=${monthlyMonth}&year=${monthlyYear}&format=json`)
-      const json = await res.json()
-      if (json.success) {
-        setMonthlyRows(json.data)
-        if (json.data.length > 0) setMonthlyColumns(Object.keys(json.data[0]))
-      } else {
-        toast.error(json.error ?? 'Failed to load monthly preview')
-      }
-    } catch {
-      toast.error('Failed to load monthly preview')
-    } finally {
-      setMonthlyLoading(false)
-    }
-  }, [monthlyMonth, monthlyYear])
-
-  // ── Download monthly Excel ─────────────────────────────────────────────
-  async function downloadMonthly() {
-    setMonthlyDownloading(true)
-    try {
-      const res = await fetch(`/api/reports/attendance/monthly?month=${monthlyMonth}&year=${monthlyYear}&format=excel`)
-      if (!res.ok) { toast.error('Download failed'); return }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `attendance_monthly_${MONTHS[monthlyMonth - 1]}_${monthlyYear}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast.error('Download failed')
-    } finally {
-      setMonthlyDownloading(false)
-    }
-  }
-
-  // ── Fetch devices ──────────────────────────────────────────────────────
+  // ── Device helpers ─────────────────────────────────────────────────────
   const fetchDevices = useCallback(async () => {
     setDevicesLoading(true)
     try {
-      const res = await fetch('/api/devices')
+      const res  = await fetch('/api/devices')
       const json = await res.json()
       if (json.success) setDevices(json.data ?? [])
-    } catch {
-      toast.error('Failed to load devices')
-    } finally {
-      setDevicesLoading(false)
-    }
+    } catch { toast.error('Failed to load devices') }
+    finally  { setDevicesLoading(false) }
   }, [])
 
-  // ── Fetch device people ────────────────────────────────────────────────
   async function openDevicePeople(device: Device) {
-    setPeoplePanelDevice(device)
-    setDevicePeople([])
-    setDevicePeopleLoading(true)
+    setPeoplePanelDevice(device); setDevicePeople([]); setDevicePeopleLoading(true)
     try {
-      const res = await fetch(`/api/devices/${device.id}/employees`)
+      const res  = await fetch(`/api/devices/${device.id}/employees`)
       const json = await res.json()
       if (json.success) setDevicePeople(json.data.employees)
-      else toast.error(json.error ?? 'Failed to load device users')
-    } catch {
-      toast.error('Failed to load device users')
-    } finally {
-      setDevicePeopleLoading(false)
-    }
+      else toast.error(json.error ?? 'Failed')
+    } catch { toast.error('Failed to load device users') }
+    finally  { setDevicePeopleLoading(false) }
   }
 
-  // ── Init ───────────────────────────────────────────────────────────────
-  useEffect(() => { fetchDailyPreview() }, [fetchDailyPreview])
-  useEffect(() => { fetchMonthlyPreview() }, [fetchMonthlyPreview])
+  useEffect(() => { fetchFilters() }, [fetchFilters])
   useEffect(() => { fetchDevices() }, [fetchDevices])
 
-  const yearOptions = Array.from({ length: 5 }, (_, i) => today.getFullYear() - i)
+  // ── Report buttons config ──────────────────────────────────────────────
+  const reportButtons: { type: ReportType; label: string }[] = [
+    { type: 'basic',              label: 'Basic Report' },
+    { type: 'detailed',           label: 'Detailed Report' },
+    { type: 'summary',            label: 'Summary Report' },
+    { type: 'work_duration',      label: 'Work Duration' },
+    { type: 'total_duration',     label: 'Total Duration' },
+    { type: 'period_wise',        label: 'Period Wise' },
+    { type: 'ot1_ot2',           label: 'OT1 OT2 Summary' },
+    { type: 'form_j',             label: 'Form J' },
+    { type: 'muster_roll',        label: 'Muster Roll' },
+    { type: 'monthly_matrix',     label: 'Monthly Matrix' },
+  ]
+  const secondRowButtons: { type: ReportType; label: string }[] = [
+    { type: 'period_wise_detailed', label: 'Period Wise Detailed' },
+    { type: 'ot_summary',           label: 'OT Summary' },
+  ]
+
+  const hasResults = dailyRows.length > 0 || !!rangeGrid || monthlyRows.length > 0 || !!detailData
 
   return (
     <AppLayout title="Attendance Reports">
-      <div className="p-6 space-y-8 max-w-full">
+      <div className="p-4 space-y-4 max-w-full">
         {/* Page header */}
-        <div>
-          <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
-            <FileBarChart2 className="h-5 w-5" />
-            Attendance Reports
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Download Smart Office–compatible Excel reports or preview data inline
-          </p>
-        </div>
+        {/* ── Report Generator Panel ── */}
+        {/* ── Generate report panel ── */}
+        <Card className="shadow-sm border-border">
+          <CardHeader className="pb-0 pt-4 px-5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Generate Monthly Attendance Report</p>
+          </CardHeader>
+          <CardContent className="px-5 pt-3 pb-5 space-y-4">
 
-        {/* ── Daily Report ── */}
-        <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-sm font-semibold">Daily Attendance Report</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  All employees for a specific date — matches Smart Office daily export
-                </p>
+            {/* Row 1: date range + group/sort */}
+            <div className="flex flex-wrap gap-4 items-end">
+              <div className="space-y-1">
+                <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">From Date</Label>
+                <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+                  className="border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus:ring-1 focus:ring-ring" />
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <input
-                  type="date"
-                  value={dailyDate}
-                  max={format(today, 'yyyy-MM-dd')}
-                  onChange={(e) => setDailyDate(e.target.value)}
-                  className="text-sm border border-border rounded-md px-2.5 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={fetchDailyPreview} disabled={dailyLoading}>
-                  {dailyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
-                  Preview
-                </Button>
-                <Button size="sm" className="gap-1.5 text-xs" onClick={downloadDaily} disabled={dailyDownloading}>
-                  {dailyDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                  Download Excel
-                </Button>
+              <div className="space-y-1">
+                <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">To Date</Label>
+                <input type="date" value={toDate} min={fromDate} onChange={e => setToDate(e.target.value)}
+                  className="border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus:ring-1 focus:ring-ring" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Group By</Label>
+                <Select value={groupBy} onValueChange={setGroupBy}>
+                  <SelectTrigger className="w-40 h-9 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="employee">Employee Wise</SelectItem>
+                    <SelectItem value="department">Department Wise</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Sort By</Label>
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-40 h-9 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="emp_code">Employee Code</SelectItem>
+                    <SelectItem value="emp_name">Employee Name</SelectItem>
+                    <SelectItem value="department">Department</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {dailyLoading ? (
-              <div className="flex justify-center py-10">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+
+            {/* Employee Filters accordion */}
+            <div className="border border-border rounded-lg overflow-hidden">
+              <button
+                onClick={() => setFiltersOpen(o => !o)}
+                className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/40 hover:bg-muted/60 transition-colors text-left"
+              >
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <User className="h-4 w-4 text-primary" />
+                  Employee Filters
+                </span>
+                {filtersOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+              </button>
+              {filtersOpen && (
+                <div className="px-4 py-4 space-y-3 bg-background">
+                  {/* Row: emp code + name */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Employee Code</Label>
+                      <Input placeholder="Search employee code..." value={empCode} onChange={e => setEmpCode(e.target.value)} className="h-8 text-sm" />
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer mt-1">
+                        <Checkbox checked={exactMatch} onCheckedChange={v => setExactMatch(!!v)} className="h-3.5 w-3.5" />
+                        Exact match
+                      </label>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Employee Name</Label>
+                      <Input placeholder="Search employee name..." value={empName} onChange={e => setEmpName(e.target.value)} className="h-8 text-sm" />
+                    </div>
+                  </div>
+                  {/* Row: category / designation / location / grade / emp-type / team / status / shift */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Department</Label>
+                      <Select value={filterDept} onValueChange={setFilterDept}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {departments.map(d => <SelectItem key={d.id} value={d.id} className="text-xs">{d.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Designation</Label>
+                      <Select value={filterDesig} onValueChange={setFilterDesig}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          {designations.map(d => <SelectItem key={d.id} value={d.id} className="text-xs">{d.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Employment Type</Label>
+                      <Select value={filterEmpType} onValueChange={setFilterEmpType}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="full_time">Full Time</SelectItem>
+                          <SelectItem value="part_time">Part Time</SelectItem>
+                          <SelectItem value="contract">Contract</SelectItem>
+                          <SelectItem value="intern">Intern</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Status</Label>
+                      <Select value={filterStatus} onValueChange={setFilterStatus}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select Status..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="inactive">Inactive</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Filter Company & Department accordion */}
+            <div className="border border-border rounded-lg overflow-hidden">
+              <button
+                onClick={() => setDeptOpen(o => !o)}
+                className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/40 hover:bg-muted/60 transition-colors text-left"
+              >
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <Building2 className="h-4 w-4 text-primary" />
+                  Filter Company &amp; Department
+                </span>
+                {deptOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+              </button>
+              {deptOpen && (
+                <div className="px-4 py-4 grid grid-cols-2 sm:grid-cols-3 gap-3 bg-background">
+                  {departments.map(d => (
+                    <label key={d.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={filterDept === d.id}
+                        onCheckedChange={v => setFilterDept(v ? d.id : 'all')}
+                        className="h-3.5 w-3.5"
+                      />
+                      {d.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Report type buttons */}
+            <div className="space-y-2 pt-1">
+              <div className="flex flex-wrap gap-2">
+                {reportButtons.map(({ type, label }) => (
+                  <Button
+                    key={type}
+                    size="sm"
+                    variant={activeReport === type ? 'default' : 'outline'}
+                    className={cn(
+                      'text-xs gap-1.5 h-8',
+                      activeReport === type && 'ring-2 ring-primary/40'
+                    )}
+                    disabled={loading}
+                    onClick={() => generate(type)}
+                  >
+                    {loading && activeReport === type
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Eye className="h-3 w-3" />}
+                    {label}
+                  </Button>
+                ))}
               </div>
-            ) : dailyRows.length === 0 ? (
-              <div className="text-center py-10 text-sm text-muted-foreground">
-                No attendance data for this date
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                  <Checkbox checked={recalculate} onCheckedChange={v => setRecalculate(!!v)} className="h-3.5 w-3.5" />
+                  Recalculate Attendance
+                </label>
+                {secondRowButtons.map(({ type, label }) => (
+                  <Button
+                    key={type}
+                    size="sm"
+                    variant={activeReport === type ? 'default' : 'outline'}
+                    className={cn('text-xs gap-1.5 h-8', activeReport === type && 'ring-2 ring-primary/40')}
+                    disabled={loading}
+                    onClick={() => generate(type)}
+                  >
+                    {loading && activeReport === type
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Eye className="h-3 w-3" />}
+                    {label}
+                  </Button>
+                ))}
+                <span className="text-xs text-muted-foreground ml-1">Select filters and click to generate</span>
+                {activeReport && hasResults && (
+                  <Button size="sm" className="gap-1.5 text-xs h-8 ml-auto" onClick={() => generate(activeReport!, true)} disabled={loading}>
+                    {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                    Download Excel
+                  </Button>
+                )}
               </div>
-            ) : (
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ── Results panel ── */}
+        {loading && !hasResults && (
+          <div className="flex justify-center py-12 text-muted-foreground gap-2 text-sm">
+            <Loader2 className="h-5 w-5 animate-spin" /> Generating report…
+          </div>
+        )}
+
+        {/* Basic Report (daily) */}
+        {activeReport === 'basic' && dailyRows.length > 0 && (
+          <Card className="shadow-sm">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Basic Report — {fromDate}</CardTitle>
+                <Badge variant="outline" className="text-[10px]">{dailyRows.length} employees</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -429,252 +652,226 @@ export default function AttendanceReports() {
                   </TableBody>
                 </Table>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
-        {/* ── Range Report ── */}
-        <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-sm font-semibold">Range Attendance Report</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Pick any from–to window. One row per employee per day with timings, half-days, lates,
-                  approved leaves (with leave type) and holidays. Max 92 days per report.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">From</span>
-                  <input
-                    type="date"
-                    value={rangeFrom}
-                    max={rangeTo}
-                    onChange={(e) => setRangeFrom(e.target.value)}
-                    className="text-sm border border-border rounded-md px-2.5 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                  <span className="text-xs text-muted-foreground">To</span>
-                  <input
-                    type="date"
-                    value={rangeTo}
-                    min={rangeFrom}
-                    max={format(today, 'yyyy-MM-dd')}
-                    onChange={(e) => setRangeTo(e.target.value)}
-                    className="text-sm border border-border rounded-md px-2.5 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </div>
-                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={fetchRangePreview} disabled={rangeLoading}>
-                  {rangeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
-                  Preview
-                </Button>
-                <Button size="sm" className="gap-1.5 text-xs" onClick={downloadRange} disabled={rangeDownloading}>
-                  {rangeDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                  Download Excel
-                </Button>
-              </div>
-            </div>
-            {rangeGrid && (
-              <p className="text-xs text-muted-foreground mt-2">
-                {rangeGrid.employees} employees × {rangeGrid.days} days · payroll-included only
+        {/* Detailed / Period Wise Detailed — Smart Office per-employee block format */}
+        {(activeReport === 'detailed' || activeReport === 'period_wise_detailed') && detailData && (
+          <div className="space-y-0">
+            {/* header bar */}
+            <div className="flex items-center justify-between px-1 pb-2">
+              <p className="text-sm font-semibold">
+                {activeReport === 'detailed' ? 'Detailed Report' : 'Period Wise Detailed'} — {fromDate} to {toDate}
               </p>
-            )}
-          </CardHeader>
-          <CardContent className="p-0">
-            {rangeLoading ? (
-              <div className="flex justify-center py-10">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : !rangeGrid || rangeGrid.rows.length === 0 ? (
-              <div className="text-center py-10 text-sm text-muted-foreground">
-                Pick a date range and click Preview to see the grid — or just click Download Excel
-              </div>
-            ) : (
-              <>
-                {/* Legend so HR knows what the single-letter codes mean.
-                    Smart Office uses the same vocabulary — keep parity. */}
-                <div className="flex flex-wrap items-center gap-3 px-4 py-2 text-[10px] text-muted-foreground border-b border-border">
-                  <span><b className="text-emerald-600">P</b> Present</span>
-                  <span><b className="text-amber-600">L</b> Late</span>
-                  <span><b className="text-blue-600">HD</b> Half Day</span>
-                  <span><b className="text-red-600">A</b> Absent</span>
-                  <span><b className="text-violet-600">WFH</b> Work From Home</span>
-                  <span><b className="text-muted-foreground">LV/SL/CL/EL</b> Leave (type code)</span>
-                  <span><b className="text-orange-600">H</b> Holiday</span>
-                  <span><b className="text-muted-foreground">WO</b> Weekly Off</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-muted/40">
-                        {/* Fixed-left headers — sticky so the date strip can
-                            scroll past them and HR keeps employee identity in view. */}
-                        {rangeGrid.fixed_left_headers.map((h, i) => (
-                          <th
-                            key={h}
-                            className={cn(
-                              'text-[11px] font-semibold px-2 py-2 text-left border-b border-r border-border bg-card sticky z-10',
-                              i === 0 && 'left-0 w-10',
-                              i === 1 && 'left-10',
-                              // Only the first two columns stay sticky on
-                              // narrow screens to avoid covering too much
-                              // of the date strip. Department / designation
-                              // scroll along with the dates.
-                            )}
-                            style={{ minWidth: i === 0 ? 40 : i === 1 ? 80 : 120 }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                        {rangeGrid.date_headers.map((d) => (
-                          <th
-                            key={d}
-                            className="text-[10px] font-semibold px-1 py-2 text-center border-b border-r border-border bg-card w-12 whitespace-nowrap"
-                          >
-                            {d}
-                          </th>
-                        ))}
-                        {rangeGrid.summary_headers.map((s) => (
-                          <th
-                            key={s}
-                            className="text-[10px] font-semibold px-2 py-2 text-center border-b border-r border-border bg-muted/60 whitespace-nowrap"
-                          >
-                            {s}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rangeGrid.rows.map((row, idx) => {
-                        const leftCols = rangeGrid.fixed_left_headers.length
-                        const dateCols = rangeGrid.date_headers.length
-                        const sumStart = leftCols + dateCols
-                        return (
-                          <tr key={idx} className="hover:bg-muted/20">
-                            {row.slice(0, leftCols).map((v, i) => (
-                              <td
-                                key={i}
-                                className={cn(
-                                  'px-2 py-1.5 border-b border-r border-border bg-card sticky z-10',
-                                  i === 0 && 'left-0 text-muted-foreground',
-                                  i === 1 && 'left-10 font-mono text-[11px]',
-                                  i === 2 && 'font-medium',
-                                  i >= 3 && 'text-muted-foreground',
-                                )}
-                              >
-                                {v}
-                              </td>
-                            ))}
-                            {row.slice(leftCols, sumStart).map((v, i) => (
-                              <td
-                                key={`d-${i}`}
-                                className={cn(
-                                  'text-center px-1 py-1.5 border-b border-r border-border font-mono text-[11px]',
-                                  codeColor(String(v)),
-                                )}
-                              >
-                                {v}
-                              </td>
-                            ))}
-                            {row.slice(sumStart).map((v, i) => (
-                              <td
-                                key={`s-${i}`}
-                                className="text-center px-2 py-1.5 border-b border-r border-border tabular-nums text-[11px] bg-muted/20"
-                              >
-                                {v}
-                              </td>
-                            ))}
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── Monthly Report ── */}
-        <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-sm font-semibold">Monthly Attendance Summary</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Per-employee monthly summary with leave types, LOP, and attendance %
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <Select
-                  value={String(monthlyMonth)}
-                  onValueChange={(v) => setMonthlyMonth(Number(v))}
-                >
-                  <SelectTrigger className="w-32 h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTHS.map((m, i) => (
-                      <SelectItem key={i + 1} value={String(i + 1)} className="text-xs">{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={String(monthlyYear)}
-                  onValueChange={(v) => setMonthlyYear(Number(v))}
-                >
-                  <SelectTrigger className="w-24 h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {yearOptions.map((y) => (
-                      <SelectItem key={y} value={String(y)} className="text-xs">{y}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={fetchMonthlyPreview} disabled={monthlyLoading}>
-                  {monthlyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
-                  Preview
-                </Button>
-                <Button size="sm" className="gap-1.5 text-xs" onClick={downloadMonthly} disabled={monthlyDownloading}>
-                  {monthlyDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                  Download Excel
-                </Button>
-              </div>
+              <Badge variant="outline" className="text-[10px]">{detailData.employees.length} employees</Badge>
             </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {monthlyLoading ? (
-              <div className="flex justify-center py-10">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+
+            {detailData.employees.map((emp) => {
+              const s   = emp.summary
+              const ROW_LABELS = ['Shift', 'In Time', 'Out Time', 'Late By', 'Early By', 'Total OT', 'T Duration', 'Status']
+              const ROW_KEYS   = ['shift', 'in_time', 'out_time', 'late_by', 'early_by', 'total_ot', 't_duration', 'status'] as const
+
+              function statusColor(st: string) {
+                if (st === 'P')  return 'text-emerald-600 font-bold'
+                if (st === 'A')  return 'text-red-500 font-bold'
+                if (st === 'HD') return 'text-blue-600 font-bold'
+                if (st === 'H')  return 'text-orange-500 font-bold'
+                if (st === 'W' || st === 'WO') return 'text-muted-foreground'
+                if (st === 'L')  return 'text-amber-600 font-bold'
+                return ''
+              }
+
+              return (
+                <div key={emp.emp_code} className="border border-border rounded-lg mb-3 overflow-hidden">
+                  {/* Employee header */}
+                  <div className="flex items-center justify-between bg-muted/60 px-4 py-2 border-b border-border">
+                    <span className="text-xs font-semibold">
+                      EmployeeCode&nbsp;&nbsp;<span className="font-bold text-foreground">{emp.emp_code}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">{emp.department}</span>
+                    <span className="text-xs font-semibold">
+                      EmployeeName&nbsp;&nbsp;<span className="font-bold text-foreground">{emp.name}</span>
+                    </span>
+                  </div>
+
+                  {/* Summary line */}
+                  <div className="px-3 py-1.5 bg-muted/30 border-b border-border text-[10px] text-muted-foreground flex flex-wrap gap-x-4 gap-y-0.5">
+                    <span>Total Present <b className="text-emerald-600">{s.total_present}</b></span>
+                    <span>Total Absent <b className="text-red-500">{s.total_absent}</b></span>
+                    <span>Leave Taken <b>{s.total_leave}</b></span>
+                    <span>WO <b>{s.total_wo}</b></span>
+                    <span>HO <b>{s.total_ho}</b></span>
+                    <span>Duration <b>{s.total_duration}</b></span>
+                    <span>Late By <b className="text-amber-600">{s.total_late_by}</b> hrs</span>
+                    <span>Early By <b>{s.total_early_by}</b> hrs</span>
+                    <span>OT <b>{s.total_ot}</b></span>
+                  </div>
+
+                  {/* Horizontal grid */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-[11px]">
+                      <thead>
+                        <tr className="bg-muted/50">
+                          {/* row-label col */}
+                          <th className="sticky left-0 z-10 bg-muted/50 text-left px-3 py-1.5 font-semibold border-r border-border whitespace-nowrap min-w-[90px]">
+                            &nbsp;
+                          </th>
+                          {detailData.date_headers.map((dh) => (
+                            <th key={dh} className="px-2 py-1.5 text-center font-semibold border-r border-border whitespace-nowrap min-w-[72px]">
+                              {dh}
+                            </th>
+                          ))}
+                          <th className="px-3 py-1.5 text-center font-semibold border-r border-border whitespace-nowrap bg-muted/70">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ROW_LABELS.map((label, ri) => {
+                          const key = ROW_KEYS[ri]
+                          const isStatus    = key === 'status'
+                          const isInOut     = key === 'in_time' || key === 'out_time'
+                          const isLate      = key === 'late_by'
+                          const isEarly     = key === 'early_by'
+
+                          // total column value per row
+                          const totals: Record<typeof ROW_KEYS[number], string> = {
+                            shift:      '',
+                            in_time:    '',
+                            out_time:   '',
+                            late_by:    s.total_late_by,
+                            early_by:   s.total_early_by,
+                            total_ot:   s.total_ot,
+                            t_duration: s.total_duration,
+                            status:     `${s.total_present}P / ${s.total_absent}A`,
+                          }
+
+                          return (
+                            <tr key={label} className="border-t border-border hover:bg-muted/10">
+                              <td className="sticky left-0 z-10 bg-card px-3 py-1 font-medium text-muted-foreground border-r border-border whitespace-nowrap">
+                                {label}
+                              </td>
+                              {emp.days.map((d, di) => {
+                                const val = d[key]
+                                const isEmpty = val === '00:00' || val === '00:00:00' || val === 'FS'
+                                return (
+                                  <td
+                                    key={di}
+                                    className={cn(
+                                      'px-1 py-1 text-center border-r border-border font-mono',
+                                      isStatus && statusColor(val),
+                                      isLate   && val !== '00:00' && 'text-amber-600',
+                                      isEarly  && val !== '00:00' && 'text-sky-600',
+                                      isEmpty  && !isStatus && 'text-muted-foreground/40',
+                                    )}
+                                  >
+                                    {val}
+                                  </td>
+                                )
+                              })}
+                              <td className="px-2 py-1 text-center border-r border-border font-mono bg-muted/20 font-semibold">
+                                {totals[key]}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Period Wise / Work Duration / Total Duration (range grid) */}
+        {(activeReport === 'period_wise' || activeReport === 'work_duration' || activeReport === 'total_duration') && rangeGrid && rangeGrid.rows.length > 0 && (
+          <Card className="shadow-sm">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">
+                  {activeReport === 'period_wise' ? 'Period Wise' : activeReport === 'work_duration' ? 'Work Duration' : 'Total Duration'} — {fromDate} to {toDate}
+                </CardTitle>
+                <Badge variant="outline" className="text-[10px]">{rangeGrid.employees} employees × {rangeGrid.days} days</Badge>
               </div>
-            ) : monthlyRows.length === 0 ? (
-              <div className="text-center py-10 text-sm text-muted-foreground">
-                No data for this month
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="flex flex-wrap items-center gap-3 px-4 py-2 text-[10px] text-muted-foreground border-b">
+                <span><b className="text-emerald-600">P</b> Present</span>
+                <span><b className="text-amber-600">L</b> Late</span>
+                <span><b className="text-blue-600">HD</b> Half Day</span>
+                <span><b className="text-red-600">A</b> Absent</span>
+                <span><b className="text-violet-600">WFH</b> WFH</span>
+                <span><b className="text-orange-600">H</b> Holiday</span>
+                <span><b className="text-muted-foreground">WO</b> Weekly Off</span>
               </div>
-            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-muted/40">
+                      {rangeGrid.fixed_left_headers.map((h, i) => (
+                        <th key={h} className={cn('text-[11px] font-semibold px-2 py-2 text-left border-b border-r border-border bg-card sticky z-10', i === 0 && 'left-0 w-10', i === 1 && 'left-10')} style={{ minWidth: i === 0 ? 40 : i === 1 ? 80 : 120 }}>{h}</th>
+                      ))}
+                      {rangeGrid.date_headers.map(d => (
+                        <th key={d} className="text-[10px] font-semibold px-1 py-2 text-center border-b border-r border-border bg-card w-12 whitespace-nowrap">{d}</th>
+                      ))}
+                      {rangeGrid.summary_headers.map(s => (
+                        <th key={s} className="text-[10px] font-semibold px-2 py-2 text-center border-b border-r border-border bg-muted/60 whitespace-nowrap">{s}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rangeGrid.rows.map((row, idx) => {
+                      const leftCols = rangeGrid.fixed_left_headers.length
+                      const dateCols = rangeGrid.date_headers.length
+                      const sumStart = leftCols + dateCols
+                      return (
+                        <tr key={idx} className="hover:bg-muted/20">
+                          {row.slice(0, leftCols).map((v, i) => (
+                            <td key={i} className={cn('px-2 py-1.5 border-b border-r border-border bg-card sticky z-10', i === 0 && 'left-0 text-muted-foreground', i === 1 && 'left-10 font-mono text-[11px]', i === 2 && 'font-medium', i >= 3 && 'text-muted-foreground')}>{v}</td>
+                          ))}
+                          {row.slice(leftCols, sumStart).map((v, i) => (
+                            <td key={`d-${i}`} className={cn('text-center px-1 py-1.5 border-b border-r border-border font-mono text-[11px]', codeColor(String(v)))}>{v}</td>
+                          ))}
+                          {row.slice(sumStart).map((v, i) => (
+                            <td key={`s-${i}`} className="text-center px-2 py-1.5 border-b border-r border-border tabular-nums text-[11px] bg-muted/20">{v}</td>
+                          ))}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Summary / Monthly Matrix */}
+        {(activeReport === 'summary' || activeReport === 'monthly_matrix') && monthlyRows.length > 0 && (
+          <Card className="shadow-sm">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">
+                  {activeReport === 'summary' ? 'Summary Report' : 'Monthly Matrix'} — {MONTHS[new Date(fromDate).getMonth()]} {new Date(fromDate).getFullYear()}
+                </CardTitle>
+                <Badge variant="outline" className="text-[10px]">{monthlyRows.length} employees</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/40">
-                      {monthlyColumns.map((col) => (
+                      {monthlyColumns.map(col => (
                         <TableHead key={col} className="text-[11px] font-semibold whitespace-nowrap">{col}</TableHead>
                       ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {monthlyRows.map((row) => (
+                    {monthlyRows.map(row => (
                       <TableRow key={row['Sl No']} className="text-xs hover:bg-muted/30">
-                        {monthlyColumns.map((col) => (
-                          <TableCell key={col} className={cn(
-                            'whitespace-nowrap',
-                            col === 'Absent Days' && Number(row[col]) > 0 ? 'text-red-600 font-medium' : '',
-                            col === 'Late Days'   && Number(row[col]) > 0 ? 'text-amber-600 font-medium' : '',
-                            col === 'Attendance %' ? 'font-medium' : '',
-                          )}>
-                            {col === 'Employee Code'
-                              ? <span className="font-mono text-[11px]">{row[col]}</span>
-                              : row[col]}
+                        {monthlyColumns.map(col => (
+                          <TableCell key={col} className={cn('whitespace-nowrap', col === 'Absent Days' && Number(row[col]) > 0 ? 'text-red-600 font-medium' : '', col === 'Late Days' && Number(row[col]) > 0 ? 'text-amber-600 font-medium' : '', col === 'Attendance %' ? 'font-medium' : '')}>
+                            {col === 'Employee Code' ? <span className="font-mono text-[11px]">{row[col]}</span> : row[col]}
                           </TableCell>
                         ))}
                       </TableRow>
@@ -682,9 +879,9 @@ export default function AttendanceReports() {
                   </TableBody>
                 </Table>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* ── Device Enrolled People ── */}
         <Card className="shadow-sm">

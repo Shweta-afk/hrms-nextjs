@@ -10,20 +10,25 @@ import { notifyLateArrival } from '@/lib/notifications'
 
 // ── Org-level shift settings cache (1 min TTL per org) ───────────────────────
 export interface ShiftSettings {
-  shiftStartHour: number
-  shiftStartMin:  number
-  shiftEndHour:   number
-  shiftEndMin:    number
-  lateThreshold:  number
-  fetchedAt:      number
+  shiftStartHour:   number
+  shiftStartMin:    number
+  shiftEndHour:     number
+  shiftEndMin:      number
+  lateThreshold:    number
+  // Half-day cutoff: arriving after this time (IST HH:MM) → half_day
+  halfDayCutoffHour: number
+  halfDayCutoffMin:  number
+  // Afternoon half-day: arriving at or after this time (IST HH:MM) counts as half_day
+  // (employee works PM session only — still half day, not absent)
+  afternoonHalfDayHour: number
+  afternoonHalfDayMin:  number
+  // Minimum hours for full-day (if total_hours < this after checkout → half_day)
+  minFullDayHours: number
+  fetchedAt:        number
 }
 const shiftCache = new Map<string, ShiftSettings>()
 const CACHE_TTL_MS = 60_000
 
-// Exported so the bulk-correct admin endpoint can reuse the same shift
-// rules — otherwise corrections would compute late-by-minutes against a
-// hardcoded shift start (the legacy POST /api/attendance does this and
-// gets it wrong for any org not on a 9:00 IST shift).
 export async function getShiftSettings(org_id: string): Promise<ShiftSettings> {
   const cached = shiftCache.get(org_id)
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached
@@ -35,23 +40,32 @@ export async function getShiftSettings(org_id: string): Promise<ShiftSettings> {
   const s = (org?.settings ?? {}) as Record<string, unknown>
   const attendance = (s.attendance ?? {}) as Record<string, unknown>
 
-  // Parse "HH:MM" strings stored in org settings, fall back to env vars
   const parseTime = (val: unknown, envKey: string, defaultH: number, defaultM: number) => {
     const str = (val as string | undefined) ?? process.env[envKey] ?? `${defaultH}:${String(defaultM).padStart(2,'0')}`
     const [h, m] = str.split(':').map(Number)
     return { h: isNaN(h) ? defaultH : h, m: isNaN(m) ? defaultM : m }
   }
 
-  const start = parseTime(attendance.shift_start, 'SHIFT_START_TIME', 9, 0)
-  const end   = parseTime(attendance.shift_end,   'SHIFT_END_TIME',   18, 0)
+  const start       = parseTime(attendance.shift_start,          'SHIFT_START_TIME',         9,  0)
+  const end         = parseTime(attendance.shift_end,            'SHIFT_END_TIME',           18,  0)
+  // half_day_cutoff: first_in after this → half_day (default 14:00 IST)
+  const halfCutoff  = parseTime(attendance.half_day_cutoff,      'HALF_DAY_CUTOFF_TIME',     14,  0)
+  // afternoon_half_day_start: employees arriving at or after this treated as afternoon half-day
+  // Default = same as half_day_cutoff (12:00 is a common split point)
+  const afternoon   = parseTime(attendance.afternoon_half_day_start, 'AFTERNOON_HALF_DAY_START', 12, 0)
 
   const settings: ShiftSettings = {
-    shiftStartHour: start.h,
-    shiftStartMin:  start.m,
-    shiftEndHour:   end.h,
-    shiftEndMin:    end.m,
-    lateThreshold:  Number(attendance.late_threshold ?? process.env.LATE_THRESHOLD_MINUTES ?? 15),
-    fetchedAt:      Date.now(),
+    shiftStartHour:      start.h,
+    shiftStartMin:       start.m,
+    shiftEndHour:        end.h,
+    shiftEndMin:         end.m,
+    lateThreshold:       Number(attendance.late_threshold ?? process.env.LATE_THRESHOLD_MINUTES ?? 15),
+    halfDayCutoffHour:   halfCutoff.h,
+    halfDayCutoffMin:    halfCutoff.m,
+    afternoonHalfDayHour: afternoon.h,
+    afternoonHalfDayMin:  afternoon.m,
+    minFullDayHours:     Number(attendance.min_full_day_hours ?? process.env.MIN_FULL_DAY_HOURS ?? 5),
+    fetchedAt:           Date.now(),
   }
   shiftCache.set(org_id, settings)
   return settings
@@ -80,21 +94,7 @@ function dateOnly(dt: Date): Date {
   return new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()))
 }
 
-/** Calculate whether a first-in time is late and by how many minutes.
- *  Exported for reuse by the bulk-correct endpoint — same rules as the
- *  live punch pipeline so a corrected record reads is_late identically
- *  to one that came in from the device. */
 export function lateCalc(firstIn: Date, s: ShiftSettings): { isLate: boolean; lateByMinutes: number } {
-  const graceLimit = new Date(firstIn)
-  graceLimit.setUTCHours(
-    // shift times are in device local (IST), but firstIn is UTC — convert
-    // We use a simple approach: compare HH:MM in UTC+5:30
-    s.shiftStartHour - 5,   // approximate; full IST → UTC conversion below
-    s.shiftStartMin  + s.lateThreshold - 30,
-    0, 0
-  )
-
-  // Proper IST comparison: add 5:30 to UTC time to get IST hours
   const istOffsetMs = 5.5 * 60 * 60_000
   const firstInIST = new Date(firstIn.getTime() + istOffsetMs)
   const shiftStartMinutes = s.shiftStartHour * 60 + s.shiftStartMin
@@ -105,6 +105,52 @@ export function lateCalc(firstIn: Date, s: ShiftSettings): { isLate: boolean; la
 
   const lateByMinutes = firstInMinutes - shiftStartMinutes
   return { isLate: true, lateByMinutes }
+}
+
+/**
+ * Determine attendance status from punch data.
+ *
+ * Rules (in priority order):
+ * 1. No punch at all → 'absent'
+ * 2. first_in >= half_day_cutoff (default 14:00 IST) → 'half_day'
+ *    (came very late — only afternoon session present)
+ * 3. first_in >= afternoon_half_day_start (default 12:00 IST) AND last_out is set
+ *    → 'half_day'  (afternoon-only employees: in at 12/13, out at 17/18)
+ * 4. total_hours is known and < min_full_day_hours (default 5h) → 'half_day'
+ *    (left too early)
+ * 5. is_late → 'late'
+ * 6. Otherwise → 'present'
+ *
+ * Note: rules 2–4 are checked regardless of the late flag; half_day takes
+ * precedence over late so the monthly summary half-day count is accurate.
+ */
+export function statusCalc(
+  firstIn: Date | null,
+  lastOut: Date | null,
+  totalHours: number | null,
+  s: ShiftSettings,
+): 'present' | 'late' | 'half_day' | 'absent' {
+  if (!firstIn) return 'absent'
+
+  const istOffsetMs = 5.5 * 60 * 60_000
+  const firstInIST  = new Date(firstIn.getTime() + istOffsetMs)
+  const firstInMins = firstInIST.getUTCHours() * 60 + firstInIST.getUTCMinutes()
+
+  const halfCutoffMins   = s.halfDayCutoffHour   * 60 + s.halfDayCutoffMin
+  const afternoonMins    = s.afternoonHalfDayHour * 60 + s.afternoonHalfDayMin
+
+  // Arrived at or after the hard half-day cutoff → always half_day
+  if (firstInMins >= halfCutoffMins) return 'half_day'
+
+  // Arrived in the afternoon window (and has a checkout) → half_day
+  // Without a checkout we can't confirm they worked the session, so skip.
+  if (firstInMins >= afternoonMins && lastOut) return 'half_day'
+
+  // Checked out too early: less than min_full_day_hours of work → half_day
+  if (totalHours !== null && totalHours < s.minFullDayHours) return 'half_day'
+
+  const { isLate } = lateCalc(firstIn, s)
+  return isLate ? 'late' : 'present'
 }
 
 /**
@@ -179,6 +225,8 @@ export async function processPunch(input: PunchInput): Promise<PunchResult> {
     ? lateCalc(firstIn, shiftSettings)
     : { isLate: false, lateByMinutes: 0 }
 
+  const status = statusCalc(firstIn, effectiveLastOut, totalHours, shiftSettings)
+
   const record = await prisma.attendanceRecord.upsert({
     where: {
       org_id_employee_id_date: { org_id, employee_id: employee.id, date: recordDate },
@@ -187,7 +235,7 @@ export async function processPunch(input: PunchInput): Promise<PunchResult> {
       first_in:        firstIn,
       last_out:        effectiveLastOut,
       total_hours:     totalHours,
-      status:          firstIn ? 'present' : 'absent',
+      status,
       is_late:         isLate,
       late_by_minutes: lateByMinutes,
       device_id,
@@ -201,7 +249,7 @@ export async function processPunch(input: PunchInput): Promise<PunchResult> {
       first_in:        firstIn,
       last_out:        effectiveLastOut,
       total_hours:     totalHours,
-      status:          firstIn ? 'present' : 'absent',
+      status,
       is_late:         isLate,
       late_by_minutes: lateByMinutes,
       device_id,
@@ -409,13 +457,15 @@ export async function processPunchesBulk(inputs: PunchInput[]): Promise<{
         ? (effectiveLastOut.getTime() - d.firstIn.getTime()) / 3_600_000
         : null
 
+      const status = statusCalc(d.firstIn, effectiveLastOut, totalHours, shiftSettings)
+
       await prisma.attendanceRecord.upsert({
         where:  { org_id_employee_id_date: { org_id, employee_id: d.employee_id, date: d.date } },
         update: {
           first_in:        d.firstIn,
           last_out:        effectiveLastOut,
           total_hours:     totalHours,
-          status:          d.firstIn ? 'present' : 'absent',
+          status,
           is_late:         isLate,
           late_by_minutes: lateByMinutes,
           device_id:       d.device_id,
@@ -429,7 +479,7 @@ export async function processPunchesBulk(inputs: PunchInput[]): Promise<{
           first_in:        d.firstIn,
           last_out:        effectiveLastOut,
           total_hours:     totalHours,
-          status:          d.firstIn ? 'present' : 'absent',
+          status,
           is_late:         isLate,
           late_by_minutes: lateByMinutes,
           device_id:       d.device_id,

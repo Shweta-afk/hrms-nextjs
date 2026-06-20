@@ -115,6 +115,8 @@ const Settings = () => {
   const [lateGraceMin, setLateGraceMin] = useState("15")       // grace period minutes
   const [lateMarksPerHD, setLateMarksPerHD] = useState("3")   // lates per half-day
   const [halfDayCutoff, setHalfDayCutoff] = useState('14:00')
+  const [afternoonHalfDayStart, setAfternoonHalfDayStart] = useState('12:00')
+  const [minFullDayHours, setMinFullDayHours] = useState('5')
   const [savingPayroll, setSavingPayroll] = useState(false)
 
   // Attendance
@@ -288,6 +290,8 @@ const Settings = () => {
       if (s.tds_regime)  setTdsRegime(s.tds_regime as string)
       if (s.payroll_processing_day) setProcessingDay(String(s.payroll_processing_day as number))
       if (s.half_day_cutoff) setHalfDayCutoff(s.half_day_cutoff as string)
+      if (s.afternoon_half_day_start) setAfternoonHalfDayStart(s.afternoon_half_day_start as string)
+      if (s.min_full_day_hours) setMinFullDayHours(String(s.min_full_day_hours))
       const lp = s.late_penalty as { enabled?: boolean; min_minutes?: number; marks_per_half_day?: number } | undefined
       if (lp?.enabled !== undefined) setLatePenaltyEnabled(!!lp.enabled)
       if (lp?.min_minutes !== undefined) setLateGraceMin(String(lp.min_minutes))
@@ -395,7 +399,9 @@ const Settings = () => {
           pt_state:               ptState,
           tds_regime:             tdsRegime,
           payroll_processing_day: parseInt(processingDay) || 28,
-          half_day_cutoff:        halfDayCutoff,
+          half_day_cutoff:           halfDayCutoff,
+          afternoon_half_day_start:  afternoonHalfDayStart,
+          min_full_day_hours:        parseFloat(minFullDayHours) || 5,
           late_penalty: {
             enabled:           latePenaltyEnabled,
             min_minutes:       parseInt(lateGraceMin) || 15,
@@ -1111,19 +1117,56 @@ const Settings = () => {
               ))}
             </div>
 
-            {/* Half-day cutoff */}
-            <div className="space-y-2">
-              <Label>Early Departure Cutoff (Half-Day)</Label>
-              <div className="flex items-center gap-3">
-                <Input
-                  type="time"
-                  value={halfDayCutoff}
-                  className="w-32"
-                  onChange={e => { setHalfDayCutoff(e.target.value); markDirty('payroll') }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Employees who punch out before this time are flagged for HR review. Also used when employees mark a half day.
-                </p>
+            {/* Half-day settings */}
+            <div className="space-y-4 rounded-lg border p-4 bg-muted/30">
+              <Label className="font-medium">Half-Day Rules</Label>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Late Arrival Cutoff (Half-Day)</Label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="time"
+                    value={halfDayCutoff}
+                    className="w-32"
+                    onChange={e => { setHalfDayCutoff(e.target.value); markDirty('payroll') }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Employees arriving at or after this time are auto-marked Half Day (e.g. 14:00).
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Afternoon Session Start (Half-Day)</Label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="time"
+                    value={afternoonHalfDayStart}
+                    className="w-32"
+                    onChange={e => { setAfternoonHalfDayStart(e.target.value); markDirty('payroll') }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Employees arriving at or after this time (and checking out) count as Half Day — covers afternoon-only staff (e.g. 12:00).
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Minimum Hours for Full Day</Label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={12}
+                    step={0.5}
+                    value={minFullDayHours}
+                    className="w-24"
+                    onChange={e => { setMinFullDayHours(e.target.value); markDirty('payroll') }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    If total work hours is less than this, attendance is marked Half Day instead of Present (default: 5 hrs).
+                  </p>
+                </div>
               </div>
             </div>
 
