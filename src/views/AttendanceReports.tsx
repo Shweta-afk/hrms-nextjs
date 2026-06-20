@@ -130,6 +130,17 @@ export default function AttendanceReports() {
   const [dailyLoading, setDailyLoading] = useState(false)
   const [dailyDownloading, setDailyDownloading] = useState(false)
 
+  // Range report state — HR picks from/to, sees one row per (employee × day)
+  // covering the whole window. Defaults to "last 7 days ending yesterday" —
+  // the most common "what happened this past week?" ask. Doesn't auto-fetch
+  // (range reports can be slow); HR clicks Preview explicitly.
+  const [rangeFrom, setRangeFrom] = useState(format(subDays(today, 7), 'yyyy-MM-dd'))
+  const [rangeTo,   setRangeTo]   = useState(format(subDays(today, 1), 'yyyy-MM-dd'))
+  const [rangeRows, setRangeRows] = useState<DailyRow[]>([])
+  const [rangeMeta, setRangeMeta] = useState<{ total: number; employees: number; days: number; truncated: boolean } | null>(null)
+  const [rangeLoading, setRangeLoading]         = useState(false)
+  const [rangeDownloading, setRangeDownloading] = useState(false)
+
   // Monthly report state
   const [monthlyMonth, setMonthlyMonth] = useState(today.getMonth() + 1)
   const [monthlyYear, setMonthlyYear] = useState(today.getFullYear())
@@ -177,6 +188,61 @@ export default function AttendanceReports() {
       toast.error('Download failed')
     } finally {
       setDailyDownloading(false)
+    }
+  }
+
+  // ── Fetch range preview ────────────────────────────────────────────────
+  async function fetchRangePreview() {
+    if (!rangeFrom || !rangeTo) { toast.error('Pick a from and to date'); return }
+    if (rangeFrom > rangeTo) { toast.error('“From” date must be on or before “To” date'); return }
+    setRangeLoading(true)
+    try {
+      const res = await fetch(`/api/reports/attendance/range?from=${rangeFrom}&to=${rangeTo}&format=json`)
+      const json = await res.json()
+      if (json.success) {
+        setRangeRows(json.data.rows)
+        setRangeMeta({
+          total:      json.data.total_rows,
+          employees:  json.data.employees,
+          days:       json.data.days,
+          truncated:  json.data.truncated,
+        })
+        if (json.data.truncated) {
+          toast.message(`Showing first 500 of ${json.data.total_rows} rows — download for full data`)
+        }
+      } else {
+        toast.error(json.error ?? 'Failed to load range preview')
+      }
+    } catch {
+      toast.error('Failed to load range preview')
+    } finally {
+      setRangeLoading(false)
+    }
+  }
+
+  // ── Download range Excel ───────────────────────────────────────────────
+  async function downloadRange() {
+    if (!rangeFrom || !rangeTo) { toast.error('Pick a from and to date'); return }
+    if (rangeFrom > rangeTo) { toast.error('“From” date must be on or before “To” date'); return }
+    setRangeDownloading(true)
+    try {
+      const res = await fetch(`/api/reports/attendance/range?from=${rangeFrom}&to=${rangeTo}&format=excel`)
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        toast.error(txt.includes('Date range too large') ? 'Range too large — max 92 days' : 'Download failed')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `attendance_${rangeFrom}_to_${rangeTo}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Download failed')
+    } finally {
+      setRangeDownloading(false)
     }
   }
 
@@ -340,6 +406,110 @@ export default function AttendanceReports() {
                           {row['Late By (min)'] > 0 ? row['Late By (min)'] : '—'}
                         </TableCell>
                         <TableCell>{statusBadge(row['Status'])}</TableCell>
+                        <TableCell className="text-muted-foreground text-[10px]">{row['Remarks']}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Range Report ── */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-sm font-semibold">Range Attendance Report</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Pick any from–to window. One row per employee per day with timings, half-days, lates,
+                  approved leaves (with leave type) and holidays. Max 92 days per report.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">From</span>
+                  <input
+                    type="date"
+                    value={rangeFrom}
+                    max={rangeTo}
+                    onChange={(e) => setRangeFrom(e.target.value)}
+                    className="text-sm border border-border rounded-md px-2.5 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">To</span>
+                  <input
+                    type="date"
+                    value={rangeTo}
+                    min={rangeFrom}
+                    max={format(today, 'yyyy-MM-dd')}
+                    onChange={(e) => setRangeTo(e.target.value)}
+                    className="text-sm border border-border rounded-md px-2.5 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={fetchRangePreview} disabled={rangeLoading}>
+                  {rangeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                  Preview
+                </Button>
+                <Button size="sm" className="gap-1.5 text-xs" onClick={downloadRange} disabled={rangeDownloading}>
+                  {rangeDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                  Download Excel
+                </Button>
+              </div>
+            </div>
+            {rangeMeta && (
+              <p className="text-xs text-muted-foreground mt-2">
+                {rangeMeta.employees} employees × {rangeMeta.days} days · {rangeMeta.total.toLocaleString()} rows
+                {rangeMeta.truncated && <span className="text-amber-600 ml-1.5">(preview shows first 500 — download for full data)</span>}
+              </p>
+            )}
+          </CardHeader>
+          <CardContent className="p-0">
+            {rangeLoading ? (
+              <div className="flex justify-center py-10">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : rangeRows.length === 0 ? (
+              <div className="text-center py-10 text-sm text-muted-foreground">
+                Pick a date range and click Preview to see the data — or just click Download Excel
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="text-[11px] font-semibold w-10">#</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Code</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Employee</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Department</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Date</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Day</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Status</TableHead>
+                      <TableHead className="text-[11px] font-semibold">In</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Out</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Hours</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Late (min)</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Leave Type</TableHead>
+                      <TableHead className="text-[11px] font-semibold">Remarks</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rangeRows.map((row, idx) => (
+                      <TableRow key={`${row['Employee Code']}-${row['Date']}-${idx}`} className="text-xs hover:bg-muted/30">
+                        <TableCell className="text-muted-foreground">{row['Sl No']}</TableCell>
+                        <TableCell className="font-mono text-[11px]">{row['Employee Code']}</TableCell>
+                        <TableCell className="font-medium">{row['Employee Name']}</TableCell>
+                        <TableCell className="text-muted-foreground">{row['Department']}</TableCell>
+                        <TableCell className="font-mono text-[11px]">{row['Date']}</TableCell>
+                        <TableCell className="text-muted-foreground">{row['Day']}</TableCell>
+                        <TableCell>{statusBadge(row['Status'])}</TableCell>
+                        <TableCell className="font-mono text-[11px]">{row['Time In']}</TableCell>
+                        <TableCell className="font-mono text-[11px]">{row['Time Out']}</TableCell>
+                        <TableCell>{row['Work Hours']}</TableCell>
+                        <TableCell className={row['Late By (min)'] > 0 ? 'text-amber-600 font-medium' : 'text-muted-foreground'}>
+                          {row['Late By (min)'] > 0 ? row['Late By (min)'] : '—'}
+                        </TableCell>
+                        <TableCell className="text-[10px]">{(row as unknown as Record<string, string | number>)['Leave Type'] ?? '—'}</TableCell>
                         <TableCell className="text-muted-foreground text-[10px]">{row['Remarks']}</TableCell>
                       </TableRow>
                     ))}
