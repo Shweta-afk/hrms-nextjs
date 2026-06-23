@@ -100,7 +100,7 @@ export async function POST(
     // templates and every row got marked "unchanged" — nothing updated.
     const norm = (s: string) =>
       s.toLowerCase()
-        .replace(/[(₹$₨inr).,]/g, '')   // strip currency symbols / parens / dots
+        .replace(/[()₹$₨.,]/g, '')       // strip currency symbols / parens / dots
         .replace(/[_-]/g, ' ')           // treat _ and - as space
         .replace(/\s+/g, ' ')            // collapse whitespace
         .trim()
