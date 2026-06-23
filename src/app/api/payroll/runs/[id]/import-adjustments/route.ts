@@ -116,6 +116,10 @@ export async function POST(
     const totalDedIdx = findHeader(h => /^total\s*deductions?$/.test(h) || /^total\s*deductions?\s/.test(h))
     // Export-for-Review uses "Remark Details"; simple template uses "Adjustment Note".
     const adjNoteIdx  = findHeader(h => h === 'adjustment note' || h === 'remark details' || h === 'remarks')
+    // Named adjustment columns in the Export-for-Review template
+    const dedIfAnyIdx   = findHeader(h => /deductions?\s*if\s*any/.test(h))
+    const salAdvIdx     = findHeader(h => /salary\s*advance/.test(h))
+    const prevSalIdx    = findHeader(h => /previous\s*salary/.test(h))
 
     if (empCodeIdx === -1 || netSalIdx === -1) {
       return NextResponse.json(
@@ -183,107 +187,71 @@ export async function POST(
         continue
       }
 
-      let newNetSalary = Math.round(Number(row[netSalIdx]) || 0)
-      const oldNetSalary = Math.round(Number(payslip.net_salary))
+      // Read the named adjustment columns HR fills in (Export-for-Review template)
+      const dedIfAny  = dedIfAnyIdx !== -1 ? Math.round(Number(row[dedIfAnyIdx]) || 0) : 0
+      const salAdv    = salAdvIdx   !== -1 ? Math.round(Number(row[salAdvIdx])   || 0) : 0
+      const prevSal   = prevSalIdx  !== -1 ? Math.round(Number(row[prevSalIdx])  || 0) : 0
 
-      // Fallback: if "To be Credited" came back empty/zero, the file was
-      // probably downloaded and re-uploaded without being opened in Excel,
-      // so the formula never evaluated. Reconstruct from the constituent
-      // columns HR types as constants:
-      //   To be Credited = Net Salary − Deductions if any − Salary Advance
-      //                  + Previous Salary add
-      if (toCredIdx !== -1 && newNetSalary === 0) {
-        const netSalCol  = headers.findIndex(h => /^net.?salary$/i.test(h))
-        const dedAnyCol  = headers.findIndex(h => /deductions?.?if.?any/i.test(h))
-        const advCol     = headers.findIndex(h => /salary.?advance/i.test(h))
-        const prevSalCol = headers.findIndex(h => /previous.?salary/i.test(h))
-        if (netSalCol !== -1) {
-          const netSal  = Math.round(Number(row[netSalCol])  || 0)
-          const dedAny  = dedAnyCol  !== -1 ? Math.round(Number(row[dedAnyCol])  || 0) : 0
-          const adv     = advCol     !== -1 ? Math.round(Number(row[advCol])     || 0) : 0
-          const prevSal = prevSalCol !== -1 ? Math.round(Number(row[prevSalCol]) || 0) : 0
-          const reconstructed = netSal - dedAny - adv + prevSal
-          if (reconstructed > 0) newNetSalary = reconstructed
-        }
+      // Start from original payslip earnings/deductions
+      const newEarnings: Record<string, number>   = { ...(payslip.earnings   as Record<string, number>) }
+      const newDeductions: Record<string, number> = { ...(payslip.deductions as Record<string, number>) }
+
+      // Apply named deductions explicitly so payslip line items match exactly
+      // what HR entered — not a reconciled "Adjustment" black box.
+      if (dedIfAny > 0) {
+        newDeductions['Deduction'] = dedIfAny
+      } else {
+        delete newDeductions['Deduction']
+      }
+      if (salAdv > 0) {
+        newDeductions['Salary Advance'] = salAdv
+      } else {
+        delete newDeductions['Salary Advance']
+      }
+      if (prevSal > 0) {
+        newEarnings['Previous Salary'] = prevSal
+      } else {
+        delete newEarnings['Previous Salary']
       }
 
-      // Read earnings from file columns
-      const newEarnings: Record<string, number> = { ...(payslip.earnings as Record<string, number>) }
+      // Also read any dynamic earning/deduction columns if present (simple template)
       for (let j = 0; j < earnHeaders.length; j++) {
         const val = Math.round(Number(row[lopIdx + 1 + j]) || 0)
         if (earnHeaders[j]) newEarnings[earnHeaders[j]] = val
       }
-
-      // Read deductions from file columns
-      const newDeductions: Record<string, number> = { ...(payslip.deductions as Record<string, number>) }
       for (let j = 0; j < dedHeaders.length; j++) {
         const val = Math.round(Number(row[grossIdx + 1 + j]) || 0)
         if (dedHeaders[j]) newDeductions[dedHeaders[j]] = val
       }
 
-      // ── Reconcile net against line items ──────────────────────────────
-      // The natural HR workflow is: download the export, change ONLY the
-      // Net Salary column (or "To be Credited") to the amount they want to
-      // pay, re-upload. The earning/deduction columns are still the
-      // original values, so blindly trusting them would leave the payslip
-      // showing OLD Basic/HRA/PF/etc. with a NEW net at the bottom — math
-      // broken.
-      //
-      // Compute what the net WOULD be from the line items HR submitted,
-      // then reconcile the gap:
-      //   delta > 0  (HR pays MORE) — typically because they're reversing
-      //               a performance-based deduction (Loss of Pay, Late
-      //               Penalty, Half Day). Reduce those deductions in
-      //               priority order before falling back to a positive
-      //               "Adjustment" earning. This way the payslip visibly
-      //               shows the deduction gone, matching HR's intent
-      //               (not just a counter-earning that hides the original
-      //               deduction).
-      //   delta < 0  (HR pays LESS) — add a negative "Adjustment" entry
-      //               as a deduction.
       const sum = (obj: Record<string, number>) =>
         Math.round(Object.values(obj).reduce((a, b) => a + b, 0))
 
+      // Compute To be Credited from constituent columns when present.
+      // This is the authoritative value — HR types Deductions/Advance/PrevSal
+      // and the net is derived from those, not from a formula cell that may
+      // not have evaluated after re-upload.
+      const baseNet = netSalRaw !== -1 ? Math.round(Number(row[netSalRaw]) || 0) : 0
+      const hasNamedCols = dedIfAnyIdx !== -1 || salAdvIdx !== -1 || prevSalIdx !== -1
+      let newNetSalary: number
+      if (hasNamedCols && baseNet > 0) {
+        newNetSalary = baseNet - dedIfAny - salAdv + prevSal
+      } else {
+        // Fall back to To be Credited / Net Salary column directly
+        newNetSalary = Math.round(Number(row[netSalIdx]) || 0)
+      }
+      const oldNetSalary = Math.round(Number(payslip.net_salary))
+
+      // Reconcile: if the line items don't exactly add up to newNetSalary
+      // (e.g. simple template with manual net override), absorb the gap
+      // as an Adjustment entry rather than silently breaking the math.
       const grossFromLines = sum(newEarnings)
       const dedFromLines   = sum(newDeductions)
       const netFromLines   = grossFromLines - dedFromLines
-      let delta            = newNetSalary - netFromLines
-
+      const delta          = newNetSalary - netFromLines
       if (delta > 0) {
-        // Performance-discretionary deductions, most-reversible first.
-        // PF / ESI / Professional Tax / TDS are statutory and intentionally
-        // NOT in this list — those should never be auto-reversed.
-        const REVERSIBLE_DEDUCTIONS = [
-          'Loss of Pay',
-          'Late Penalty',
-          'Half Day for Late Mark',
-          'Half Day Late Mark',
-          'Actual Half Day',
-          'Half Day',
-        ]
-        for (const key of REVERSIBLE_DEDUCTIONS) {
-          if (delta <= 0) break
-          const existing = newDeductions[key] ?? 0
-          if (existing <= 0) continue
-          const reduceBy = Math.min(delta, existing)
-          const remaining = existing - reduceBy
-          if (remaining > 0) {
-            newDeductions[key] = remaining
-          } else {
-            // Fully reversed — drop the line so it doesn't show as "₹0" on
-            // the payslip. The payslip view skips zero-amount lines anyway,
-            // but deleting is cleaner.
-            delete newDeductions[key]
-          }
-          delta -= reduceBy
-        }
-        if (delta > 0) {
-          // Excess after reducing reversible deductions — record as an
-          // Adjustment earning so HR's target net is still honored.
-          newEarnings['Adjustment'] = (newEarnings['Adjustment'] ?? 0) + delta
-        }
+        newEarnings['Adjustment'] = (newEarnings['Adjustment'] ?? 0) + delta
       } else if (delta < 0) {
-        // HR wants to pay LESS than the line items add up to → deduction
         newDeductions['Adjustment'] = (newDeductions['Adjustment'] ?? 0) + (-delta)
       }
 
