@@ -17,7 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, CircleAlert,
   FileSpreadsheet, FileText, CheckCircle2, Loader2, Play, Settings2, Clock,
-  Upload, ArrowLeftRight, Download, Pencil,
+  Upload, ArrowLeftRight, Download, Pencil, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import EditPayslipModal from "@/components/payroll/EditPayslipModal";
@@ -186,6 +186,43 @@ const Payroll = () => {
     // Also pull org name from session via existing runs API
     fetch('/api/payroll/runs').then(r => r.json()).catch(() => {})
   }, [])
+
+  async function handleRecalculate() {
+    if (!run) return
+    if (!confirm('This will recalculate all payslips for this month using current CTC and settings. Any manual adjustments will be lost. Continue?')) return
+    setRunning(true)
+    try {
+      // Unapprove the run first if it's approved
+      if (isApproved) {
+        await fetch(`/api/payroll/runs/${run.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'draft' }),
+        })
+      }
+      const res = await fetch('/api/payroll/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payroll_run_id: run.id,
+          ot_rate_per_hour: otRate,
+          ...(periodFrom && { period_from: periodFrom }),
+          ...(periodTo   && { period_to:   periodTo }),
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(`Recalculated — ${json.data.employees_processed} employees`)
+        fetchPayrollData()
+      } else {
+        toast.error(json.error)
+      }
+    } catch {
+      toast.error('Failed to recalculate payroll')
+    } finally {
+      setRunning(false)
+    }
+  }
 
   async function handleRunPayroll() {
     setRunning(true)
@@ -689,6 +726,14 @@ const Payroll = () => {
               : <><Play className="h-4 w-4 mr-2" />Run Payroll</>
             }
           </Button>
+          {run && (
+            <Button variant="outline" className="h-9" onClick={handleRecalculate} disabled={running} title="Recalculate all payslips from current CTC and settings">
+              {running
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <><RefreshCw className="h-4 w-4 mr-1.5" />Recalculate</>
+              }
+            </Button>
+          )}
         </div>
       </div>
 

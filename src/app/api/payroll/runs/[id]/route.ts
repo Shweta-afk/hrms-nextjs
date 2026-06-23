@@ -14,7 +14,7 @@ export async function PATCH(
 
     const { status } = await req.json()
 
-    if (!['approved', 'paid', 'locked'].includes(status)) {
+    if (!['approved', 'paid', 'locked', 'draft'].includes(status)) {
       return NextResponse.json({ success: false, error: 'Invalid status' }, { status: 400 })
     }
 
@@ -24,6 +24,20 @@ export async function PATCH(
 
     if (!run) {
       return NextResponse.json({ success: false, error: 'Payroll run not found' }, { status: 404 })
+    }
+
+    // Reverting to draft — clear approval stamps on all payslips so they
+    // can be recalculated and re-approved cleanly.
+    if (status === 'draft') {
+      await prisma.payslip.updateMany({
+        where: { org_id: session.user.org_id, payroll_run_id: id },
+        data: { is_published: false, hr_approved_at: null, hr_approved_by: null },
+      })
+      const updated = await prisma.payrollRun.update({
+        where: { id },
+        data: { status: 'draft', approved_by: null },
+      })
+      return NextResponse.json({ success: true, data: updated })
     }
 
     const updated = await prisma.payrollRun.update({
