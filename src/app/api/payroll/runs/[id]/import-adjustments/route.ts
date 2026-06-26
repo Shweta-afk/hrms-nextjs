@@ -249,7 +249,29 @@ export async function POST(
       const dedFromLines   = sum(newDeductions)
       const netFromLines   = grossFromLines - dedFromLines
       const delta          = newNetSalary - netFromLines
-      if (delta > 0) {
+
+      // If the file provided no explicit earning/deduction columns AND the
+      // delta is larger than 20% of gross, the existing payslip earnings are
+      // stale (wrong CTC from a previous payroll run). Rather than burying a
+      // huge "Adjustment" deduction that makes gross look inflated on the
+      // payslip and the export, rebuild the earnings so gross = net = target.
+      // This keeps the payslip clean and the export readable.
+      const fileHasLineItems = earnHeaders.length > 0 || dedHeaders.length > 0 || hasNamedCols
+      const deltaIsLarge     = grossFromLines > 0 && Math.abs(delta) / grossFromLines > 0.20
+      if (!fileHasLineItems && deltaIsLarge) {
+        // Reset earnings to just the target net, preserving the component
+        // structure names but scaling them proportionally.
+        const scale = grossFromLines > 0 ? newNetSalary / grossFromLines : 1
+        for (const k of Object.keys(newEarnings)) {
+          newEarnings[k] = Math.round((newEarnings[k] ?? 0) * scale)
+        }
+        // Clear all existing deductions — HR is signalling "pay this amount, no cuts"
+        for (const k of Object.keys(newDeductions)) delete newDeductions[k]
+        // Re-apply any named deductions from the file (advance etc.)
+        if (dedIfAny > 0) newDeductions['Deduction']       = dedIfAny
+        if (salAdv  > 0) newDeductions['Salary Advance']   = salAdv
+        if (prevSal > 0) newEarnings['Previous Salary']    = prevSal
+      } else if (delta > 0) {
         newEarnings['Adjustment'] = (newEarnings['Adjustment'] ?? 0) + delta
       } else if (delta < 0) {
         newDeductions['Adjustment'] = (newDeductions['Adjustment'] ?? 0) + (-delta)
