@@ -400,9 +400,29 @@ const Payroll = () => {
       co.tan_number ? `TAN: ${co.tan_number}`   : '',
     ].filter(Boolean).join('  |  ')
 
+    // Keys that are Excel column names accidentally stored as deduction entries
+    // due to a prior import bug (grossIdx matching "Total Salary"). Filter them out.
+    const INVALID_DEDUCTION_KEYS = new Set([
+      'net salary', 'to be credited', 'total salary', 'actual salary', 'per day',
+      'actual half day', 'half day for late mark', 'deductions if any',
+      'previous salary add', 'salary days', 'total days', 'circle count',
+      'total late mark', 'total present', 'total absent', 'total half day',
+      'total paid leave', 'total wfh', 'total hd', 'adjustment',
+    ])
+    const cleanDeductions = Object.fromEntries(
+      Object.entries(payslip.deductions).filter(([k, v]) =>
+        v > 0 && !INVALID_DEDUCTION_KEYS.has(k.toLowerCase())
+      )
+    )
+    const cleanEarnings = Object.fromEntries(
+      Object.entries(payslip.earnings).filter(([k, v]) =>
+        v > 0 && k !== 'Adjustment'
+      )
+    )
+
     // Zip earnings & deductions side by side
-    const earningsArr = Object.entries(payslip.earnings)
-    const deductionsArr = Object.entries(payslip.deductions)
+    const earningsArr = Object.entries(cleanEarnings)
+    const deductionsArr = Object.entries(cleanDeductions)
     const maxRows = Math.max(earningsArr.length, deductionsArr.length)
     const combinedRows = Array.from({ length: maxRows }, (_, i) => {
       const [el, ea] = earningsArr[i] ?? ['', null]
@@ -552,9 +572,9 @@ const Payroll = () => {
     <tfoot>
       <tr>
         <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8">Total Earnings</td>
-        <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8;text-align:right;border-right:2px solid #999">${f(payslip.gross_salary)}</td>
+        <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8;text-align:right;border-right:2px solid #999">${f(Object.values(cleanEarnings).reduce((a,b)=>a+b,0))}</td>
         <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8">Total Deductions</td>
-        <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8;text-align:right">${f(payslip.total_deductions)}</td>
+        <td style="border:1px solid #bbb;padding:6px 8px;font-weight:bold;background:#eef2f8;text-align:right">${f(Object.values(cleanDeductions).reduce((a,b)=>a+b,0))}</td>
       </tr>
     </tfoot>
   </table>

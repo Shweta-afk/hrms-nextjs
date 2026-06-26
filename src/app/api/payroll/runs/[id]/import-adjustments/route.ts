@@ -111,7 +111,12 @@ export async function POST(
     const toCredIdx   = findHeader(h => /to\s*be\s*credited/.test(h))
     const netSalRaw   = findHeader(h => /^net\s*(salary|pay)$/.test(h) || /^net\s*(salary|pay)\s/.test(h))
     const netSalIdx   = toCredIdx !== -1 ? toCredIdx : netSalRaw
-    const grossIdx    = findHeader(h => /^(gross|total)\s*salary$/.test(h) || /^(gross|total)\s*salary\s/.test(h))
+    // Only "Gross Salary" is the earnings boundary — NOT "Total Salary" (which
+    // is an attendance-derived intermediate column in the Export-for-Review
+    // template). Matching "Total Salary" caused every column between it and
+    // "Total Deduction" (Net Salary, To be Credited, etc.) to be treated as
+    // deduction line items, storing column headers as deduction keys in the DB.
+    const grossIdx    = findHeader(h => /^gross\s*salary/.test(h))
     const lopIdx      = findHeader(h => /^lop\s*days?$/.test(h) || /^loss\s*of\s*pay/.test(h))
     const totalDedIdx = findHeader(h => /^total\s*deductions?$/.test(h) || /^total\s*deductions?\s/.test(h))
     // Export-for-Review uses "Remark Details"; simple template uses "Adjustment Note".
