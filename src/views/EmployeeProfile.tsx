@@ -65,7 +65,7 @@ interface Employee {
   designation_id: string | null; designation: Designation | null
   manager_id: string | null; manager: Manager | null
   employment_type: string; status: string
-  date_of_joining: string; ctc_annual: number | null
+  date_of_joining: string; ctc_annual: number | null; monthly_incentive: number | null
   salary_structure_id: string | null
   personal_info: Record<string, unknown>
   contact_info: Record<string, unknown>
@@ -190,9 +190,9 @@ const EmployeeProfile = ({ employeeId }: Props) => {
   const [personalDraft, setPersonalDraft] = useState<Partial<Employee>>({})
   const [empDraft, setEmpDraft] = useState<{
     emp_code: string; department_id: string; employment_type: string
-    ctc_annual: string; salary_structure_id: string; date_of_joining: string
-    designation_id: string
-  }>({ emp_code: '', department_id: '', employment_type: '', ctc_annual: '', salary_structure_id: '', date_of_joining: '', designation_id: '' })
+    ctc_annual: string; monthly_incentive: string; salary_structure_id: string
+    date_of_joining: string; designation_id: string
+  }>({ emp_code: '', department_id: '', employment_type: '', ctc_annual: '', monthly_incentive: '', salary_structure_id: '', date_of_joining: '', designation_id: '' })
   const [transferDept, setTransferDept] = useState('')
 
   const fetchEmployee = useCallback(async () => {
@@ -426,13 +426,15 @@ const EmployeeProfile = ({ employeeId }: Props) => {
 
   const saveEmployment = async () => {
     // UI shows monthly salary; store as annual (×12) in ctc_annual
-    const monthly = empDraft.ctc_annual ? parseFloat(empDraft.ctc_annual) : undefined
+    const monthly   = empDraft.ctc_annual       ? parseFloat(empDraft.ctc_annual)       : undefined
+    const incentive = empDraft.monthly_incentive ? parseFloat(empDraft.monthly_incentive) : null
     const ok = await patch({
       emp_code: empDraft.emp_code?.trim() || undefined,
       department_id: empDraft.department_id || undefined,
       employment_type: empDraft.employment_type || undefined,
       designation_id: empDraft.designation_id || undefined,
       ctc_annual: monthly ? monthly * 12 : undefined,
+      monthly_incentive: incentive,
       salary_structure_id: empDraft.salary_structure_id || undefined,
       date_of_joining: empDraft.date_of_joining || undefined,
     })
@@ -774,6 +776,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                     designation_id: employee.designation_id || '',
                     // Pre-fill with monthly salary (annual ÷ 12) so the user sees/edits monthly
                     ctc_annual: employee.ctc_annual ? String(Math.round(Number(employee.ctc_annual) / 12)) : '',
+                    monthly_incentive: employee.monthly_incentive ? String(Math.round(Number(employee.monthly_incentive))) : '',
                     salary_structure_id: employee.salary_structure_id || '',
                     date_of_joining: employee.date_of_joining ? employee.date_of_joining.split('T')[0] : '',
                   })
@@ -846,6 +849,18 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                     )}
                   </div>
                   <div className="space-y-1.5">
+                    <Label>Monthly Incentive (₹)</Label>
+                    <Input
+                      type="number"
+                      value={empDraft.monthly_incentive}
+                      onChange={e => setEmpDraft(p => ({ ...p, monthly_incentive: e.target.value }))}
+                      placeholder="e.g. 2000 (optional)"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Added to gross every month automatically during payroll run.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
                     <Label>Salary Structure</Label>
                     <Select value={empDraft.salary_structure_id} onValueChange={v => setEmpDraft(p => ({ ...p, salary_structure_id: v }))}>
                       <SelectTrigger><SelectValue placeholder="Select structure" /></SelectTrigger>
@@ -876,6 +891,7 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                   <InfoRow label="Employment Type" value={employee.employment_type.replace('_', ' ')} />
                   <InfoRow label="Date of Joining" value={format(new Date(employee.date_of_joining), 'd MMM yyyy')} />
                   <InfoRow label="Monthly Salary" value={employee.ctc_annual ? fmt(Math.round(Number(employee.ctc_annual) / 12)) : '—'} />
+                  <InfoRow label="Monthly Incentive" value={employee.monthly_incentive && Number(employee.monthly_incentive) > 0 ? fmt(Math.round(Number(employee.monthly_incentive))) : '—'} />
                   <InfoRow label="Salary Structure" value={salaryStructures.find(s => s.id === employee.salary_structure_id)?.name || '—'} />
                   <InfoRow label="Status" value={employee.status.replace('_', ' ')} />
                 </div>

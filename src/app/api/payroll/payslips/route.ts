@@ -34,7 +34,23 @@ export async function GET(req: NextRequest) {
         ...where,
         employee: { exclude_from_payroll: false },
       },
-      include: {
+      select: {
+        id: true,
+        month: true,
+        year: true,
+        working_days: true,
+        present_days: true,
+        earnings: true,
+        deductions: true,
+        gross_salary: true,
+        total_deductions: true,
+        net_salary: true,
+        is_published: true,
+        hr_approved_at: true,
+        hr_approved_by: true,
+        is_manually_adjusted: true,
+        original_deductions: true,
+        payroll_run_id: true,
         employee: {
           select: {
             id: true,
@@ -43,6 +59,7 @@ export async function GET(req: NextRequest) {
             emp_code: true,
             date_of_joining: true,
             bank_details: true,
+            statutory_info: true,
             department:  { select: { name: true } },
             designation: { select: { name: true } },
           },
@@ -51,7 +68,7 @@ export async function GET(req: NextRequest) {
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
     })
 
-    // Decrypt bank_details for each payslip (safe — null on failure)
+    // Decrypt bank_details and statutory_info for each payslip (safe — null on failure)
     const data = payslips.map(p => ({
       ...p,
       hr_approved_at: p.hr_approved_at,
@@ -59,7 +76,11 @@ export async function GET(req: NextRequest) {
       is_published: p.is_published,
       employee: {
         ...p.employee,
-        bank_details: safeDecrypt(p.employee.bank_details),
+        bank_details:             safeDecrypt(p.employee.bank_details),
+        statutory_info:           undefined,
+        statutory_info_decrypted: safeDecrypt(p.employee.statutory_info) as {
+          pan_number?: string; uan_number?: string; pf_number?: string; aadhar_number?: string
+        } | null,
       },
     }))
 

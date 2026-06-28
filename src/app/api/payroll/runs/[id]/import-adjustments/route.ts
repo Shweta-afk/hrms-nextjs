@@ -253,14 +253,17 @@ export async function POST(
         if (dedHeaders[j]) newDeductions[dedHeaders[j]] = val
       }
 
-      // Safety net: if line items don't perfectly add to newNetSalary due to
-      // rounding, absorb the remainder as a small Adjustment rather than
-      // silently breaking the payslip math.
+      // If the file's net doesn't match (gross - deductions) due to rounding or
+      // formula differences, absorb the gap as a small Adjustment entry.
+      // We cap at ₹50 to avoid silently hiding large discrepancies — anything
+      // bigger likely means a mis-mapped column and should surface as a data issue.
       const newGross    = sum(newEarnings)
       const newTotalDed = sum(newDeductions)
       const remainder   = newNetSalary - (newGross - newTotalDed)
-      if (remainder > 0)       newEarnings['Adjustment']   = remainder
-      else if (remainder < 0)  newDeductions['Adjustment'] = -remainder
+      if (Math.abs(remainder) <= 50) {
+        if (remainder > 0)      newEarnings['Adjustment']   = remainder
+        else if (remainder < 0) newDeductions['Adjustment'] = -remainder
+      }
 
       const finalGross    = sum(newEarnings)
       const finalTotalDed = sum(newDeductions)

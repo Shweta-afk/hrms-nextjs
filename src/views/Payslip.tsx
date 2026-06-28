@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Download, Printer, Loader2, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { buildPayslipHtml } from "@/lib/payslip-html";
 
 interface Payslip {
   id: string;
@@ -26,8 +27,12 @@ interface Payslip {
     date_of_joining: string;
     department: { name: string } | null;
     designation: { name: string } | null;
+    bank_details?: { bank_name?: string; account_number?: string; ifsc_code?: string } | null;
+    statutory_info_decrypted?: { pan_number?: string; uan_number?: string; pf_number?: string; aadhar_number?: string } | null;
   };
   payroll_run: { month: number; year: number; status: string };
+  is_manually_adjusted: boolean;
+  original_deductions: Record<string, number> | null;
 }
 
 interface OrgInfo {
@@ -125,144 +130,18 @@ export default function PayslipPage() {
   const totalDeductions = deductionsArr.reduce((s, [,v]) => s + v, 0)
   const maxRows = Math.max(earningsArr.length, deductionsArr.length)
 
-  function buildPayslipHtml() {
-    if (!payslip) return ''
-    const emp       = payslip.employee
-    const monthLabel = `${MONTH_NAMES[payslip.month - 1]} ${payslip.year}`
-    const co        = orgInfo
-    const lopDays   = Math.max(0, payslip.working_days - Number(payslip.present_days))
-    const netWords  = numberToWords(payslip.net_salary)
-    const doiStr    = emp.date_of_joining
-      ? new Date(emp.date_of_joining).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })
-      : '—'
-    const metaParts = [
-      co.phone      ? `Tel: ${co.phone}`        : '',
-      co.gst_number ? `GSTIN: ${co.gst_number}` : '',
-      co.tan_number ? `TAN: ${co.tan_number}`   : '',
-    ].filter(Boolean).join(' &nbsp;|&nbsp; ')
-    const logoHtml = co.logo_url
-      ? `<img src="${co.logo_url}" style="height:60px;width:auto;object-fit:contain" />`
-      : `<img src="/lightmodelogo.png" style="height:60px;width:auto;object-fit:contain" />`
-
-    const rows = Array.from({ length: maxRows }, (_, i) => {
-      const [el, ea] = earningsArr[i]   ?? ['', null]
-      const [dl, da] = deductionsArr[i] ?? ['', null]
-      return `<tr>
-        <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px">${el}</td>
-        <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px;text-align:right;border-right:2px solid #999">${ea !== null ? fmt(ea) : ''}</td>
-        <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px">${dl}</td>
-        <td style="border:1px solid #ccc;padding:5px 8px;font-size:11px;text-align:right">${da !== null ? fmt(da) : ''}</td>
-      </tr>`
-    }).join('')
-
-    return `<!DOCTYPE html>
-<html><head>
-<meta charset="UTF-8"/>
-<title>Payslip — ${emp.first_name} ${emp.last_name} — ${monthLabel}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:Arial,sans-serif;font-size:12px;color:#000;background:#fff}
-  .page{width:210mm;margin:0 auto;padding:12mm}
-  table{width:100%;border-collapse:collapse}
-  td,th{border:1px solid #bbb;padding:5px 8px}
-  .hdr{display:flex;align-items:center;gap:16px;border-bottom:2px solid #1a3a6b;padding-bottom:10px;margin-bottom:10px}
-  .co-name{font-size:18px;font-weight:bold;text-transform:uppercase;color:#1a3a6b}
-  .co-meta{font-size:10px;color:#444;margin-top:3px}
-  .banner{background:#1a3a6b;color:#fff;text-align:center;padding:6px 8px;font-size:13px;font-weight:bold;letter-spacing:1.5px;margin-bottom:10px}
-  .lbl{background:#eef2f8;color:#555;font-size:10px;font-weight:normal}
-  .val{font-size:11px}
-  .sec-hdr{background:#dce6f1;font-weight:bold;font-size:11px;text-align:center;letter-spacing:0.5px}
-  .col-hdr{background:#f0f4fb;font-size:10px;font-weight:bold;text-align:center}
-  tfoot td{font-weight:bold;background:#eef2f8;border-top:2px solid #1a3a6b;font-size:11px}
-  .net-wrap{border:2px solid #1a3a6b;margin:10px 0}
-  .net-title{background:#1a3a6b;color:#fff;font-weight:bold;font-size:12px;text-align:center;padding:8px;letter-spacing:1px}
-  .net-amount{font-size:24px;font-weight:bold;color:#1a3a6b;text-align:right;padding:8px 16px}
-  .net-words{font-size:10px;color:#444;font-style:italic;padding:4px 12px 8px}
-  .footer{border-top:1px solid #bbb;padding-top:10px;margin-top:12px;display:flex;justify-content:space-between;align-items:flex-end}
-  .footer-note{font-size:10px;color:#666;font-style:italic}
-  @media print{body{margin:0}.page{padding:10mm}button{display:none!important}}
-</style>
-</head><body>
-<div class="page">
-<button onclick="window.print()" style="float:right;padding:6px 16px;background:#1a3a6b;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:10px">🖨 Print / Save PDF</button>
-<div class="hdr">
-  ${logoHtml}
-  <div style="flex:1;text-align:center">
-    <div class="co-name">${co.name || 'Company'}</div>
-    ${co.address ? `<div class="co-meta">${co.address}</div>` : ''}
-    ${metaParts  ? `<div class="co-meta">${metaParts}</div>`  : ''}
-  </div>
-</div>
-<div class="banner">PAY SLIP FOR THE MONTH OF ${monthLabel.toUpperCase()}</div>
-<table style="margin-bottom:10px"><tbody>
-  <tr>
-    <td class="lbl" style="width:20%">Employee Code</td><td class="val" style="width:30%">${emp.emp_code}</td>
-    <td class="lbl" style="width:20%">Department</td><td class="val" style="width:30%">${emp.department?.name ?? '—'}</td>
-  </tr>
-  <tr>
-    <td class="lbl">Employee Name</td><td class="val" style="font-weight:bold">${emp.first_name} ${emp.last_name}</td>
-    <td class="lbl">Designation</td><td class="val">${emp.designation?.name ?? '—'}</td>
-  </tr>
-  <tr>
-    <td class="lbl">Date of Joining</td><td class="val">${doiStr}</td>
-    <td class="lbl">Pay Period</td><td class="val">${monthLabel}</td>
-  </tr>
-</tbody></table>
-<table style="margin-bottom:10px">
-  <thead>
-    <tr><th class="sec-hdr" colspan="5">ATTENDANCE SUMMARY</th></tr>
-    <tr>
-      <th class="col-hdr">Days in Month</th><th class="col-hdr">Days Paid</th>
-      <th class="col-hdr">Days Present</th><th class="col-hdr">Week Off / Holidays</th>
-      <th class="col-hdr">LWP / Absent</th>
-    </tr>
-  </thead>
-  <tbody><tr style="text-align:center">
-    <td>${payslip.working_days}</td><td>${payslip.present_days}</td>
-    <td>${payslip.present_days}</td><td>—</td><td>${lopDays}</td>
-  </tr></tbody>
-</table>
-<table style="margin-bottom:10px">
-  <thead>
-    <tr>
-      <th class="sec-hdr" colspan="2" style="border-right:2px solid #999">EARNINGS</th>
-      <th class="sec-hdr" colspan="2">DEDUCTIONS</th>
-    </tr>
-    <tr>
-      <th class="col-hdr" style="width:30%">Component</th>
-      <th class="col-hdr" style="width:20%;text-align:right;border-right:2px solid #999">Amount</th>
-      <th class="col-hdr" style="width:30%">Component</th>
-      <th class="col-hdr" style="width:20%;text-align:right">Amount</th>
-    </tr>
-  </thead>
-  <tbody>${rows}</tbody>
-  <tfoot><tr>
-    <td>Total Earnings</td>
-    <td style="text-align:right;border-right:2px solid #999">${fmt(totalEarnings)}</td>
-    <td>Total Deductions</td>
-    <td style="text-align:right">${fmt(totalDeductions)}</td>
-  </tr></tfoot>
-</table>
-<div class="net-wrap">
-  <div style="display:flex;align-items:center">
-    <div class="net-title" style="width:35%;padding:12px">NET PAY</div>
-    <div class="net-amount" style="flex:1">${fmt(payslip.net_salary)}</div>
-  </div>
-  <div class="net-words">Amount in Words: ${netWords}</div>
-</div>
-<div class="footer">
-  <p class="footer-note">This is a Computer Generated Payslip and does not require a signature.</p>
-  <div class="sign" style="text-align:right;font-size:10px;color:#555">
-    <div style="margin-bottom:24px">&nbsp;</div>
-    <div>Authorised Signatory</div>
-  </div>
-</div>
-</div></body></html>`
-  }
-
   function handlePrint() {
-    const html = buildPayslipHtml()
-    if (!html) return
+    if (!payslip) return
+    const html = buildPayslipHtml(
+      {
+        ...payslip,
+        statutory:            payslip.employee.statutory_info_decrypted ?? undefined,
+        bank:                 payslip.employee.bank_details             ?? undefined,
+        is_manually_adjusted: payslip.is_manually_adjusted,
+        original_deductions:  payslip.original_deductions,
+      },
+      orgInfo
+    )
     const win = window.open('', '_blank')
     if (!win) { toast.error('Please allow popups'); return }
     win.document.write(html)

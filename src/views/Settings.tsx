@@ -132,6 +132,7 @@ const Settings = () => {
   const [structures, setStructures] = useState<SalaryStructure[]>([])
   const [structuresLoading, setStructuresLoading] = useState(false)
   const [structureModal, setStructureModal] = useState(false)
+  const [editingStructureId, setEditingStructureId] = useState<string | null>(null)
   const [newStructureName, setNewStructureName] = useState("")
   const [newStructureDesc, setNewStructureDesc] = useState("")
   const [newComponents, setNewComponents] = useState([
@@ -564,12 +565,36 @@ const Settings = () => {
     finally { setHolidayLoading(false) }
   }
 
+  function openNewStructureModal() {
+    setEditingStructureId(null)
+    setNewStructureName('')
+    setNewStructureDesc('')
+    setNewIsDefault(false)
+    setNewComponents([
+      { name: 'Basic', type: 'earning', calc_type: 'percentage_of_ctc', value: 40 },
+      { name: 'HRA', type: 'earning', calc_type: 'percentage_of_basic', value: 50 },
+      { name: 'Special Allowance', type: 'earning', calc_type: 'remainder', value: null },
+    ])
+    setStructureModal(true)
+  }
+
+  function openEditStructureModal(s: SalaryStructure) {
+    setEditingStructureId(s.id)
+    setNewStructureName(s.name)
+    setNewStructureDesc(s.description ?? '')
+    setNewIsDefault(s.is_default)
+    setNewComponents(s.components.map(c => ({ ...c, value: c.value ?? null })))
+    setStructureModal(true)
+  }
+
   async function handleCreateStructure() {
     if (!newStructureName) { toast.error('Name is required'); return }
     setCreatingStructure(true)
     try {
-      const res = await fetch('/api/payroll/structures', {
-        method: 'POST',
+      const url    = editingStructureId ? `/api/payroll/structures/${editingStructureId}` : '/api/payroll/structures'
+      const method = editingStructureId ? 'PATCH' : 'POST'
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newStructureName,
@@ -580,21 +605,13 @@ const Settings = () => {
       })
       const json = await res.json()
       if (json.success) {
-        toast.success('Salary structure created')
+        toast.success(editingStructureId ? 'Salary structure updated' : 'Salary structure created')
         setStructureModal(false)
-        setNewStructureName('')
-        setNewStructureDesc('')
-        setNewIsDefault(false)
-        setNewComponents([
-          { name: 'Basic', type: 'earning', calc_type: 'percentage_of_ctc', value: 40 },
-          { name: 'HRA', type: 'earning', calc_type: 'percentage_of_basic', value: 50 },
-          { name: 'Special Allowance', type: 'earning', calc_type: 'remainder', value: null },
-        ])
         fetchStructures()
       } else {
         toast.error(json.error)
       }
-    } catch { toast.error('Failed to create structure') }
+    } catch { toast.error(editingStructureId ? 'Failed to update structure' : 'Failed to create structure') }
     finally { setCreatingStructure(false) }
   }
 
@@ -1333,7 +1350,7 @@ const Settings = () => {
             <h2 className="text-lg font-semibold">Salary Structures</h2>
             <p className="text-sm text-muted-foreground mt-0.5">Define how salaries are calculated for different employee groups</p>
           </div>
-          <Button onClick={() => setStructureModal(true)} className="gap-2">
+          <Button onClick={openNewStructureModal} className="gap-2">
             <Plus className="h-4 w-4" /> New Structure
           </Button>
         </div>
@@ -1346,7 +1363,7 @@ const Settings = () => {
               <DollarSign className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <p className="text-sm font-medium">No salary structures yet</p>
               <p className="text-xs text-muted-foreground mt-1">Create a structure to define how salaries are calculated</p>
-              <Button className="mt-4" onClick={() => setStructureModal(true)}>
+              <Button className="mt-4" onClick={openNewStructureModal}>
                 <Plus className="h-4 w-4 mr-2" /> Create First Structure
               </Button>
             </CardContent>
@@ -1371,6 +1388,9 @@ const Settings = () => {
                           Set as Default
                         </Button>
                       )}
+                      <Button size="sm" variant="outline" onClick={() => openEditStructureModal(s)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                       <Button size="sm" variant="outline" className="text-destructive hover:text-destructive"
                         onClick={() => handleDeleteStructure(s.id)}>
                         <Trash2 className="h-4 w-4" />
@@ -2374,7 +2394,7 @@ const Settings = () => {
       <Dialog open={structureModal} onOpenChange={setStructureModal}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Create Salary Structure</DialogTitle>
+            <DialogTitle>{editingStructureId ? 'Edit Salary Structure' : 'Create Salary Structure'}</DialogTitle>
             <DialogDescription>Define the salary components for this structure</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -2462,7 +2482,9 @@ const Settings = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setStructureModal(false)}>Cancel</Button>
             <Button onClick={handleCreateStructure} disabled={creatingStructure}>
-              {creatingStructure ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</> : 'Create Structure'}
+              {creatingStructure
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{editingStructureId ? 'Saving...' : 'Creating...'}</>
+                : editingStructureId ? 'Save Changes' : 'Create Structure'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -26,6 +26,7 @@ const UpdateEmployeeSchema = z.object({
   essl_device_id: z.string().nullable().optional(),
   salary_structure_id: z.string().nullable().optional(),
   ctc_annual: z.number().optional(),
+  monthly_incentive: z.number().nullable().optional(),
   exclude_from_payroll: z.boolean().optional(),
 })
 
