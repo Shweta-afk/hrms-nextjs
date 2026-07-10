@@ -57,6 +57,7 @@ interface SalaryStructure {
 }
 
 interface Department { id: string; name: string; code: string }
+interface Designation { id: string; name: string; level: number }
 interface Holiday { id: string; name: string; date: string; type: string }
 interface LeaveType {
   id: string; name: string; code: string
@@ -152,6 +153,16 @@ const Settings = () => {
   const [editDeptName, setEditDeptName] = useState("")
   const [editDeptCode, setEditDeptCode] = useState("")
   const [deletingDept, setDeletingDept] = useState<string | null>(null)
+
+  // Designations
+  const [designations, setDesignations] = useState<Designation[]>([])
+  const [desigLoading, setDesigLoading] = useState(false)
+  const [newDesigName, setNewDesigName] = useState("")
+  const [newDesigLevel, setNewDesigLevel] = useState("1")
+  const [editingDesig, setEditingDesig] = useState<Designation | null>(null)
+  const [editDesigName, setEditDesigName] = useState("")
+  const [editDesigLevel, setEditDesigLevel] = useState("1")
+  const [deletingDesig, setDeletingDesig] = useState<string | null>(null)
 
   // Holidays
   const [holidays, setHolidays] = useState<Holiday[]>([])
@@ -257,7 +268,7 @@ const Settings = () => {
 
   useEffect(() => {
     if (activeTab === 'salary') fetchStructures()
-    if (activeTab === 'departments') fetchDepartments()
+    if (activeTab === 'departments') { fetchDepartments(); fetchDesignations() }
     if (activeTab === 'holidays') fetchHolidays()
     if (activeTab === 'devices') fetchDevices()
     if (activeTab === 'integrations') fetchApiKeys()
@@ -553,6 +564,64 @@ const Settings = () => {
       if (json.success) setDepartments(json.data)
     } catch { toast.error('Failed to load departments') }
     finally { setDeptLoading(false) }
+  }
+
+  async function fetchDesignations() {
+    setDesigLoading(true)
+    try {
+      const res = await fetch('/api/designations')
+      const json = await res.json()
+      if (json.success) setDesignations(json.data)
+    } catch { toast.error('Failed to load designations') }
+    finally { setDesigLoading(false) }
+  }
+
+  async function handleAddDesignation() {
+    if (!newDesigName.trim()) { toast.error('Name is required'); return }
+    try {
+      const res = await fetch('/api/designations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newDesigName, level: Number(newDesigLevel) || 1 }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Designation added')
+        setNewDesigName('')
+        setNewDesigLevel('1')
+        fetchDesignations()
+      } else toast.error(json.error ?? 'Failed to add designation')
+    } catch { toast.error('Failed to add designation') }
+  }
+
+  async function handleSaveDesig() {
+    if (!editingDesig) return
+    try {
+      const res = await fetch(`/api/designations/${editingDesig.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editDesigName, level: Number(editDesigLevel) || 1 }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Designation updated')
+        setEditingDesig(null)
+        fetchDesignations()
+      } else toast.error(json.error ?? 'Failed to update')
+    } catch { toast.error('Failed to update designation') }
+  }
+
+  async function handleDeleteDesig(id: string) {
+    setDeletingDesig(id)
+    try {
+      const res = await fetch(`/api/designations/${id}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Designation deleted')
+        fetchDesignations()
+      } else toast.error(json.error ?? 'Failed to delete')
+    } catch { toast.error('Failed to delete designation') }
+    finally { setDeletingDesig(null) }
   }
 
   async function fetchHolidays() {
@@ -1504,6 +1573,69 @@ const Settings = () => {
             )}
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Add Designation</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-3">
+              <Input placeholder="Designation e.g. Senior Engineer" value={newDesigName}
+                onChange={e => setNewDesigName(e.target.value)} className="flex-1" />
+              <Input type="number" min={1} placeholder="Level" value={newDesigLevel}
+                onChange={e => setNewDesigLevel(e.target.value)} className="w-24" />
+              <Button onClick={handleAddDesignation} className="gap-2">
+                <Plus className="h-4 w-4" /> Add
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Designations ({designations.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {desigLoading ? (
+              <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : designations.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No designations yet</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Level</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {designations.map(d => (
+                    <TableRow key={d.id}>
+                      <TableCell className="font-medium">{d.name}</TableCell>
+                      <TableCell><Badge variant="secondary">{d.level}</Badge></TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-7 w-7"
+                            onClick={() => { setEditingDesig(d); setEditDesigName(d.name); setEditDesigLevel(String(d.level)) }}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            disabled={deletingDesig === d.id}
+                            onClick={() => handleDeleteDesig(d.id)}>
+                            {deletingDesig === d.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Edit Department Dialog */}
@@ -1525,6 +1657,29 @@ const Settings = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingDept(null)}>Cancel</Button>
             <Button onClick={handleSaveDept}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Designation Dialog */}
+      <Dialog open={!!editingDesig} onOpenChange={open => !open && setEditingDesig(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Designation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Name</label>
+              <Input value={editDesigName} onChange={e => setEditDesigName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Level</label>
+              <Input type="number" min={1} value={editDesigLevel} onChange={e => setEditDesigLevel(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingDesig(null)}>Cancel</Button>
+            <Button onClick={handleSaveDesig}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

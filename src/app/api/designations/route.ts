@@ -25,12 +25,12 @@ export async function POST(req: NextRequest) {
     if (guard instanceof NextResponse) return guard
     const session = guard
 
-    const { name, code } = await req.json()
+    const { name, level } = await req.json()
     if (!name?.trim()) {
       return NextResponse.json({ success: false, error: 'Name is required' }, { status: 400 })
     }
     const designation = await prisma.designation.create({
-      data: { org_id: session.user.org_id, name: name.trim() },
+      data: { org_id: session.user.org_id, name: name.trim(), ...(level !== undefined && { level: Number(level) }) },
     })
     return NextResponse.json({ success: true, data: designation }, { status: 201 })
   } catch (error) {
