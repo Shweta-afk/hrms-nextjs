@@ -290,32 +290,40 @@ const EmployeePortal = () => {
     }
   }
 
-  const todayAttendance = attendance.find(a =>
-    new Date(a.date).toDateString() === now.toDateString()
+  // "Today" as an IST calendar-day label (UTC midnight) — matches how
+  // AttendanceRecord.date is stored. Comparing via the browser's local
+  // timezone (toDateString/getDate) silently breaks for anyone whose OS
+  // clock isn't set to IST.
+  const todayLabel = new Date(
+    new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10) + 'T00:00:00.000Z'
   )
+  const todayLabelStr = todayLabel.toISOString().slice(0, 10)
+
+  const todayAttendance = attendance.find(a => (a.date as string).slice(0, 10) === todayLabelStr)
 
   // Get last 5 weekdays for attendance display
   const weekDays = []
-  let d = new Date(now)
+  let d = new Date(todayLabel)
   let count = 0
   while (count < 5) {
-    const dow = d.getDay()
+    const dow = d.getUTCDay()
     if (dow !== 0 && dow !== 6) {
-      const rec = attendance.find(a => new Date(a.date).toDateString() === d.toDateString())
+      const dStr = d.toISOString().slice(0, 10)
+      const rec = attendance.find(a => (a.date as string).slice(0, 10) === dStr)
       weekDays.unshift({
-        day: d.toLocaleDateString('en-IN', { weekday: 'short' }),
-        date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+        day: d.toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'UTC' }),
+        date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'UTC' }),
         status: rec ? (rec.is_late ? 'Late' : rec.status) : 'Absent',
         isLate: rec?.is_late ?? false,
         inTime: rec ? formatTime(rec.first_in) : '—',
         outTime: rec ? formatTime(rec.last_out) : '—',
-        isToday: d.toDateString() === now.toDateString(),
+        isToday: dStr === todayLabelStr,
         rawStatus: rec?.status ?? 'absent',
       })
       count++
     }
     d = new Date(d)
-    d.setDate(d.getDate() - 1)
+    d.setUTCDate(d.getUTCDate() - 1)
   }
 
   const quickActions = [

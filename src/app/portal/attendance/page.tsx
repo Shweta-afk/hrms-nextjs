@@ -90,9 +90,16 @@ export default function PortalAttendancePage() {
 
   useEffect(() => { fetchAttendance() }, [monthOffset])
 
-  const recordMap = Object.fromEntries(
-    records.map(r => [new Date(r.date).getDate(), r])
+  // Keyed by "YYYY-MM-DD" (not day-of-month via Date.getDate()) so this
+  // doesn't depend on the browser's local timezone — r.date is a UTC-midnight
+  // timestamp whose Y/M/D represent the IST calendar day, so string-slicing
+  // it is the only safe way to recover that day everywhere.
+  const recordMap: Record<string, AttendanceRecord> = Object.fromEntries(
+    records.map(r => [(r.date as string).slice(0, 10), r])
   )
+
+  // "Today" in IST, as a date string — matches how AttendanceRecord.date is stored.
+  const todayDateStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   const presentCount = records.filter(r => r.status === 'present').length
   const lateCount = records.filter(r => r.is_late).length
@@ -161,10 +168,11 @@ export default function PortalAttendancePage() {
                 {Array.from({ length: daysInMonth }, (_, i) => {
                   const day = i + 1
                   const date = new Date(year, month - 1, day)
+                  const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
                   const dow = date.getDay()
                   const isWeekend = dow === 0 || dow === 6
-                  const isFuture = date > now
-                  const rec = recordMap[day]
+                  const isFuture = dateStr > todayDateStr
+                  const rec = recordMap[dateStr]
 
                   if (isWeekend) return null
 
