@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { todayIST } from '@/lib/ist-date'
 
 /**
  * GET /api/attendance/trend?months=6
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
     const months = Math.min(Math.max(parseInt(searchParams.get('months') || '6'), 1), 24)
 
     const now = new Date()
-    const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    const todayUTC = todayIST()
 
     // Build month windows from oldest → newest.
     const windows = Array.from({ length: months }, (_, i) => {

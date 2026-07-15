@@ -7,6 +7,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { notifyLateArrival } from '@/lib/notifications'
+import { istDateOnly } from '@/lib/ist-date'
 
 // ── Org-level shift settings cache (1 min TTL per org) ───────────────────────
 export interface ShiftSettings {
@@ -89,10 +90,8 @@ export interface PunchResult {
   reason?:              string
 }
 
-/** Extract midnight-UTC date from a punch timestamp (date portion only). */
-function dateOnly(dt: Date): Date {
-  return new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()))
-}
+/** Extract the IST calendar date from a punch timestamp (date portion only). */
+const dateOnly = istDateOnly
 
 export function lateCalc(firstIn: Date, s: ShiftSettings): { isLate: boolean; lateByMinutes: number } {
   const istOffsetMs = 5.5 * 60 * 60_000

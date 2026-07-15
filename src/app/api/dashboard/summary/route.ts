@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { todayIST } from '@/lib/ist-date'
 
 /**
  * GET /api/dashboard/summary
@@ -25,10 +26,7 @@ export async function GET() {
     const session = guard
     const { org_id } = session.user
 
-    const now = new Date()
-    const todayUTC = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-    )
+    const todayUTC = todayIST()
 
     // Use ONE definition of "active employee" across all three queries below
     // so the percentages line up (otherwise totalEmployees might count people

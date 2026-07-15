@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { todayIST } from '@/lib/ist-date'
 
 export async function GET(req: NextRequest) {
   try {
@@ -63,8 +64,7 @@ export async function GET(req: NextRequest) {
       prisma.attendanceRecord.count({ where }),
     ])
 
-    const nowUTC = new Date()
-    const todayUTC = new Date(Date.UTC(nowUTC.getUTCFullYear(), nowUTC.getUTCMonth(), nowUTC.getUTCDate()))
+    const todayUTC = todayIST()
 
     const reqMonth = month ? parseInt(month) : null
     const reqYear  = year  ? parseInt(year)  : null

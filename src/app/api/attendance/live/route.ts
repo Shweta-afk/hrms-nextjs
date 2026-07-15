@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { todayIST } from '@/lib/ist-date'
 
 /**
  * GET /api/attendance/live
@@ -25,9 +26,9 @@ export async function GET(req: NextRequest) {
 
     const org_id = session.user.org_id
 
-    // Today window in UTC (date-only comparison)
+    // Today window — IST calendar day (date-only comparison)
     const now = new Date()
-    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    const todayStart = todayIST()
     const todayEnd   = new Date(todayStart.getTime() + 86_400_000)
 
     // --- Parallel queries ---
