@@ -307,6 +307,23 @@ export async function POST(
       adjusted++
     }
 
+    // Recalculate PayrollRun totals from actual payslip values so the
+    // "Net Payout" header reflects all adjustments (concessions, advances, etc.)
+    if (adjusted > 0) {
+      const totals = await prisma.payslip.aggregate({
+        where: { org_id: session.user.org_id, payroll_run_id: id },
+        _sum: { gross_salary: true, total_deductions: true, net_salary: true },
+      })
+      await prisma.payrollRun.update({
+        where: { id },
+        data: {
+          total_gross:       Number(totals._sum.gross_salary      ?? 0),
+          total_deductions:  Number(totals._sum.total_deductions  ?? 0),
+          total_net:         Number(totals._sum.net_salary        ?? 0),
+        },
+      })
+    }
+
     return NextResponse.json({
       success: true,
       data: { adjusted, unchanged, not_found: notFound, diffs, skipped },

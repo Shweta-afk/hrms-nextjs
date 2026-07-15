@@ -143,6 +143,20 @@ export async function PATCH(
       },
     })
 
+    // Recalculate PayrollRun totals so the "Net Payout" header stays accurate
+    const totals = await prisma.payslip.aggregate({
+      where: { org_id: session.user.org_id, payroll_run_id: payslip.payroll_run_id },
+      _sum: { gross_salary: true, total_deductions: true, net_salary: true },
+    })
+    await prisma.payrollRun.update({
+      where: { id: payslip.payroll_run_id },
+      data: {
+        total_gross:       Number(totals._sum.gross_salary      ?? 0),
+        total_deductions:  Number(totals._sum.total_deductions  ?? 0),
+        total_net:         Number(totals._sum.net_salary        ?? 0),
+      },
+    })
+
     return NextResponse.json({ success: true, data: updated })
   } catch (error) {
     console.error('Payslip edit error:', error)

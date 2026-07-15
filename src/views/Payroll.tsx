@@ -969,28 +969,52 @@ const Payroll = () => {
                                 </div>
 
                                 {/* Manual adjustment diff */}
-                                {p.is_manually_adjusted && p.original_net_salary !== null && (
-                                  <div className="mt-3 rounded-lg border border-kpi-amber/40 bg-kpi-amber/5 p-3">
-                                    <p className="text-xs font-semibold text-kpi-amber mb-2 flex items-center gap-1.5">
-                                      <ArrowLeftRight className="h-3.5 w-3.5" /> Manual Adjustment Applied
-                                    </p>
-                                    <div className="flex items-center gap-3 text-sm">
-                                      <div className="text-muted-foreground">
-                                        Original: <span className="line-through tabular-nums">{fmt(Number(p.original_net_salary))}</span>
+                                {p.is_manually_adjusted && p.original_net_salary !== null && (() => {
+                                  // Compute which deductions were waived/reduced (concessions)
+                                  // and which were added/increased
+                                  const origDed  = p.original_deductions ?? {}
+                                  const currDed  = p.deductions
+                                  const allKeys  = Array.from(new Set([...Object.keys(origDed), ...Object.keys(currDed)]))
+                                  const changes  = allKeys
+                                    .map(k => ({ label: k, before: Math.round(origDed[k] ?? 0), after: Math.round(currDed[k] ?? 0) }))
+                                    .filter(c => c.before !== c.after)
+                                  return (
+                                    <div className="mt-3 rounded-lg border border-kpi-amber/40 bg-kpi-amber/5 p-3 space-y-2">
+                                      <p className="text-xs font-semibold text-kpi-amber flex items-center gap-1.5">
+                                        <ArrowLeftRight className="h-3.5 w-3.5" />
+                                        {p.net_salary > Number(p.original_net_salary) ? 'HR Concession Applied' : 'Manual Adjustment Applied'}
+                                      </p>
+                                      <div className="flex items-center gap-3 text-sm">
+                                        <div className="text-muted-foreground">
+                                          System: <span className="line-through tabular-nums">{fmt(Number(p.original_net_salary))}</span>
+                                        </div>
+                                        <span className="text-muted-foreground">→</span>
+                                        <div className="font-medium text-kpi-green">
+                                          HR Approved: <span className="tabular-nums">{fmt(p.net_salary)}</span>
+                                        </div>
+                                        <div className={`text-xs font-medium ${p.net_salary > Number(p.original_net_salary) ? 'text-kpi-green' : 'text-destructive'}`}>
+                                          ({p.net_salary > Number(p.original_net_salary) ? '+' : ''}{fmt(p.net_salary - Number(p.original_net_salary))})
+                                        </div>
                                       </div>
-                                      <span className="text-muted-foreground">→</span>
-                                      <div className="font-medium text-kpi-green">
-                                        Adjusted: <span className="tabular-nums">{fmt(p.net_salary)}</span>
-                                      </div>
-                                      <div className={`text-xs font-medium ${p.net_salary > Number(p.original_net_salary) ? 'text-kpi-green' : 'text-destructive'}`}>
-                                        ({p.net_salary > Number(p.original_net_salary) ? '+' : ''}{fmt(p.net_salary - Number(p.original_net_salary))})
-                                      </div>
+                                      {changes.length > 0 && (
+                                        <div className="border-t border-kpi-amber/20 pt-2 space-y-1">
+                                          <p className="text-xs font-medium text-foreground mb-1">What changed:</p>
+                                          {changes.map(c => (
+                                            <div key={c.label} className="flex items-center gap-2 text-xs text-muted-foreground">
+                                              <span className="font-medium text-foreground w-36 shrink-0">{c.label}</span>
+                                              <span className="line-through tabular-nums">{fmt(c.before)}</span>
+                                              <span>→</span>
+                                              <span className={`tabular-nums font-medium ${c.after < c.before ? 'text-kpi-green' : 'text-destructive'}`}>{fmt(c.after)}</span>
+                                              <span className={c.after < c.before ? 'text-kpi-green' : 'text-destructive'}>
+                                                ({c.after < c.before ? `−${fmt(c.before - c.after)} waived` : `+${fmt(c.after - c.before)} added`})
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
                                     </div>
-                                    {p.adjustment_note && (
-                                      <p className="text-xs text-muted-foreground mt-1">Note: {p.adjustment_note}</p>
-                                    )}
-                                  </div>
-                                )}
+                                  )
+                                })()}
                               </div>
                             </TableCell>
                           </TableRow>
