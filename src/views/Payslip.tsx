@@ -32,6 +32,7 @@ interface Payslip {
   };
   payroll_run: { month: number; year: number; status: string };
   is_manually_adjusted: boolean;
+  original_earnings: Record<string, number> | null;
   original_deductions: Record<string, number> | null;
 }
 

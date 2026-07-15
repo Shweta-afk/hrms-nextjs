@@ -47,6 +47,7 @@ export interface PayslipData {
   deductions: Record<string, number>
   net_salary: number
   is_manually_adjusted?: boolean
+  original_earnings?: Record<string, number> | null
   original_deductions?: Record<string, number> | null
   employee: {
     emp_code: string
@@ -129,46 +130,79 @@ export function buildPayslipHtml(
     </tr>`
   }).join('')
 
-  // Compute granted amounts: deductions that HR reduced vs what payroll originally calculated.
-  // e.g. payroll had LOP=1000, HR sets LOP=0 → granted['Loss of Pay'] = 1000
-  const grantedEntries: [string, number][] = []
-  if (payslip.is_manually_adjusted && payslip.original_deductions) {
-    const origDed  = payslip.original_deductions
-    const currDed  = payslip.deductions as Record<string, number>
-    for (const [key, origVal] of Object.entries(origDed)) {
-      if (INVALID_DEDUCTION_KEYS.has(key.toLowerCase())) continue
-      const origAmt = Math.round(origVal ?? 0)
-      const currAmt = Math.round(currDed[key] ?? 0)
-      if (origAmt > currAmt && origAmt > 0) {
-        grantedEntries.push([key, origAmt - currAmt])
+  // Compute what HR changed vs what payroll originally calculated:
+  //   concessions  = deductions reduced/waived  (e.g. LOP ₹3,000 → ₹0)
+  //   additions    = earnings added/increased    (e.g. Incentive ₹0 → ₹5,000)
+  const concessionEntries: [string, number][] = []
+  const additionEntries:   [string, number][] = []
+
+  if (payslip.is_manually_adjusted) {
+    if (payslip.original_deductions) {
+      const origDed = payslip.original_deductions
+      const currDed = payslip.deductions as Record<string, number>
+      for (const [key, origVal] of Object.entries(origDed)) {
+        if (INVALID_DEDUCTION_KEYS.has(key.toLowerCase())) continue
+        const origAmt = Math.round(origVal ?? 0)
+        const currAmt = Math.round(currDed[key] ?? 0)
+        if (origAmt > currAmt && origAmt > 0) {
+          concessionEntries.push([key, origAmt - currAmt])
+        }
+      }
+    }
+    if (payslip.original_earnings) {
+      const origEarn = payslip.original_earnings
+      const currEarn = payslip.earnings as Record<string, number>
+      const allEarnKeys = Array.from(new Set([...Object.keys(origEarn), ...Object.keys(currEarn)]))
+      for (const key of allEarnKeys) {
+        const origAmt = Math.round(origEarn[key] ?? 0)
+        const currAmt = Math.round(currEarn[key] ?? 0)
+        if (currAmt > origAmt) {
+          additionEntries.push([key, currAmt - origAmt])
+        }
       }
     }
   }
-  const totalGranted = grantedEntries.reduce((s, [,v]) => s + v, 0)
 
-  const grantedSection = grantedEntries.length > 0 ? `
+  const totalConcession = concessionEntries.reduce((s, [,v]) => s + v, 0)
+  const totalAdditions  = additionEntries.reduce((s, [,v]) => s + v, 0)
+  const totalGranted    = totalConcession + totalAdditions
+
+  const grantedSection = totalGranted > 0 ? `
   <table style="margin-bottom:10px;border:1px solid #bbf7d0;border-radius:2px">
     <thead>
       <tr>
         <th colspan="2" style="background:#dcfce7;color:#166534;font-size:11px;font-weight:bold;text-align:center;padding:6px;letter-spacing:0.5px;border-bottom:1px solid #bbf7d0">
-          HR ADJUSTMENTS — CONCESSIONS GRANTED
+          HR ADJUSTMENTS
         </th>
-      </tr>
-      <tr>
-        <th style="background:#f0fdf4;font-size:10px;font-weight:bold;color:#15803d;padding:5px 8px;border-bottom:1px solid #bbf7d0;width:70%">Deduction Waived / Reduced</th>
-        <th style="background:#f0fdf4;font-size:10px;font-weight:bold;color:#15803d;padding:5px 8px;text-align:right;border-bottom:1px solid #bbf7d0">Amount Granted</th>
       </tr>
     </thead>
     <tbody>
-      ${grantedEntries.map(([label, amount]) => `
+      ${concessionEntries.length > 0 ? `
+      <tr>
+        <td colspan="2" style="padding:4px 8px;font-size:10px;font-weight:bold;color:#15803d;background:#f0fdf4;border-bottom:1px solid #bbf7d0">
+          Deductions Waived / Reduced
+        </td>
+      </tr>
+      ${concessionEntries.map(([label, amount]) => `
         <tr>
-          <td style="padding:5px 8px;font-size:11px;border-bottom:1px solid #d1fae5">${label}</td>
+          <td style="padding:5px 8px;font-size:11px;border-bottom:1px solid #d1fae5;padding-left:16px">${label}</td>
+          <td style="padding:5px 8px;font-size:11px;text-align:right;color:#15803d;font-weight:bold;border-bottom:1px solid #d1fae5">−${fmt(amount)} waived</td>
+        </tr>`) .join('')}` : ''}
+      ${additionEntries.length > 0 ? `
+      <tr>
+        <td colspan="2" style="padding:4px 8px;font-size:10px;font-weight:bold;color:#15803d;background:#f0fdf4;border-bottom:1px solid #bbf7d0">
+          Earnings Added / Increased
+        </td>
+      </tr>
+      ${additionEntries.map(([label, amount]) => `
+        <tr>
+          <td style="padding:5px 8px;font-size:11px;border-bottom:1px solid #d1fae5;padding-left:16px">${label}</td>
           <td style="padding:5px 8px;font-size:11px;text-align:right;color:#15803d;font-weight:bold;border-bottom:1px solid #d1fae5">+${fmt(amount)}</td>
-        </tr>`).join('')}
+        </tr>`).join('')}` : ''}
     </tbody>
     <tfoot>
       <tr>
-        <td style="padding:5px 8px;font-size:11px;font-weight:bold;background:#dcfce7;color:#166534">Total Concession</td>
+        <td style="padding:5px 8px;font-size:11px;font-weight:bold;background:#dcfce7;color:#166534">Total HR Adjustment</td>
         <td style="padding:5px 8px;font-size:11px;font-weight:bold;text-align:right;background:#dcfce7;color:#166534">+${fmt(totalGranted)}</td>
       </tr>
     </tfoot>

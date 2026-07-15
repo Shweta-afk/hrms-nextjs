@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
         hr_approved_at: true,
         hr_approved_by: true,
         is_manually_adjusted: true,
+        original_earnings: true,
         original_deductions: true,
         payroll_run_id: true,
         employee: {
