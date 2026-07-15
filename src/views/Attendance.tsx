@@ -206,7 +206,22 @@ const Attendance = () => {
 
   // Today's date as "YYYY-MM-DD" in IST — matches how dates are stored in DB (UTC midnight = IST date for normal office hours)
   const todayDateStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  const lateToday = records.filter(r => (r.date as string).slice(0, 10) === todayDateStr && r.is_late)
+  const lateToday = records.filter(r => (r.date as string).slice(0, 10) === (selectedDate || todayDateStr) && r.is_late)
+
+  // KPI for the currently viewed date: when a specific date is selected use
+  // records already in memory; when no date is selected use the server-computed
+  // today snapshot so the live-punch count is accurate for "right now".
+  const kpiDate = selectedDate || todayDateStr
+  const kpiDateRecords = records.filter(r => (r.date as string).slice(0, 10) === kpiDate)
+  const displayKpi: TodaySummary = selectedDate
+    ? {
+        present:  kpiDateRecords.filter(r => r.status !== 'absent' && !r.is_late).length,
+        absent:   Math.max(0, activeEmployees.length - kpiDateRecords.filter(r => r.status !== 'absent').length),
+        on_leave: 0,
+        late:     kpiDateRecords.filter(r => r.is_late).length,
+        wfh:      kpiDateRecords.filter(r => r.status === 'wfh').length,
+      }
+    : today
 
   // Today-only view: all employees with their today status (present/late/absent)
   const todayRecordsOnly = records.filter(r => (r.date as string).slice(0, 10) === todayDateStr)
@@ -760,11 +775,11 @@ const Attendance = () => {
             // employee-days when a month is queried — which made these cards
             // misleading (e.g. "Present Today: 65" was actually June's running
             // total of person-days).
-            { label: "Present Today",   value: today.present,  icon: Users,        color: "text-kpi-green",   bg: "bg-kpi-green/10" },
-            { label: "Absent",          value: today.absent,   icon: UserX,        color: "text-kpi-red",     bg: "bg-kpi-red/10" },
-            { label: "On Leave",        value: today.on_leave, icon: CalendarDays, color: "text-primary",     bg: "bg-primary/10" },
-            { label: "Late Arrivals",   value: today.late,     icon: Clock,        color: "text-kpi-amber",   bg: "bg-kpi-amber/10" },
-            { label: "Work from Home",  value: today.wfh,      icon: Home,         color: "text-kpi-purple",  bg: "bg-kpi-purple/10" },
+            { label: selectedDate ? "Present"      : "Present Today",   value: displayKpi.present,  icon: Users,        color: "text-kpi-green",   bg: "bg-kpi-green/10" },
+            { label: "Absent",                                          value: displayKpi.absent,   icon: UserX,        color: "text-kpi-red",     bg: "bg-kpi-red/10" },
+            { label: "On Leave",                                        value: displayKpi.on_leave, icon: CalendarDays, color: "text-primary",     bg: "bg-primary/10" },
+            { label: selectedDate ? "Late"         : "Late Arrivals",   value: displayKpi.late,     icon: Clock,        color: "text-kpi-amber",   bg: "bg-kpi-amber/10" },
+            { label: "Work from Home",                                  value: displayKpi.wfh,      icon: Home,         color: "text-kpi-purple",  bg: "bg-kpi-purple/10" },
           ].map((s) => (
             <Card key={s.label}>
               <CardContent className="p-4 flex items-center gap-3">
