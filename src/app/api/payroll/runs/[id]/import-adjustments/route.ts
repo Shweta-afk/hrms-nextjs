@@ -253,17 +253,20 @@ export async function POST(
         if (dedHeaders[j]) newDeductions[dedHeaders[j]] = val
       }
 
-      // If the file's net doesn't match (gross - deductions) due to rounding or
-      // formula differences, absorb the gap as a small Adjustment entry.
-      // We cap at ₹50 to avoid silently hiding large discrepancies — anything
-      // bigger likely means a mis-mapped column and should surface as a data issue.
+      // Bridge the gap between HR's "To be Credited" net and what the
+      // computed earnings - deductions produce. This is always non-zero when
+      // HR gives a concession by writing a higher net in the spreadsheet
+      // without also zeroing the LOP column (the most common workflow).
+      // We make the gap explicit so gross - deductions always equals net_salary:
+      //   remainder > 0 → HR is paying more than attendance warrants → "HR Concession" earning
+      //   remainder < 0 → HR is paying less (extra deduction)         → "HR Deduction" deduction
+      // This keeps the payslip math consistent and shows the concession as a
+      // named line item in the earnings breakdown.
       const newGross    = sum(newEarnings)
       const newTotalDed = sum(newDeductions)
       const remainder   = newNetSalary - (newGross - newTotalDed)
-      if (Math.abs(remainder) <= 50) {
-        if (remainder > 0)      newEarnings['Adjustment']   = remainder
-        else if (remainder < 0) newDeductions['Adjustment'] = -remainder
-      }
+      if (remainder > 0)      newEarnings['HR Concession']  = remainder
+      else if (remainder < 0) newDeductions['HR Deduction'] = -remainder
 
       const finalGross    = sum(newEarnings)
       const finalTotalDed = sum(newDeductions)
