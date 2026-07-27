@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
-  ChevronLeft, ChevronRight, Download, Upload, Users, UserX,
+  ChevronLeft, ChevronRight, ChevronDown, Download, Upload, Users, UserX,
   CalendarDays, Clock, Home, Wifi, Loader2, BarChart3, FileSpreadsheet,
   Mail, CheckCircle2, UserPlus, Filter, Wand2,
 } from "lucide-react";
@@ -83,6 +83,8 @@ const Attendance = () => {
   const [monthOffset, setMonthOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState('')   // "YYYY-MM-DD" — filters table to a single day
   const [rowStatusFilter, setRowStatusFilter] = useState('all')  // present/absent/late/half_day/… filter for the list
+  const [reportsOpen, setReportsOpen] = useState(true)   // collapse the Detailed Reports section
+  const [heatmapOpen, setHeatmapOpen] = useState(true)   // collapse the Monthly Heatmap section
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [summary, setSummary] = useState<Summary>({ present: 0, absent: 0, late: 0 })
   const [today, setToday] = useState<TodaySummary>({ present: 0, absent: 0, on_leave: 0, late: 0, wfh: 0 })
@@ -842,10 +844,21 @@ const Attendance = () => {
                 const baseRows = selectedDate
                   ? records.filter(r => (r.date as string).slice(0, 10) === selectedDate)
                   : monthOffset === 0 ? todayAllRows : records
-                // Effective status matches what the row displays (late overrides status).
-                const tableRows = rowStatusFilter === 'all'
-                  ? baseRows
-                  : baseRows.filter(r => (r.is_late ? 'late' : r.status) === rowStatusFilter)
+                // "Present" is the umbrella of everyone who showed up — present, late
+                // AND half-day (and WFH) — matching the "Present Today" KPI. Late and
+                // Half day narrow it down further.
+                const matchesFilter = (r: AttendanceRecord) => {
+                  switch (rowStatusFilter) {
+                    case 'all':      return true
+                    case 'present':  return ['present', 'late', 'half_day', 'wfh'].includes(r.status) || r.is_late
+                    case 'late':     return r.is_late || r.status === 'late'
+                    case 'half_day': return r.status === 'half_day'
+                    case 'wfh':      return r.status === 'wfh'
+                    case 'absent':   return r.status === 'absent'
+                    default:         return true
+                  }
+                }
+                const tableRows = baseRows.filter(matchesFilter)
                 return tableRows.length === 0 ? (
                 <div className="text-center py-12 text-sm text-muted-foreground">
                   {rowStatusFilter !== 'all'
@@ -985,7 +998,16 @@ const Attendance = () => {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <CardTitle className="text-base">Detailed Reports — {monthLabel}</CardTitle>
+              <button
+                type="button"
+                onClick={() => setReportsOpen(o => !o)}
+                aria-expanded={reportsOpen}
+                className="flex items-center gap-2 text-left"
+              >
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${reportsOpen ? '' : '-rotate-90'}`} />
+                <CardTitle className="text-base">Detailed Reports — {monthLabel}</CardTitle>
+              </button>
+              {reportsOpen && (
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Employee filter */}
                 <Select value={reportEmpFilter} onValueChange={setReportEmpFilter}>
@@ -1027,8 +1049,10 @@ const Attendance = () => {
                   </Button>
                 )}
               </div>
+              )}
             </div>
           </CardHeader>
+          {reportsOpen && (
           <CardContent className="p-0">
 
             {/* ── Absent Report ── */}
@@ -1315,13 +1339,23 @@ const Attendance = () => {
             })()}
 
           </CardContent>
+          )}
         </Card>
 
         {/* Heatmap */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Monthly Attendance Heatmap</CardTitle>
+            <button
+              type="button"
+              onClick={() => setHeatmapOpen(o => !o)}
+              aria-expanded={heatmapOpen}
+              className="flex items-center gap-2 text-left"
+            >
+              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${heatmapOpen ? '' : '-rotate-90'}`} />
+              <CardTitle className="text-base">Monthly Attendance Heatmap</CardTitle>
+            </button>
           </CardHeader>
+          {heatmapOpen && (
           <CardContent>
             <div className="flex gap-1 text-[10px] text-muted-foreground mb-2">
               {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => (
@@ -1356,6 +1390,7 @@ const Attendance = () => {
               ))}
             </div>
           </CardContent>
+          )}
         </Card>
       </div>
 
