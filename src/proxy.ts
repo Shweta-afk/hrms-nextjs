@@ -9,7 +9,7 @@ import { getToken } from 'next-auth/jwt'
 // behind auth would also break payment-processor / DPDP-Act compliance checks that
 // expect a publicly-readable Privacy Policy and ToS URL.
 const PUBLIC_PAGE_EXACT = new Set(['/', '/demo', '/verify-email', '/privacy', '/terms'])
-const PUBLIC_PAGE_PREFIXES = ['/login', '/signup', '/forgot-password', '/reset-password', '/billing']
+const PUBLIC_PAGE_PREFIXES = ['/login', '/signup', '/forgot-password', '/reset-password']
 
 // Routes only HR admins can access (employees are redirected to /portal)
 const HR_ONLY_PREFIXES = [
@@ -69,14 +69,9 @@ export default async function proxy(req: NextRequest) {
     }
   }
 
-  // Check trial expiry for page routes only (not API)
-  const trialEndsAt = token.trial_ends_at as string | null | undefined
-  if (trialEndsAt && !pathname.startsWith('/api') && !pathname.startsWith('/billing') && !pathname.startsWith('/onboarding')) {
-    const expired = new Date(trialEndsAt) < new Date()
-    if (expired) {
-      return NextResponse.redirect(new URL('/billing?reason=trial_expired', req.url))
-    }
-  }
+  // Trial-expiry hard-lock removed along with the in-app billing page: plans are
+  // now handled by contacting sales directly. The trial banner (AppLayout) still
+  // shows remaining days when trial_ends_at is set.
 
   return NextResponse.next()
 }

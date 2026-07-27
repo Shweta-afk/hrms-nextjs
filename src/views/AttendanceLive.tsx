@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { format } from 'date-fns'
 import {
-  Activity, AlertTriangle, ChevronDown, ChevronUp,
+  Activity, AlertTriangle,
   Clock, Loader2, Timer, UserCheck, UserX, Users, Wifi, WifiOff, Search, X,
 } from 'lucide-react'
 import AppLayout from '@/components/AppLayout'
@@ -108,7 +108,6 @@ const AttendanceLive = () => {
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState<string | null>(null)
   const [secondsSince, setSecondsSince]   = useState(0)
-  const [showNotArrived, setShowNotArrived] = useState(false)
   const [newPunchIds, setNewPunchIds]     = useState<Set<string>>(new Set())
 
   // ── Filter state ─────────────────────────────────────────────────────────
@@ -176,7 +175,6 @@ const AttendanceLive = () => {
 
   const today        = new Date()
   const todayLabel   = format(today, 'EEEE, d MMMM yyyy')
-  const isAfter10AM  = today.getHours() >= 10
 
   // Build lookup maps from the response
   const deviceMap = new Map((data?.devices ?? []).map((d) => [d.id, d.name]))
@@ -528,132 +526,6 @@ const AttendanceLive = () => {
             </Card>
           </div>
 
-          {/* ── Currently Inside ── */}
-          <Card className="shadow-sm mb-4">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Timer className="h-4 w-4 text-primary" />
-                Currently Inside
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {data.currently_inside.length}
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-auto max-h-64">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="pl-4 text-xs">Employee</TableHead>
-                      <TableHead className="text-xs">Department</TableHead>
-                      <TableHead className="text-xs">In Since</TableHead>
-                      <TableHead className="text-xs pr-4">Location</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.currently_inside.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={4} className="text-center text-muted-foreground text-sm py-8">
-                          No employees currently inside
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      data.currently_inside.map((r) => (
-                        <TableRow key={r.employee_id}>
-                          <TableCell className="pl-4 py-2.5">
-                            <p className="text-sm font-medium">
-                              {r.employee
-                                ? `${r.employee.first_name} ${r.employee.last_name}`
-                                : '—'}
-                            </p>
-                            <p className="text-xs text-muted-foreground font-mono">
-                              {r.employee?.emp_code ?? ''}
-                            </p>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground py-2.5">
-                            {r.employee?.department?.name ?? '—'}
-                          </TableCell>
-                          <TableCell className="text-xs font-mono py-2.5">
-                            {fmtTime(r.first_in)}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground pr-4 py-2.5">
-                            {r.device_name ?? '—'}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Not Yet Arrived (shown after 10 AM) ── */}
-          {isAfter10AM && (
-            <Card className="shadow-sm">
-              <CardHeader className="pb-2 pt-4 px-4">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <UserX className="h-4 w-4 text-kpi-amber" />
-                    Not Yet Arrived
-                    <Badge variant="secondary" className="ml-1 text-xs">
-                      {data.not_yet_arrived.length}
-                    </Badge>
-                  </CardTitle>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs text-muted-foreground"
-                    onClick={() => setShowNotArrived((v) => !v)}
-                  >
-                    {showNotArrived
-                      ? <ChevronUp className="h-3.5 w-3.5 mr-1" />
-                      : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
-                    {showNotArrived ? 'Hide' : 'Show'}
-                  </Button>
-                </div>
-              </CardHeader>
-
-              {showNotArrived && (
-                <CardContent className="p-0">
-                  <div className="overflow-auto max-h-56">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="pl-4 text-xs">Employee</TableHead>
-                          <TableHead className="text-xs">Code</TableHead>
-                          <TableHead className="text-xs pr-4">Department</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.not_yet_arrived.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={3} className="text-center text-muted-foreground text-sm py-6">
-                              Everyone has arrived 🎉
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          data.not_yet_arrived.map((e) => (
-                            <TableRow key={e.id}>
-                              <TableCell className="pl-4 text-sm font-medium py-2.5">
-                                {e.first_name} {e.last_name}
-                              </TableCell>
-                              <TableCell className="text-xs font-mono text-muted-foreground py-2.5">
-                                {e.emp_code}
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground pr-4 py-2.5">
-                                {e.department?.name ?? '—'}
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              )}
-            </Card>
-          )}
         </>
       )}
     </AppLayout>

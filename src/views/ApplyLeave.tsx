@@ -20,7 +20,7 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { format, eachDayOfInterval, isWeekend } from "date-fns";
-import { CalendarIcon, CheckCircle2, Loader2 } from "lucide-react";
+import { CalendarIcon, CheckCircle2, Loader2, Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface LeaveType {
@@ -57,6 +57,8 @@ const ApplyLeave = () => {
   const [toDate, setToDate] = useState<Date>()
   const [halfDay, setHalfDay] = useState(false)
   const [reason, setReason] = useState("")
+  const [document, setDocument] = useState<File | null>(null)
+  const [uploadingDoc, setUploadingDoc] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -113,6 +115,29 @@ const ApplyLeave = () => {
     if (!validate()) return
     setSubmitting(true)
     try {
+      let document_url: string | undefined
+      let document_name: string | undefined
+      if (document) {
+        setUploadingDoc(true)
+        const formData = new FormData()
+        formData.append('file', document)
+        formData.append('category', 'leave')
+        formData.append('sub_id', session?.user?.employee_id ?? 'requests')
+        formData.append('doc_type', 'supporting-document')
+        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData })
+        const uploadJson = await uploadRes.json()
+        setUploadingDoc(false)
+        if (!uploadJson.success) {
+          toast.error(uploadJson.error || 'Document upload failed')
+          setSubmitting(false)
+          return
+        }
+        // Store the S3 key (uploadJson.data.key), not the signed download
+        // URL — the signed URL expires in an hour, the key doesn't.
+        document_url = uploadJson.data.key
+        document_name = document.name
+      }
+
       const res = await fetch('/api/leave/requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -122,6 +147,8 @@ const ApplyLeave = () => {
           to_date: toDate!.toISOString(),
           reason: reason.trim(),
           employee_id: session?.user?.employee_id,
+          document_url,
+          document_name,
         }),
       })
       const json = await res.json()
@@ -155,7 +182,7 @@ const ApplyLeave = () => {
             </Button>
             <Button className="flex-1" onClick={() => {
               setLeaveTypeId(""); setFromDate(undefined); setToDate(undefined)
-              setHalfDay(false); setReason(""); setSubmitted(false); setErrors({})
+              setHalfDay(false); setReason(""); setDocument(null); setSubmitted(false); setErrors({})
             }}>
               Apply Another
             </Button>
@@ -273,10 +300,47 @@ const ApplyLeave = () => {
                     {errors.reason && <p className="text-xs text-destructive">{errors.reason}</p>}
                   </div>
 
+                  <div className="space-y-1.5">
+                    <Label>Supporting Document <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    {document ? (
+                      <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                        <span className="flex items-center gap-2 truncate">
+                          <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{document.name}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDocument(null)}
+                          className="text-muted-foreground hover:text-destructive shrink-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex items-center justify-center gap-2 rounded-md border border-dashed px-3 py-2.5 text-sm text-muted-foreground cursor-pointer hover:bg-secondary/50 transition-colors">
+                        <Paperclip className="h-4 w-4" />
+                        Attach a medical certificate or other document (PDF, JPG, PNG — max 5MB)
+                        <input
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                          className="hidden"
+                          onChange={e => {
+                            const f = e.target.files?.[0]
+                            if (!f) return
+                            if (f.size > 5 * 1024 * 1024) { toast.error('File must be under 5MB'); return }
+                            setDocument(f)
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+
                   <div className="flex gap-3">
                     <Button variant="outline" className="flex-1" onClick={() => router.push('/portal')}>Cancel</Button>
                     <Button className="flex-1" onClick={handleSubmit} disabled={submitting}>
-                      {submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Submitting...</> : 'Submit Request'}
+                      {submitting
+                        ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{uploadingDoc ? 'Uploading document...' : 'Submitting...'}</>
+                        : 'Submit Request'}
                     </Button>
                   </div>
                 </CardContent>

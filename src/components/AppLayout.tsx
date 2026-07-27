@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
-import Link from "next/link";
 import AppSidebar from "./AppSidebar";
 import AppHeader from "./AppHeader";
 
@@ -65,9 +64,9 @@ const AppLayout = ({ title, children }: AppLayoutProps) => {
             <span className="text-foreground font-medium">
               Free trial — <strong>{trialDaysLeft} day{trialDaysLeft !== 1 ? "s" : ""}</strong> remaining
             </span>
-            <Link href="/billing" className="text-primary font-semibold hover:underline text-xs">
-              Upgrade now
-            </Link>
+            <a href="mailto:hrms@axiotta.com" className="text-primary font-semibold hover:underline text-xs">
+              Contact us
+            </a>
           </div>
         )}
 

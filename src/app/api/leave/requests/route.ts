@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
 import { prisma } from '@/lib/prisma'
+import { getSignedDownloadUrl } from '@/lib/s3'
 import { z } from 'zod'
 
 const CreateLeaveSchema = z.object({
@@ -9,6 +10,10 @@ const CreateLeaveSchema = z.object({
   to_date: z.string(),
   reason: z.string().min(1),
   employee_id: z.string().optional(),
+  // document_url is the S3 KEY returned by /api/upload, not a signed URL —
+  // signed URLs expire after an hour, so we re-sign on every read instead.
+  document_url: z.string().optional(),
+  document_name: z.string().optional(),
 })
 
 function getWorkingDays(from: Date, to: Date): number {
@@ -71,9 +76,19 @@ export async function GET(req: NextRequest) {
       prisma.leaveRequest.count({ where }),
     ])
 
+    // document_url stores the S3 key (stable, never expires) — sign it fresh
+    // on every read so the download link is always valid, no matter how old
+    // the request is.
+    const requestsWithDocs = await Promise.all(
+      requests.map(async (r) => ({
+        ...r,
+        document_signed_url: r.document_url ? await getSignedDownloadUrl(r.document_url) : null,
+      }))
+    )
+
     return NextResponse.json({
       success: true,
-      data: { requests, total, page, pages: Math.ceil(total / limit) },
+      data: { requests: requestsWithDocs, total, page, pages: Math.ceil(total / limit) },
     })
   } catch (error) {
     console.error('Leave requests GET error:', error)
@@ -146,6 +161,8 @@ export async function POST(req: NextRequest) {
         to_date: toDate,
         total_days: totalDays,
         reason: data.reason,
+        document_url: data.document_url,
+        document_name: data.document_name,
         status: 'pending',
       },
       include: {

@@ -18,7 +18,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  FileText, CalendarDays, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Loader2,
+  FileText, CalendarDays, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Loader2, Eye, Paperclip,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,6 +31,9 @@ interface LeaveRequest {
   reason: string;
   created_at: string;
   rejection_reason: string | null;
+  document_url: string | null;
+  document_name: string | null;
+  document_signed_url: string | null;
   employee: {
     id: string;
     first_name: string;
@@ -92,6 +95,12 @@ const Leave = () => {
   // Day detail modal state
   const [dayModal, setDayModal] = useState<{ day: number; leaves: CalLeave[] } | null>(null);
 
+  // Leave request detail modal — lets HR actually open and read a request
+  const [viewRequest, setViewRequest] = useState<LeaveRequest | null>(null);
+  // Leave types (for HR to reclassify a request's type from the detail modal)
+  const [leaveTypes, setLeaveTypes] = useState<{ id: string; name: string; code: string }[]>([]);
+  const [changingType, setChangingType] = useState(false);
+
   async function fetchRequests() {
     setLoading(true);
     try {
@@ -109,6 +118,34 @@ const Leave = () => {
   }
 
   useEffect(() => { fetchRequests(); }, [statusFilter]);
+
+  useEffect(() => {
+    fetch('/api/leave/types')
+      .then(r => r.json())
+      .then(json => { if (json.success) setLeaveTypes(json.data); })
+      .catch(() => {});
+  }, []);
+
+  // HR reclassifies a request's leave type from the detail modal.
+  async function changeLeaveType(newTypeId: string) {
+    if (!viewRequest || newTypeId === viewRequest.leave_type.id) return;
+    setChangingType(true);
+    try {
+      const res = await fetch(`/api/leave/requests/${viewRequest.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leave_type_id: newTypeId }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        const nt = leaveTypes.find(t => t.id === newTypeId);
+        if (nt) setViewRequest(prev => prev ? { ...prev, leave_type: { id: nt.id, name: nt.name, code: nt.code } } : prev);
+        toast.success('Leave type updated — employee notified');
+        fetchRequests();
+      } else toast.error(json.error || 'Failed to change leave type');
+    } catch { toast.error('Failed to change leave type'); }
+    finally { setChangingType(false); }
+  }
 
   async function handleApprove(id: string) {
     setActionLoading(id);
@@ -260,19 +297,32 @@ const Leave = () => {
                       {r.employee.first_name[0]}{r.employee.last_name[0]}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex-1 min-w-0">
+                  <button
+                    className="flex-1 min-w-0 text-left"
+                    onClick={() => setViewRequest(r)}
+                    title="Open full request"
+                  >
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-sm font-medium truncate">
                         {r.employee.first_name} {r.employee.last_name}
                       </span>
                       <Badge className="text-[10px] px-1.5 py-0">{r.leave_type.code}</Badge>
+                      {r.document_url && <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {formatDate(r.from_date)} – {formatDate(r.to_date)} · {Number(r.total_days)}d
                     </p>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">{r.reason}</p>
-                  </div>
+                  </button>
                   <div className="flex gap-1.5 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => setViewRequest(r)}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </Button>
                     <Button
                       size="sm"
                       className="h-7 px-2.5 text-xs bg-kpi-green hover:bg-kpi-green/90 text-white"
@@ -447,25 +497,34 @@ const Leave = () => {
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs">{formatDate(r.created_at)}</TableCell>
                     <TableCell className="text-right">
-                      {r.status === 'pending' ? (
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            size="sm"
-                            className="h-6 px-2 text-[10px] bg-kpi-green hover:bg-kpi-green/90 text-white"
-                            onClick={() => handleApprove(r.id)}
-                            disabled={actionLoading === r.id}
-                          >Approve</Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 px-2 text-[10px] text-destructive border-destructive/30"
-                            onClick={() => { setRejectModal(r.id); setRejectReason(''); }}
-                            disabled={actionLoading === r.id}
-                          >Reject</Button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      <div className="flex justify-end items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-1.5 text-[10px]"
+                          onClick={() => setViewRequest(r)}
+                          title="Open full request"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                        {r.status === 'pending' && (
+                          <>
+                            <Button
+                              size="sm"
+                              className="h-6 px-2 text-[10px] bg-kpi-green hover:bg-kpi-green/90 text-white"
+                              onClick={() => handleApprove(r.id)}
+                              disabled={actionLoading === r.id}
+                            >Approve</Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[10px] text-destructive border-destructive/30"
+                              onClick={() => { setRejectModal(r.id); setRejectReason(''); }}
+                              disabled={actionLoading === r.id}
+                            >Reject</Button>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -516,6 +575,133 @@ const Leave = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDayModal(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Leave Request Detail Modal ── */}
+      <Dialog open={viewRequest !== null} onOpenChange={open => !open && setViewRequest(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Leave Request</DialogTitle>
+            <DialogDescription>
+              {viewRequest && `Applied ${formatDate(viewRequest.created_at)}`}
+            </DialogDescription>
+          </DialogHeader>
+          {viewRequest && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-10 w-10 shrink-0">
+                  <AvatarFallback className="text-sm font-semibold bg-primary/10 text-primary">
+                    {viewRequest.employee.first_name[0]}{viewRequest.employee.last_name[0]}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    {viewRequest.employee.first_name} {viewRequest.employee.last_name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {viewRequest.employee.emp_code} · {viewRequest.employee.department?.name ?? '—'}
+                  </p>
+                </div>
+                <Badge variant={
+                  viewRequest.status === 'approved' ? 'active' :
+                  viewRequest.status === 'rejected' ? 'terminated' : 'notice'
+                } className="ml-auto">
+                  {viewRequest.status.charAt(0).toUpperCase() + viewRequest.status.slice(1)}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5 flex items-center gap-1">
+                    Leave Type
+                    {changingType && <Loader2 className="h-3 w-3 animate-spin" />}
+                  </p>
+                  {leaveTypes.length > 0 ? (
+                    <Select
+                      value={viewRequest.leave_type.id}
+                      onValueChange={changeLeaveType}
+                      disabled={changingType}
+                    >
+                      <SelectTrigger className="h-8 text-sm font-medium">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {leaveTypes.map(t => (
+                          <SelectItem key={t.id} value={t.id}>{t.name} ({t.code})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="font-medium">{viewRequest.leave_type.name} ({viewRequest.leave_type.code})</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Duration</p>
+                  <p className="font-medium">{Number(viewRequest.total_days)} day{Number(viewRequest.total_days) !== 1 ? 's' : ''}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">From</p>
+                  <p className="font-medium">{formatDate(viewRequest.from_date)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">To</p>
+                  <p className="font-medium">{formatDate(viewRequest.to_date)}</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Reason</p>
+                <p className="text-sm rounded-md border bg-muted/40 p-3 whitespace-pre-wrap break-words">
+                  {viewRequest.reason || <span className="text-muted-foreground italic">No reason given</span>}
+                </p>
+              </div>
+
+              {viewRequest.document_signed_url && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Supporting Document</p>
+                  <a
+                    href={viewRequest.document_signed_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-sm text-primary hover:underline rounded-md border p-3"
+                  >
+                    <Paperclip className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{viewRequest.document_name ?? 'View document'}</span>
+                  </a>
+                </div>
+              )}
+
+              {viewRequest.status === 'rejected' && viewRequest.rejection_reason && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Rejection Reason</p>
+                  <p className="text-sm rounded-md border border-destructive/30 bg-destructive/5 text-destructive p-3">
+                    {viewRequest.rejection_reason}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewRequest(null)}>Close</Button>
+            {viewRequest?.status === 'pending' && (
+              <>
+                <Button
+                  variant="destructive"
+                  onClick={() => { setRejectModal(viewRequest.id); setRejectReason(''); setViewRequest(null); }}
+                >
+                  <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
+                </Button>
+                <Button
+                  className="bg-kpi-green hover:bg-kpi-green/90 text-white"
+                  onClick={() => { handleApprove(viewRequest.id); setViewRequest(null); }}
+                  disabled={actionLoading === viewRequest.id}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

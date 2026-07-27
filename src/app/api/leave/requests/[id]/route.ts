@@ -15,19 +15,10 @@ export async function PATCH(
     const session = guard
 
     const body = await req.json()
-    const { status, rejection_reason } = body
+    const { status, rejection_reason, leave_type_id } = body
 
-    if (!['approved', 'rejected', 'cancelled'].includes(status)) {
-      return NextResponse.json({ success: false, error: 'Invalid status' }, { status: 400 })
-    }
-
-    if (status === 'rejected' && !rejection_reason) {
-      return NextResponse.json(
-        { success: false, error: 'Rejection reason is required' },
-        { status: 400 }
-      )
-    }
-
+    // Load the request first (org-scoped) so both the type-change and the
+    // status-change paths can use it.
     const leaveRequest = await prisma.leaveRequest.findFirst({
       where: { id: id, org_id: session.user.org_id },
       include: {
@@ -44,6 +35,61 @@ export async function PATCH(
 
     if (!leaveRequest) {
       return NextResponse.json({ success: false, error: 'Leave request not found' }, { status: 404 })
+    }
+
+    // ── Change leave type (HR reclassification) ──
+    // A separate action from approve/reject: HR can correct the leave type.
+    if (leave_type_id !== undefined) {
+      if (leave_type_id === leaveRequest.leave_type_id) {
+        return NextResponse.json({ success: true, data: leaveRequest })
+      }
+      const newType = await prisma.leaveType.findFirst({
+        where: { id: leave_type_id, org_id: session.user.org_id },
+      })
+      if (!newType) {
+        return NextResponse.json({ success: false, error: 'Invalid leave type' }, { status: 400 })
+      }
+
+      const reclassified = await prisma.leaveRequest.update({
+        where: { id: id },
+        data: { leave_type_id },
+        include: {
+          employee: {
+            select: {
+              first_name: true, last_name: true, emp_code: true,
+              department: { select: { name: true } },
+            },
+          },
+          leave_type: { select: { id: true, name: true, code: true } },
+        },
+      })
+
+      // Let the employee know their leave was reclassified.
+      const { createNotification } = await import('@/lib/notifications')
+      if (leaveRequest.employee.user?.id) {
+        await createNotification({
+          org_id: session.user.org_id,
+          user_id: leaveRequest.employee.user.id,
+          title: 'Leave type updated',
+          message: `HR changed your leave request from ${leaveRequest.leave_type.name} to ${newType.name}.`,
+          type: 'info',
+          link: '/portal/leave',
+        })
+      }
+
+      return NextResponse.json({ success: true, data: reclassified })
+    }
+
+    // ── Approve / reject / cancel ──
+    if (!['approved', 'rejected', 'cancelled'].includes(status)) {
+      return NextResponse.json({ success: false, error: 'Invalid status' }, { status: 400 })
+    }
+
+    if (status === 'rejected' && !rejection_reason) {
+      return NextResponse.json(
+        { success: false, error: 'Rejection reason is required' },
+        { status: 400 }
+      )
     }
 
     const updated = await prisma.leaveRequest.update({

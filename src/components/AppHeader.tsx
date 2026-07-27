@@ -1,9 +1,10 @@
 'use client'
 
-import { Bell, Search, ChevronDown, Menu, X, Check, Moon, Sun } from "lucide-react";
+import { Bell, Search, ChevronDown, Menu, X, Check, Moon, Sun, LogOut } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
+import { signOut, useSession } from "next-auth/react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 
 interface Notification {
@@ -46,6 +47,12 @@ const AppHeader = ({ title, onMenuToggle }: AppHeaderProps) => {
   const isDark = themeMounted && resolvedTheme === "dark";
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const { data: session } = useSession();
+  const email = session?.user?.email ?? "";
+  const role = session?.user?.role ?? "";
+  const initials = (email.split("@")[0]?.slice(0, 2) || "U").toUpperCase();
   const qc = useQueryClient();
 
   // Notifications via TanStack Query. The component is mounted on EVERY HR
@@ -120,6 +127,9 @@ const AppHeader = ({ title, onMenuToggle }: AppHeaderProps) => {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setOpen(false);
+      }
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -251,11 +261,38 @@ const AppHeader = ({ title, onMenuToggle }: AppHeaderProps) => {
           )}
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 ml-2 pl-3 border-l border-border cursor-pointer hover:bg-muted rounded-lg p-1.5 transition-colors">
-          <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-xs font-semibold text-primary-foreground">
-            RK
-          </div>
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        {/* Profile + dropdown */}
+        <div className="relative hidden sm:block ml-2 pl-3 border-l border-border" ref={profileRef}>
+          <button
+            type="button"
+            onClick={() => setProfileOpen(prev => !prev)}
+            aria-label="Account menu"
+            aria-expanded={profileOpen}
+            className="flex items-center gap-2 cursor-pointer hover:bg-muted rounded-lg p-1.5 transition-colors"
+          >
+            <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-xs font-semibold text-primary-foreground">
+              {initials}
+            </div>
+            <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${profileOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {profileOpen && (
+            <div className="absolute right-0 top-12 w-60 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+              <div className="px-4 py-3 border-b border-border">
+                <p className="text-sm font-semibold text-foreground truncate">{email || 'Signed in'}</p>
+                {role && (
+                  <p className="text-xs text-muted-foreground mt-0.5 capitalize">{role.replace('_', ' ')}</p>
+                )}
+              </div>
+              <button
+                onClick={() => { setProfileOpen(false); signOut({ callbackUrl: '/login' }); }}
+                className="w-full flex items-center gap-2 px-4 py-3 text-sm text-destructive hover:bg-muted transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                Log out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

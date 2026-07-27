@@ -1,6 +1,18 @@
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazily construct the Resend client. The constructor throws when the API key is
+// missing, so building it at module load crashed the whole build/boot for any
+// deployment without email configured. Deferring it means a missing key only
+// surfaces if we actually try to send — callers already handle send failures.
+let _resend: Resend | null = null
+function getResend(): Resend {
+  if (!_resend) {
+    const key = process.env.RESEND_API_KEY
+    if (!key) throw new Error('RESEND_API_KEY is not set — email sending is disabled')
+    _resend = new Resend(key)
+  }
+  return _resend
+}
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'hr@hrms.in'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
@@ -16,7 +28,7 @@ export async function sendWelcomeEmail({
   company: string
   tempPassword: string
 }) {
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to,
     subject: `Welcome to ${company} HRMS — Your Login Details`,
@@ -61,7 +73,7 @@ export async function sendLeaveStatusEmail({
   company: string
 }) {
   const isApproved = status === 'approved'
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to,
     subject: `Leave ${isApproved ? 'Approved' : 'Rejected'} — ${leaveType}`,
@@ -102,7 +114,7 @@ export async function sendPayslipEmail({
   netSalary: number
   company: string
 }) {
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to,
     subject: `Your Payslip for ${month} ${year} is Ready`,
@@ -138,7 +150,7 @@ export async function sendVerificationEmail({
   verifyUrl: string
   company: string
 }) {
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to,
     subject: `Verify your email for ${company} HRMS`,
@@ -170,7 +182,7 @@ export async function sendPasswordResetEmail({
   resetUrl: string
   company: string
 }) {
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to,
     subject: 'Reset Your HRMS Password',
@@ -209,7 +221,7 @@ export async function sendLeaveRequestNotification({
   reason: string
   company: string
 }) {
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to,
     subject: `New Leave Request — ${employeeName}`,

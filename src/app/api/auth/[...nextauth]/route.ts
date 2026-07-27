@@ -1,7 +1,7 @@
 import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import { getServerSession } from 'next-auth/next'
-import { prisma } from '@/lib/prisma'
+import { prisma, orgContext } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
 import {
   peekRateLimit,
@@ -135,8 +135,18 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
 }
 
-// Compatibility shim: all API routes call auth() as if it were NextAuth v5
-export const auth = () => getServerSession(authOptions)
+// Compatibility shim: all API routes call auth() as if it were NextAuth v5.
+// Side effect: once we know the caller's org, establish it as the request's
+// tenant context so RLS (see src/lib/prisma.ts) scopes every subsequent query.
+// enterWith persists for the rest of this request's async execution without
+// having to wrap each route handler.
+export const auth = async () => {
+  const session = await getServerSession(authOptions)
+  if (session?.user?.org_id) {
+    orgContext.enterWith({ orgId: session.user.org_id })
+  }
+  return session
+}
 
 const handler = NextAuth(authOptions)
 export { handler as GET, handler as POST }

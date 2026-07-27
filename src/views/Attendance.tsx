@@ -82,6 +82,7 @@ const Attendance = () => {
   const now = new Date()
   const [monthOffset, setMonthOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState('')   // "YYYY-MM-DD" — filters table to a single day
+  const [rowStatusFilter, setRowStatusFilter] = useState('all')  // present/absent/late/half_day/… filter for the list
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [summary, setSummary] = useState<Summary>({ present: 0, absent: 0, late: 0 })
   const [today, setToday] = useState<TodaySummary>({ present: 0, absent: 0, on_leave: 0, late: 0, wfh: 0 })
@@ -809,11 +810,27 @@ const Attendance = () => {
                       ? `Today's Attendance (${todayAllRows.length} employees)`
                       : `Attendance — ${monthLabel}`}
                 </CardTitle>
-                {selectedDate && (
-                  <span className="text-xs text-muted-foreground">
-                    {records.filter(r => (r.date as string).slice(0, 10) === selectedDate).length} records
-                  </span>
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {selectedDate && (
+                    <span className="text-xs text-muted-foreground">
+                      {records.filter(r => (r.date as string).slice(0, 10) === selectedDate).length} records
+                    </span>
+                  )}
+                  <Select value={rowStatusFilter} onValueChange={setRowStatusFilter}>
+                    <SelectTrigger className="h-8 w-[130px] text-xs">
+                      <Filter className="h-3.5 w-3.5 mr-1 text-muted-foreground shrink-0" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All status</SelectItem>
+                      <SelectItem value="present">Present</SelectItem>
+                      <SelectItem value="late">Late</SelectItem>
+                      <SelectItem value="absent">Absent</SelectItem>
+                      <SelectItem value="half_day">Half day</SelectItem>
+                      <SelectItem value="wfh">WFH</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -822,12 +839,18 @@ const Attendance = () => {
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : (() => {
-                const tableRows = selectedDate
+                const baseRows = selectedDate
                   ? records.filter(r => (r.date as string).slice(0, 10) === selectedDate)
                   : monthOffset === 0 ? todayAllRows : records
+                // Effective status matches what the row displays (late overrides status).
+                const tableRows = rowStatusFilter === 'all'
+                  ? baseRows
+                  : baseRows.filter(r => (r.is_late ? 'late' : r.status) === rowStatusFilter)
                 return tableRows.length === 0 ? (
                 <div className="text-center py-12 text-sm text-muted-foreground">
-                  {selectedDate ? `No attendance records for ${selectedDate}` : 'No attendance records for this period'}
+                  {rowStatusFilter !== 'all'
+                    ? `No ${rowStatusFilter.replace('_', ' ')} employees for this view`
+                    : selectedDate ? `No attendance records for ${selectedDate}` : 'No attendance records for this period'}
                 </div>
               ) : (
                 <div className="overflow-auto max-h-[480px]">

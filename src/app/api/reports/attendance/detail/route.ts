@@ -212,8 +212,32 @@ export async function GET(req: NextRequest) {
     const ExcelJS = await import('exceljs')
     const wb2 = new ExcelJS.Workbook()
     wb2.creator = 'HRMS'
+
+    // Print layout: fit width to as many pages as needed so day columns never
+    // shrink below readable size (16 narrow columns is about what fits one
+    // landscape page legibly), and leave height UNCONSTRAINED — without this,
+    // Excel defaults fitToHeight to 1 whenever fitToPage is on, which squeezes
+    // every employee in the report onto a single printed page and made the
+    // whole thing illegible.
+    const DAYS_PER_PRINT_PAGE = 16
+    const fitToWidth = Math.max(1, Math.ceil(days.length / DAYS_PER_PRINT_PAGE))
+
     const ws2 = wb2.addWorksheet('Detail Attendance', {
-      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1 },
+      pageSetup: {
+        orientation: 'landscape',
+        fitToPage: true,
+        fitToWidth,
+        fitToHeight: 0,
+        // Repeat the row-label column on every horizontally-continued page so
+        // "Shift / In Time / Out Time / Late By / ..." stays legible past page 1.
+        printTitlesColumn: 'A:B',
+        margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
+        // 'overThenDown' (default is 'downThenOver') so when a wide date range
+        // needs multiple horizontal pages, one employee's pages print
+        // back-to-back — otherwise everyone's page-1 columns print first,
+        // then the whole run loops back for everyone's page-2 columns.
+        pageOrder: 'overThenDown',
+      },
     })
 
     // ── Color palette ────────────────────────────────────────────────────────
@@ -276,7 +300,7 @@ export async function GET(req: NextRequest) {
     ws2.addRow([])
 
     // ── Per-employee blocks ───────────────────────────────────────────────────
-    for (const emp of employees) {
+    for (const [empIdx, emp] of employees.entries()) {
       const empRecs = recIndex.get(emp.id) ?? new Map()
 
       const dataRows: { shift: string; in_time: string; out_time: string; late_by: string; early_by: string; total_ot: string; t_duration: string; status: string; lateMins: number; earlyMins: number }[] = []
@@ -419,6 +443,10 @@ export async function GET(req: NextRequest) {
       void startRow // suppress unused-var warning
 
       ws2.addRow([])
+
+      // Force each employee onto a clean page boundary so their 8-row block
+      // never gets split across two printed pages.
+      if (empIdx < employees.length - 1) sepRow.addPageBreak()
     }
 
     // ── Column widths ─────────────────────────────────────────────────────────

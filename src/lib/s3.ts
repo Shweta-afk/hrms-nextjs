@@ -1,13 +1,23 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
-const s3 = new S3Client({
-  region: process.env.AWS_REGION!,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-})
+// Lazily construct the S3 client. `new S3Client({ region })` throws when the
+// region is missing, so building it at module load crashed the whole build/boot
+// for any deployment without S3 configured. Defer it so a missing config only
+// surfaces when a file operation is actually attempted.
+let _s3: S3Client | null = null
+function s3Client(): S3Client {
+  if (!_s3) {
+    _s3 = new S3Client({
+      region: process.env.AWS_REGION!,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    })
+  }
+  return _s3
+}
 
 const BUCKET = process.env.AWS_S3_BUCKET!
 
@@ -37,7 +47,7 @@ export async function uploadFile(
   body: Buffer,
   contentType: string
 ): Promise<string> {
-  await s3.send(new PutObjectCommand({
+  await s3Client().send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
     Body: body,
@@ -53,7 +63,7 @@ export async function getSignedDownloadUrl(
   expiresIn = 3600
 ): Promise<string> {
   return getSignedUrl(
-    s3,
+    s3Client(),
     new GetObjectCommand({ Bucket: BUCKET, Key: key }),
     { expiresIn }
   )
@@ -69,7 +79,7 @@ export async function getPresignedUploadUrl(
   // Use PutObject presigned URL instead
   const { PutObjectCommand } = await import('@aws-sdk/client-s3')
   return getSignedUrl(
-    s3,
+    s3Client(),
     new PutObjectCommand({
       Bucket: BUCKET,
       Key: key,
@@ -81,5 +91,5 @@ export async function getPresignedUploadUrl(
 
 // Delete a file
 export async function deleteFile(key: string): Promise<void> {
-  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
+  await s3Client().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
 }

@@ -189,11 +189,11 @@ const NODES: NodeDef[] = [
     id: 'billing-page', label: 'Billing', sublabel: '/billing',
     x: 970, y: 290, layer: 'admin',
     info: {
-      what: 'Subscription management via Razorpay. Creates payment orders, verifies webhooks via HMAC-SHA256 signature, updates org.plan on successful payment.',
-      breaks: ['Payment page doesn\'t load / Razorpay widget missing', 'Payment succeeds but plan not upgraded', 'Webhook verification fails'],
-      diagnose: ['Check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET env vars', 'Check Razorpay dashboard → Webhooks → delivery logs for failures', 'Webhook signature: RAZORPAY_KEY_SECRET must match what\'s in Razorpay dashboard'],
-      fix: ['Widget missing: check NEXT_PUBLIC_RAZORPAY_KEY_ID is set (public env var)', 'Plan not upgraded: check /api/billing/verify route and organisations.plan in DB', 'Webhook failing: verify the webhook secret in Razorpay dashboard matches .env'],
-      files: ['src/app/billing/page.tsx', 'src/app/api/billing/create-order/route.ts', 'src/app/api/billing/verify/route.ts'],
+      what: 'Plan overview page. Shows the current plan (from /api/billing/status) and the plan catalogue. Payments are handled manually — each "Contact us" button opens a mailto to sales, who activate the plan and invoice directly. No in-app payment gateway.',
+      breaks: ['Current plan shows wrong tier', 'Contact button opens nothing'],
+      diagnose: ['Wrong plan: check /api/billing/status and organisations.plan / employee.plan in DB', 'Mailto not opening: check SALES_EMAIL in src/views/Billing.tsx and the browser\'s mail handler'],
+      fix: ['Update a plan manually: UPDATE organisations SET plan = \'growth\' WHERE id = \'...\'', 'Change the sales address in src/views/Billing.tsx (SALES_EMAIL)'],
+      files: ['src/app/billing/page.tsx', 'src/views/Billing.tsx', 'src/app/api/billing/status/route.ts'],
     },
   },
   {

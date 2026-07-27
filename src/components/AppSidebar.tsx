@@ -12,7 +12,6 @@ import {
   BarChart3,
   Settings,
   LogOut,
-  CreditCard,
   ChevronDown,
   Radio,
   FileBarChart2,
@@ -37,7 +36,6 @@ const bottomNavItems = [
   { title: 'Recruitment',     icon: UserPlus,       path: '/recruitment' },
   { title: 'Analytics',       icon: BarChart3,      path: '/analytics' },
   { title: 'Settings',        icon: Settings,       path: '/settings' },
-  { title: 'Billing',         icon: CreditCard,     path: '/billing' },
 ]
 
 const navLinkClass =

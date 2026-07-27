@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import {
   Building2, FileText, DollarSign, Clock, LayoutGrid, CalendarDays,
-  Users, Plug, CreditCard, Save, CheckCircle2, Circle, Plus, Trash2,
+  Users, Plug, Save, CheckCircle2, Circle, Plus, Trash2,
   Loader2, Star, Cpu, Wifi, WifiOff, Copy, AlertCircle, Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -38,7 +38,6 @@ const sidebarItems = [
   { key: "users", label: "User Management", icon: Users },
   { key: "devices", label: "Biometric Devices", icon: Cpu },
   { key: "integrations", label: "Integrations", icon: Plug },
-  { key: "billing", label: "Billing", icon: CreditCard },
 ]
 
 const weekDays = [

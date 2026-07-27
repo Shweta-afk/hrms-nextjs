@@ -23,12 +23,11 @@ const securityHeaders = [
       "default-src 'self'",
       // unsafe-eval is only permitted in development (Next.js hot-reload needs it).
       // It is intentionally stripped from production builds.
-      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://checkout.razorpay.com https://*.razorpay.com`,
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.s3.amazonaws.com https://*.s3.ap-south-1.amazonaws.com https://api.razorpay.com https://*.razorpay.com",
-      "frame-src https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com",
+      "connect-src 'self' https://*.s3.amazonaws.com https://*.s3.ap-south-1.amazonaws.com",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -106,16 +105,25 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: securityHeaders,
       },
-      // Long-lived cache for static assets that Next.js content-hashes
-      {
-        source: "/_next/static/:path*",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, max-age=31536000, immutable",
-          },
-        ],
-      },
+      // Long-lived cache for static assets that Next.js content-hashes.
+      // PRODUCTION ONLY: in dev, Turbopack chunk URLs are stable (not hashed),
+      // so an `immutable` cache makes the browser serve stale chunks after an
+      // edit — surfacing as "module factory is not available" runtime errors.
+      // (This is the behaviour Next warns about when it detects a custom
+      // Cache-Control on /_next/static.)
+      ...(isDev
+        ? []
+        : [
+            {
+              source: "/_next/static/:path*",
+              headers: [
+                {
+                  key: "Cache-Control",
+                  value: "public, max-age=31536000, immutable",
+                },
+              ],
+            },
+          ]),
       // Public folder assets (logos, favicons) — 1 hour, revalidate in background
       {
         source: "/:file(.*\\.(?:png|jpg|jpeg|svg|ico|webp|avif|woff2?))",

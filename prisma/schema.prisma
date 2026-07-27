@@ -311,6 +311,8 @@ model LeaveRequest {
   total_days       Decimal   @db.Decimal(4, 1)
   status           String    @default("pending")
   reason           String
+  document_url     String?   // S3 key for an optional supporting document (e.g. medical certificate)
+  document_name    String?   // original filename, for display
   approved_by      String?
   approved_at      DateTime?
   rejection_reason String?
