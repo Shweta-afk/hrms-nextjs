@@ -43,6 +43,7 @@ interface AttendanceRecord {
     first_name: string;
     last_name: string;
     emp_code: string;
+    exclude_from_payroll?: boolean;
     department: { name: string } | null;
   };
 }
@@ -532,7 +533,9 @@ const Attendance = () => {
 
   interface EmpKey { id: string; name: string; emp_code: string; dept: string }
 
-  const filteredRecords = reportEmpFilter === 'all' ? records : records.filter(r => r.employee.id === reportEmpFilter)
+  // Attendance reports never include employees excluded from payroll.
+  const payrollRecords = records.filter(r => !r.employee.exclude_from_payroll)
+  const filteredRecords = reportEmpFilter === 'all' ? payrollRecords : payrollRecords.filter(r => r.employee.id === reportEmpFilter)
 
   const absentReport = (() => {
     // Working days in the selected month up to today (Mon–Fri only)
@@ -1017,7 +1020,7 @@ const Attendance = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All employees</SelectItem>
-                    {[...new Map(records.map(r => [r.employee.id, r.employee])).values()]
+                    {[...new Map(payrollRecords.map(r => [r.employee.id, r.employee])).values()]
                       .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`))
                       .map(e => (
                         <SelectItem key={e.id} value={e.id}>
