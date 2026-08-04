@@ -143,8 +143,11 @@ const ApplyLeave = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           leave_type_id: leaveTypeId,
-          from_date: fromDate!.toISOString(),
-          to_date: toDate!.toISOString(),
+          // Send the picked calendar date as-is (yyyy-MM-dd), NOT toISOString().
+          // The calendar returns a local-midnight Date; toISOString() would shift
+          // it to the previous day in UTC for IST users (5 Aug → stored as 4 Aug).
+          from_date: format(fromDate!, 'yyyy-MM-dd'),
+          to_date: format(toDate!, 'yyyy-MM-dd'),
           reason: reason.trim(),
           employee_id: session?.user?.employee_id,
           document_url,
