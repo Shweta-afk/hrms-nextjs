@@ -24,10 +24,14 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Search, Upload, Plus, MoreHorizontal, Eye, Pencil, ArrowRightLeft,
-  UserX, UserCheck, LogOut, RotateCcw, ChevronLeft, ChevronRight,
+  UserX, UserCheck, UserMinus, LogOut, RotateCcw, ChevronLeft, ChevronRight,
   ArrowUpDown, ArrowUp, ArrowDown, Download, FileX, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useSession } from "next-auth/react";
+import {
+  terminationNoticeTemplate, resignationAcceptedTemplate, abscondingNoticeTemplate,
+} from "@/lib/email-templates";
 
 interface Employee {
   id: string;
@@ -51,6 +55,7 @@ interface Department {
 const statusVariantMap: Record<string, string> = {
   active: "active",
   on_notice: "notice",
+  absconding: "notice",
   terminated: "terminated",
   resigned: "resigned",
 }
@@ -58,6 +63,71 @@ const statusVariantMap: Record<string, string> = {
 const avatarColors = [
   "bg-primary", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-kpi-green", "bg-kpi-amber",
 ]
+
+const fmtExitDate = (d: string) =>
+  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null
+
+interface ExitTemplate { subject: string; html: string; text: string }
+
+// Shows the exact notice email that will be sent to the employee. HR can flip to
+// Edit mode to change the subject/body before confirming; Reset restores the
+// generated template.
+function ExitEmailField({
+  template, editing, subject, body, onEdit, onReset, onSubjectChange, onBodyChange,
+}: {
+  template: ExitTemplate
+  editing: boolean
+  subject: string
+  body: string
+  onEdit: (subject: string, body: string) => void
+  onReset: () => void
+  onSubjectChange: (v: string) => void
+  onBodyChange: (v: string) => void
+}) {
+  if (!editing) {
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs text-muted-foreground">Email preview — sent to the employee</Label>
+          <button
+            type="button"
+            className="text-xs text-primary hover:underline flex items-center gap-1"
+            onClick={() => onEdit(template.subject, template.text)}
+          >
+            <Pencil className="h-3 w-3" /> Edit email
+          </button>
+        </div>
+        <div className="rounded-md border border-border overflow-hidden">
+          <div className="px-3 py-2 border-b border-border bg-muted/50 text-xs">
+            <span className="text-muted-foreground">Subject:&nbsp;</span>
+            <span className="font-medium text-foreground">{template.subject}</span>
+          </div>
+          <div
+            className="p-3 max-h-52 overflow-auto text-sm bg-white text-black"
+            dangerouslySetInnerHTML={{ __html: template.html }}
+          />
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs text-muted-foreground">Edit email — sent to the employee</Label>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:underline flex items-center gap-1"
+          onClick={onReset}
+        >
+          <RotateCcw className="h-3 w-3" /> Reset to template
+        </button>
+      </div>
+      <Input value={subject} onChange={e => onSubjectChange(e.target.value)} placeholder="Subject" />
+      <Textarea value={body} onChange={e => onBodyChange(e.target.value)} rows={8} className="text-sm" placeholder="Email body…" />
+      <p className="text-[11px] text-muted-foreground">Leave a blank line between paragraphs. This exact text is emailed to the employee.</p>
+    </div>
+  )
+}
 
 type SortKey = "name" | "department" | "designation" | "doj" | "status"
 type SortDir = "asc" | "desc" | null
@@ -87,13 +157,28 @@ const Employees = () => {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
 
   // Archive tab
-  const [activeView, setActiveView] = useState<'active' | 'archive'>('active')
+  const [activeView, setActiveView] = useState<'active' | 'archive' | 'absconding'>('active')
   const [reactivating, setReactivating] = useState<string | null>(null)
 
   // Modal state
   const [transferModal, setTransferModal] = useState<Employee | null>(null)
   const [deactivateModal, setDeactivateModal] = useState<Employee | null>(null)
   const [resignModal, setResignModal] = useState<Employee | null>(null)
+  const [abscondModal, setAbscondModal] = useState<Employee | null>(null)
+  const [abscondReason, setAbscondReason] = useState("")
+  const [abscondDate, setAbscondDate] = useState("")   // date they stopped showing up
+
+  const { data: session } = useSession()
+  const orgName = session?.user?.org_name ?? "the company"
+
+  // Editable exit-notice email (shared — only one exit modal is open at a time)
+  const [emailEditing, setEmailEditing] = useState(false)
+  const [emailSubject, setEmailSubject] = useState("")
+  const [emailBody, setEmailBody] = useState("")
+  const startEmailEdit = (subject: string, body: string) => { setEmailSubject(subject); setEmailBody(body); setEmailEditing(true) }
+  const resetEmailEdit = () => setEmailEditing(false)
+  // Extra body to include in a terminate/resign/abscond POST when HR edited the email.
+  const emailOverride = () => emailEditing ? { email_subject: emailSubject, email_body: emailBody } : {}
   const [transferDept, setTransferDept] = useState("")
   const [transferReason, setTransferReason] = useState("")
   const [exitReason, setExitReason] = useState("")
@@ -108,12 +193,15 @@ const Employees = () => {
         limit: String(perPage),
         ...(search && { search }),
         ...(selectedDept !== 'all' && { department_id: selectedDept }),
-        // Archive view: fetch terminated + resigned; Active view: apply user filter
+        // Archive view: terminated + resigned. Absconding: its own status.
+        // Active view: apply the user's status filter.
         ...(activeView === 'archive'
           ? { status: 'archive' }
-          : selectedStatus !== 'all'
-            ? { status: selectedStatus }
-            : {}
+          : activeView === 'absconding'
+            ? { status: 'absconding' }
+            : selectedStatus !== 'all'
+              ? { status: selectedStatus }
+              : {}
         ),
       })
 
@@ -254,11 +342,11 @@ const Employees = () => {
       const res = await fetch(`/api/employees/${deactivateModal.id}/terminate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exit_type: 'terminated', reason: exitReason || undefined, last_working_day: exitLastDay || undefined }),
+        body: JSON.stringify({ exit_type: 'terminated', reason: exitReason || undefined, last_working_day: exitLastDay || undefined, ...emailOverride() }),
       })
       const json = await res.json()
       if (json.success) {
-        toast.success(`${deactivateModal.first_name} ${deactivateModal.last_name} terminated and archived`)
+        toast.success(`${deactivateModal.first_name} ${deactivateModal.last_name} terminated — access revoked, notice emailed`)
         fetchEmployees()
       } else {
         toast.error(json.error ?? 'Failed to terminate employee')
@@ -271,6 +359,30 @@ const Employees = () => {
     setExitLastDay('')
   }
 
+  // Mark employee as absconding
+  async function handleAbscond() {
+    if (!abscondModal) return
+    try {
+      const res = await fetch(`/api/employees/${abscondModal.id}/terminate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exit_type: 'absconding', reason: abscondReason || undefined, last_working_day: abscondDate || undefined, ...emailOverride() }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(`${abscondModal.first_name} ${abscondModal.last_name} marked as absconding — notice emailed`)
+        fetchEmployees()
+      } else {
+        toast.error(json.error ?? 'Failed to mark absconding')
+      }
+    } catch {
+      toast.error('Failed to mark absconding')
+    }
+    setAbscondModal(null)
+    setAbscondReason('')
+    setAbscondDate('')
+  }
+
   // Accept resignation
   async function handleResign() {
     if (!resignModal) return
@@ -278,11 +390,11 @@ const Employees = () => {
       const res = await fetch(`/api/employees/${resignModal.id}/terminate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exit_type: 'resigned', reason: exitReason || undefined, last_working_day: exitLastDay || undefined }),
+        body: JSON.stringify({ exit_type: 'resigned', reason: exitReason || undefined, last_working_day: exitLastDay || undefined, ...emailOverride() }),
       })
       const json = await res.json()
       if (json.success) {
-        toast.success(`${resignModal.first_name} ${resignModal.last_name}'s resignation accepted`)
+        toast.success(`${resignModal.first_name} ${resignModal.last_name}'s resignation accepted — access revoked, notice emailed`)
         fetchEmployees()
       } else {
         toast.error(json.error ?? 'Failed to process resignation')
@@ -328,16 +440,22 @@ const Employees = () => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-foreground">Employees</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">{total} {activeView === 'archive' ? 'archived' : 'active'} employee{total !== 1 ? 's' : ''}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">{total} {activeView === 'archive' ? 'archived' : activeView === 'absconding' ? 'absconding' : 'active'} employee{total !== 1 ? 's' : ''}</p>
           </div>
           <div className="flex items-center gap-2">
-            {/* Active / Archive switcher */}
+            {/* Active / Absconding / Archive switcher */}
             <div className="flex rounded-lg border border-border overflow-hidden text-sm font-medium">
               <button
                 onClick={() => setActiveView('active')}
                 className={`px-3 py-1.5 transition-colors ${activeView === 'active' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted'}`}
               >
                 Active
+              </button>
+              <button
+                onClick={() => setActiveView('absconding')}
+                className={`px-3 py-1.5 transition-colors ${activeView === 'absconding' ? 'bg-amber-500 text-white' : 'bg-background text-muted-foreground hover:bg-muted'}`}
+              >
+                Absconding
               </button>
               <button
                 onClick={() => setActiveView('archive')}
@@ -526,13 +644,19 @@ const Employees = () => {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="gap-2 cursor-pointer text-orange-600"
-                                  onClick={() => { setResignModal(emp); setExitReason(''); setExitLastDay('') }}
+                                  onClick={() => { setResignModal(emp); setExitReason(''); setExitLastDay(''); setEmailEditing(false) }}
                                 >
                                   <LogOut className="h-4 w-4" /> Resignation
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
+                                  className="gap-2 cursor-pointer text-amber-600"
+                                  onClick={() => { setAbscondModal(emp); setAbscondReason(''); setAbscondDate(''); setEmailEditing(false) }}
+                                >
+                                  <UserMinus className="h-4 w-4" /> Mark Absconding
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
                                   className="gap-2 cursor-pointer text-destructive"
-                                  onClick={() => { setDeactivateModal(emp); setExitReason(''); setExitLastDay('') }}
+                                  onClick={() => { setDeactivateModal(emp); setExitReason(''); setExitLastDay(''); setEmailEditing(false) }}
                                 >
                                   <UserX className="h-4 w-4" /> Terminate
                                 </DropdownMenuItem>
@@ -644,7 +768,8 @@ const Employees = () => {
             </DialogTitle>
             <DialogDescription>
               <strong>{deactivateModal?.first_name} {deactivateModal?.last_name}</strong> will be moved to Archive.
-              All history is preserved. Biometric enrollments and pending leaves will be deactivated.
+              All history is preserved. Portal access, biometric enrollments and pending leaves will be deactivated,
+              and the notice below is emailed to the employee.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -661,10 +786,21 @@ const Employees = () => {
                 rows={3}
               />
             </div>
+            <ExitEmailField
+              template={terminationNoticeTemplate({
+                name: `${deactivateModal?.first_name ?? ''} ${deactivateModal?.last_name ?? ''}`.trim(),
+                company: orgName,
+                lastDay: fmtExitDate(exitLastDay),
+                reason: exitReason,
+              })}
+              editing={emailEditing} subject={emailSubject} body={emailBody}
+              onEdit={startEmailEdit} onReset={resetEmailEdit}
+              onSubjectChange={setEmailSubject} onBodyChange={setEmailBody}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setDeactivateModal(null); setExitReason(''); setExitLastDay('') }}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeactivate}>Terminate &amp; Archive</Button>
+            <Button variant="destructive" onClick={handleDeactivate}>Terminate &amp; Email</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -695,11 +831,70 @@ const Employees = () => {
                 rows={3}
               />
             </div>
+            <ExitEmailField
+              template={resignationAcceptedTemplate({
+                name: `${resignModal?.first_name ?? ''} ${resignModal?.last_name ?? ''}`.trim(),
+                company: orgName,
+                lastDay: fmtExitDate(exitLastDay),
+              })}
+              editing={emailEditing} subject={emailSubject} body={emailBody}
+              onEdit={startEmailEdit} onReset={resetEmailEdit}
+              onSubjectChange={setEmailSubject} onBodyChange={setEmailBody}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setResignModal(null); setExitReason(''); setExitLastDay('') }}>Cancel</Button>
             <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={handleResign}>
-              Accept &amp; Archive
+              Accept &amp; Email
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Absconding Modal */}
+      <Dialog open={!!abscondModal} onOpenChange={(o) => { if (!o) { setAbscondModal(null); setAbscondReason(''); setAbscondDate('') } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-amber-600 flex items-center gap-2">
+              <UserMinus className="h-4 w-4" /> Mark as Absconding
+            </DialogTitle>
+            <DialogDescription>
+              Mark <strong>{abscondModal?.first_name} {abscondModal?.last_name}</strong> as absconding —
+              stopped attending without notice. They move to the Absconding list, device access is
+              revoked and pending leaves are cancelled. An absence notice is emailed to the employee.
+              You can restore them to Active later.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Stopped showing up on</Label>
+              <Input type="date" value={abscondDate} onChange={e => setAbscondDate(e.target.value)} max={new Date().toISOString().slice(0, 10)} />
+              <p className="text-xs text-muted-foreground">The date they were last present. Included in the notice email.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Note <span className="text-muted-foreground text-xs">(optional, internal)</span></Label>
+              <Textarea
+                placeholder="e.g. Unreachable on phone/email"
+                value={abscondReason}
+                onChange={e => setAbscondReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+            <ExitEmailField
+              template={abscondingNoticeTemplate({
+                name: `${abscondModal?.first_name ?? ''} ${abscondModal?.last_name ?? ''}`.trim(),
+                company: orgName,
+                lastDay: fmtExitDate(abscondDate),
+              })}
+              editing={emailEditing} subject={emailSubject} body={emailBody}
+              onEdit={startEmailEdit} onReset={resetEmailEdit}
+              onSubjectChange={setEmailSubject} onBodyChange={setEmailBody}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAbscondModal(null); setAbscondReason(''); setAbscondDate('') }}>Cancel</Button>
+            <Button className="bg-amber-500 hover:bg-amber-600 text-white" onClick={handleAbscond}>
+              Mark Absconding &amp; Email
             </Button>
           </DialogFooter>
         </DialogContent>

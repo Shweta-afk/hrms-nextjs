@@ -25,26 +25,36 @@ export async function POST(
 
     const employee = await prisma.employee.findFirst({
       where: { id, org_id },
-      select: { id: true, status: true, first_name: true, last_name: true, personal_info: true },
+      select: { id: true, status: true, first_name: true, last_name: true, email: true, personal_info: true },
     })
 
     if (!employee) {
       return NextResponse.json({ success: false, error: 'Employee not found' }, { status: 404 })
     }
-    if (employee.status === 'terminated' || employee.status === 'resigned') {
+    if (['terminated', 'resigned', 'absconding'].includes(employee.status)) {
       return NextResponse.json({ success: false, error: 'Employee is already archived' }, { status: 400 })
     }
 
     const body = await req.json().catch(() => ({}))
-    const exit_type: 'terminated' | 'resigned' = body.exit_type === 'resigned' ? 'resigned' : 'terminated'
+    const exit_type: 'terminated' | 'resigned' | 'absconding' =
+      ['resigned', 'absconding'].includes(body.exit_type) ? body.exit_type : 'terminated'
+    const reasonKey =
+      exit_type === 'resigned' ? 'resignation_reason'
+      : exit_type === 'absconding' ? 'absconding_reason'
+      : 'termination_reason'
     const reason: string | null = body.reason ?? null
     const last_working_day: string | null = body.last_working_day ?? null
 
-    // Atomic: update status + deactivate enrollments + cancel pending leaves
+    // Atomic: update status + revoke portal login + deactivate enrollments + cancel pending leaves
     await prisma.$transaction([
       prisma.employee.update({
         where: { id },
         data: { status: exit_type },
+      }),
+      // Revoke employee-portal access: authorize() refuses login for inactive users.
+      prisma.user.updateMany({
+        where: { employee_id: id, org_id },
+        data: { is_active: false },
       }),
       prisma.deviceEnrollment.updateMany({
         where: { employee_id: id, org_id },
@@ -64,12 +74,39 @@ export async function POST(
         personal_info: {
           ...existing,
           exit_type,
-          ...(reason         && { [exit_type === 'resigned' ? 'resignation_reason' : 'termination_reason']: reason }),
+          ...(reason         && { [reasonKey]: reason }),
           ...(last_working_day && { last_working_day }),
           exit_at: new Date().toISOString(),
         },
       },
     })
+
+    // Send the employee an automated exit notice (termination / resignation / absconding).
+    if (employee.email) {
+      try {
+        const { sendExitNotice } = await import('@/lib/email')
+        const org = await prisma.organisation.findUnique({
+          where: { id: org_id },
+          select: { name: true },
+        })
+        const lastDay = last_working_day
+          ? new Date(last_working_day).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+          : null
+        await sendExitNotice({
+          kind: exit_type,
+          to: employee.email,
+          name: `${employee.first_name} ${employee.last_name}`,
+          company: org?.name ?? 'the company',
+          lastDay,
+          reason,
+          // HR may have edited the notice in the UI.
+          customSubject: typeof body.email_subject === 'string' ? body.email_subject : null,
+          customBody: typeof body.email_body === 'string' ? body.email_body : null,
+        })
+      } catch (emailErr) {
+        console.error('Failed to send exit notice:', emailErr)
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -112,15 +149,22 @@ export async function DELETE(
     // Clear exit metadata when restoring
     const existing = (employee.personal_info ?? {}) as Record<string, unknown>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { exit_type: _et, termination_reason: _tr, resignation_reason: _rr, last_working_day: _lwd, exit_at: _ea, ...cleanInfo } = existing
+    const { exit_type: _et, termination_reason: _tr, resignation_reason: _rr, absconding_reason: _ar, last_working_day: _lwd, exit_at: _ea, ...cleanInfo } = existing
 
-    await prisma.employee.update({
-      where: { id },
-      data: {
-        status: 'active',
-        personal_info: cleanInfo as Record<string, string>,
-      },
-    })
+    await prisma.$transaction([
+      prisma.employee.update({
+        where: { id },
+        data: {
+          status: 'active',
+          personal_info: cleanInfo as Record<string, string>,
+        },
+      }),
+      // Restore employee-portal access.
+      prisma.user.updateMany({
+        where: { employee_id: id, org_id },
+        data: { is_active: true },
+      }),
+    ])
 
     return NextResponse.json({ success: true })
   } catch (error) {

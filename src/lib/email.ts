@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { exitNoticeTemplate, customExitHtml, type ExitKind } from './email-templates'
 
 // Lazily construct the Resend client. The constructor throws when the API key is
 // missing, so building it at module load crashed the whole build/boot for any
@@ -244,4 +245,33 @@ export async function sendLeaveRequestNotification({
       </div>
     `,
   })
+}
+// ── Employee-exit notice (termination / resignation / absconding) ──
+// Uses the shared templates in email-templates.ts so the exact same content HR
+// previews before confirming is what actually gets sent.
+export async function sendExitNotice({
+  kind,
+  to,
+  name,
+  company,
+  lastDay,
+  reason,
+  customSubject,
+  customBody,
+}: {
+  kind: ExitKind
+  to: string
+  name: string
+  company: string
+  lastDay?: string | null
+  reason?: string | null
+  // When HR edited the email in the UI, these override the template.
+  customSubject?: string | null
+  customBody?: string | null
+}) {
+  const { subject, html } =
+    customSubject && customBody
+      ? { subject: customSubject, html: customExitHtml(customBody) }
+      : exitNoticeTemplate(kind, { name, company, lastDay, reason })
+  return getResend().emails.send({ from: FROM, to, subject, html })
 }

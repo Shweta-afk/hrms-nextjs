@@ -53,6 +53,7 @@ export async function GET(req: NextRequest) {
               last_name: true,
               emp_code: true,
               essl_device_id: true,
+              exclude_from_payroll: true,
               department: { select: { name: true } },
             },
           },

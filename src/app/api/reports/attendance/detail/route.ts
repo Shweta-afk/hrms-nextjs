@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
 
     const [employees, records, holidays, shiftSettings] = await Promise.all([
       prisma.employee.findMany({
-        where: { org_id, status: 'active' },
+        where: { org_id, status: 'active', exclude_from_payroll: false },
         include: {
           department:  { select: { name: true } },
           designation: { select: { name: true } },
