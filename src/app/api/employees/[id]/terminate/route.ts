@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 
 /**
  * POST /api/employees/[id]/terminate
- * Body: { exit_type?: 'terminated'|'resigned', reason?: string, last_working_day?: string }
+ * Body: { exit_type?: 'terminated'|'resigned'|'absconding', reason?: string, last_working_day?: string, skip_email?: boolean }
  *
  * Sets employee status → 'terminated' or 'resigned', deactivates device
  * enrollments, cancels pending leaves, and records the exit metadata.
@@ -82,7 +82,8 @@ export async function POST(
     })
 
     // Send the employee an automated exit notice (termination / resignation / absconding).
-    if (employee.email) {
+    // HR can opt out entirely via the "send without email" action.
+    if (employee.email && !body.skip_email) {
       try {
         const { sendExitNotice } = await import('@/lib/email')
         const org = await prisma.organisation.findUnique({

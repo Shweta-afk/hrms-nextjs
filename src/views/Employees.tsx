@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Search, Upload, Plus, MoreHorizontal, Eye, Pencil, ArrowRightLeft,
   UserX, UserCheck, UserMinus, LogOut, RotateCcw, ChevronLeft, ChevronRight,
-  ArrowUpDown, ArrowUp, ArrowDown, Download, FileX, Loader2,
+  ArrowUpDown, ArrowUp, ArrowDown, Download, FileX, Loader2, MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
@@ -42,6 +42,7 @@ interface Employee {
   status: string;
   employment_type: string;
   exclude_from_payroll: boolean;
+  is_field_agent: boolean;
   date_of_joining: string;
   department: { id: string; name: string } | null;
   designation: { id: string; name: string } | null;
@@ -242,6 +243,27 @@ const Employees = () => {
     }
   }
 
+  async function handleToggleFieldAgent(emp: Employee) {
+    try {
+      const res = await fetch(`/api/employees/${emp.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_field_agent: !emp.is_field_agent }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success(emp.is_field_agent
+          ? `${emp.first_name} removed from field attendance`
+          : `${emp.first_name} enabled for field attendance`)
+        fetchEmployees()
+      } else {
+        toast.error(json.error ?? 'Failed to update')
+      }
+    } catch {
+      toast.error('Failed to update field agent setting')
+    }
+  }
+
   async function handleReactivate(emp: Employee) {
     setReactivating(emp.id)
     try {
@@ -336,17 +358,17 @@ const Employees = () => {
     status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())
 
   // Terminate employee
-  async function handleDeactivate() {
+  async function handleDeactivate(sendEmail = true) {
     if (!deactivateModal) return
     try {
       const res = await fetch(`/api/employees/${deactivateModal.id}/terminate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exit_type: 'terminated', reason: exitReason || undefined, last_working_day: exitLastDay || undefined, ...emailOverride() }),
+        body: JSON.stringify({ exit_type: 'terminated', reason: exitReason || undefined, last_working_day: exitLastDay || undefined, skip_email: !sendEmail, ...(sendEmail ? emailOverride() : {}) }),
       })
       const json = await res.json()
       if (json.success) {
-        toast.success(`${deactivateModal.first_name} ${deactivateModal.last_name} terminated — access revoked, notice emailed`)
+        toast.success(`${deactivateModal.first_name} ${deactivateModal.last_name} terminated — access revoked${sendEmail ? ', notice emailed' : ''}`)
         fetchEmployees()
       } else {
         toast.error(json.error ?? 'Failed to terminate employee')
@@ -360,17 +382,17 @@ const Employees = () => {
   }
 
   // Mark employee as absconding
-  async function handleAbscond() {
+  async function handleAbscond(sendEmail = true) {
     if (!abscondModal) return
     try {
       const res = await fetch(`/api/employees/${abscondModal.id}/terminate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exit_type: 'absconding', reason: abscondReason || undefined, last_working_day: abscondDate || undefined, ...emailOverride() }),
+        body: JSON.stringify({ exit_type: 'absconding', reason: abscondReason || undefined, last_working_day: abscondDate || undefined, skip_email: !sendEmail, ...(sendEmail ? emailOverride() : {}) }),
       })
       const json = await res.json()
       if (json.success) {
-        toast.success(`${abscondModal.first_name} ${abscondModal.last_name} marked as absconding — notice emailed`)
+        toast.success(`${abscondModal.first_name} ${abscondModal.last_name} marked as absconding${sendEmail ? ' — notice emailed' : ''}`)
         fetchEmployees()
       } else {
         toast.error(json.error ?? 'Failed to mark absconding')
@@ -384,17 +406,17 @@ const Employees = () => {
   }
 
   // Accept resignation
-  async function handleResign() {
+  async function handleResign(sendEmail = true) {
     if (!resignModal) return
     try {
       const res = await fetch(`/api/employees/${resignModal.id}/terminate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exit_type: 'resigned', reason: exitReason || undefined, last_working_day: exitLastDay || undefined, ...emailOverride() }),
+        body: JSON.stringify({ exit_type: 'resigned', reason: exitReason || undefined, last_working_day: exitLastDay || undefined, skip_email: !sendEmail, ...(sendEmail ? emailOverride() : {}) }),
       })
       const json = await res.json()
       if (json.success) {
-        toast.success(`${resignModal.first_name} ${resignModal.last_name}'s resignation accepted — access revoked, notice emailed`)
+        toast.success(`${resignModal.first_name} ${resignModal.last_name}'s resignation accepted — access revoked${sendEmail ? ', notice emailed' : ''}`)
         fetchEmployees()
       } else {
         toast.error(json.error ?? 'Failed to process resignation')
@@ -643,6 +665,15 @@ const Employees = () => {
                                   }
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
+                                  className="gap-2 cursor-pointer"
+                                  onClick={() => handleToggleFieldAgent(emp)}
+                                >
+                                  {emp.is_field_agent
+                                    ? <><MapPin className="h-4 w-4 text-amber-600" /> Remove Field Attendance</>
+                                    : <><MapPin className="h-4 w-4 text-green-600" /> Enable Field Attendance</>
+                                  }
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
                                   className="gap-2 cursor-pointer text-orange-600"
                                   onClick={() => { setResignModal(emp); setExitReason(''); setExitLastDay(''); setEmailEditing(false) }}
                                 >
@@ -800,7 +831,8 @@ const Employees = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setDeactivateModal(null); setExitReason(''); setExitLastDay('') }}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeactivate}>Terminate &amp; Email</Button>
+            <Button variant="outline" onClick={() => handleDeactivate(false)}>Terminate (No Email)</Button>
+            <Button variant="destructive" onClick={() => handleDeactivate(true)}>Terminate &amp; Email</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -844,7 +876,8 @@ const Employees = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setResignModal(null); setExitReason(''); setExitLastDay('') }}>Cancel</Button>
-            <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={handleResign}>
+            <Button variant="outline" onClick={() => handleResign(false)}>Accept (No Email)</Button>
+            <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={() => handleResign(true)}>
               Accept &amp; Email
             </Button>
           </DialogFooter>
@@ -893,7 +926,8 @@ const Employees = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setAbscondModal(null); setAbscondReason(''); setAbscondDate('') }}>Cancel</Button>
-            <Button className="bg-amber-500 hover:bg-amber-600 text-white" onClick={handleAbscond}>
+            <Button variant="outline" onClick={() => handleAbscond(false)}>Mark Absconding (No Email)</Button>
+            <Button className="bg-amber-500 hover:bg-amber-600 text-white" onClick={() => handleAbscond(true)}>
               Mark Absconding &amp; Email
             </Button>
           </DialogFooter>

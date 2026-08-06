@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -100,6 +101,9 @@ const Leave = () => {
   // Leave types (for HR to reclassify a request's type from the detail modal)
   const [leaveTypes, setLeaveTypes] = useState<{ id: string; name: string; code: string }[]>([]);
   const [changingType, setChangingType] = useState(false);
+  // HR can adjust the from/to dates while approving (detail modal, pending requests only)
+  const [editFrom, setEditFrom] = useState("");
+  const [editTo, setEditTo] = useState("");
 
   async function fetchRequests() {
     setLoading(true);
@@ -118,6 +122,14 @@ const Leave = () => {
   }
 
   useEffect(() => { fetchRequests(); }, [statusFilter]);
+
+  // Reset the editable date fields whenever a different request is opened
+  useEffect(() => {
+    if (viewRequest) {
+      setEditFrom(viewRequest.from_date.slice(0, 10));
+      setEditTo(viewRequest.to_date.slice(0, 10));
+    }
+  }, [viewRequest?.id]);
 
   useEffect(() => {
     fetch('/api/leave/types')
@@ -147,19 +159,22 @@ const Leave = () => {
     finally { setChangingType(false); }
   }
 
-  async function handleApprove(id: string) {
+  async function handleApprove(id: string, fromDate?: string, toDate?: string) {
     setActionLoading(id);
     try {
+      const body: Record<string, string> = { status: 'approved' };
+      if (fromDate) body.from_date = fromDate;
+      if (toDate) body.to_date = toDate;
       const res = await fetch(`/api/leave/requests/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved' }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (json.success) {
         toast.success('Leave approved — employee notified');
         fetchRequests();
-      } else toast.error('Failed to approve leave');
+      } else toast.error(json.error || 'Failed to approve leave');
     } catch { toast.error('Failed to approve leave'); }
     finally { setActionLoading(null); }
   }
@@ -643,13 +658,35 @@ const Leave = () => {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">From</p>
-                  <p className="font-medium">{formatDate(viewRequest.from_date)}</p>
+                  {viewRequest.status === 'pending' ? (
+                    <Input
+                      type="date"
+                      value={editFrom}
+                      onChange={e => setEditFrom(e.target.value)}
+                      className="h-8 text-sm font-medium"
+                    />
+                  ) : (
+                    <p className="font-medium">{formatDate(viewRequest.from_date)}</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">To</p>
-                  <p className="font-medium">{formatDate(viewRequest.to_date)}</p>
+                  {viewRequest.status === 'pending' ? (
+                    <Input
+                      type="date"
+                      value={editTo}
+                      onChange={e => setEditTo(e.target.value)}
+                      className="h-8 text-sm font-medium"
+                    />
+                  ) : (
+                    <p className="font-medium">{formatDate(viewRequest.to_date)}</p>
+                  )}
                 </div>
               </div>
+              {viewRequest.status === 'pending' &&
+                (editFrom !== viewRequest.from_date.slice(0, 10) || editTo !== viewRequest.to_date.slice(0, 10)) && (
+                <p className="text-xs text-kpi-amber -mt-2">Dates changed — will be saved when you approve.</p>
+              )}
 
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Reason</p>
@@ -695,7 +732,7 @@ const Leave = () => {
                 </Button>
                 <Button
                   className="bg-kpi-green hover:bg-kpi-green/90 text-white"
-                  onClick={() => { handleApprove(viewRequest.id); setViewRequest(null); }}
+                  onClick={() => { handleApprove(viewRequest.id, editFrom, editTo); setViewRequest(null); }}
                   disabled={actionLoading === viewRequest.id}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve

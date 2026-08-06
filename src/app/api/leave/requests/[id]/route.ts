@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+function getWorkingDays(from: Date, to: Date): number {
+  let count = 0
+  const cur = new Date(from)
+  while (cur <= to) {
+    const day = cur.getDay()
+    if (day !== 0 && day !== 6) count++
+    cur.setDate(cur.getDate() + 1)
+  }
+  return count
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -15,7 +26,7 @@ export async function PATCH(
     const session = guard
 
     const body = await req.json()
-    const { status, rejection_reason, leave_type_id } = body
+    const { status, rejection_reason, leave_type_id, from_date, to_date } = body
 
     // Load the request first (org-scoped) so both the type-change and the
     // status-change paths can use it.
@@ -92,6 +103,28 @@ export async function PATCH(
       )
     }
 
+    // HR can adjust the leave dates while approving (e.g. correcting a typo
+    // in the employee's original request). Only honoured on approval, and
+    // only if the dates actually differ from what's stored.
+    let dateOverride: { from_date: Date; to_date: Date; total_days: number } | null = null
+    if (status === 'approved' && (from_date || to_date)) {
+      const newFrom = from_date ? new Date(from_date) : new Date(leaveRequest.from_date)
+      const newTo = to_date ? new Date(to_date) : new Date(leaveRequest.to_date)
+      if (isNaN(newFrom.getTime()) || isNaN(newTo.getTime())) {
+        return NextResponse.json({ success: false, error: 'Invalid date' }, { status: 400 })
+      }
+      if (newFrom > newTo) {
+        return NextResponse.json(
+          { success: false, error: 'From date cannot be after to date' },
+          { status: 400 }
+        )
+      }
+      if (newFrom.getTime() !== new Date(leaveRequest.from_date).getTime() ||
+          newTo.getTime() !== new Date(leaveRequest.to_date).getTime()) {
+        dateOverride = { from_date: newFrom, to_date: newTo, total_days: getWorkingDays(newFrom, newTo) }
+      }
+    }
+
     const updated = await prisma.leaveRequest.update({
       where: { id: id },
       data: {
@@ -101,6 +134,7 @@ export async function PATCH(
           approved_at: new Date(),
         }),
         ...(status === 'rejected' && { rejection_reason }),
+        ...(dateOverride && dateOverride),
       },
     })
 
@@ -112,7 +146,7 @@ export async function PATCH(
         user_id: leaveRequest.employee.user.id,
         title: `Leave ${status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Updated'}`,
         message: status === 'approved'
-          ? `Your ${leaveRequest.leave_type.name} request for ${leaveRequest.total_days} day(s) has been approved.`
+          ? `Your ${leaveRequest.leave_type.name} request for ${updated.total_days} day(s)${dateOverride ? ' (dates adjusted by HR)' : ''} has been approved.`
           : status === 'rejected'
           ? `Your ${leaveRequest.leave_type.name} request was rejected. Reason: ${rejection_reason}`
           : `Your leave request status has been updated to ${status}.`,
@@ -136,9 +170,9 @@ export async function PATCH(
             name: `${leaveRequest.employee.first_name} ${leaveRequest.employee.last_name}`,
             status: status as 'approved' | 'rejected',
             leaveType: leaveRequest.leave_type.name,
-            fromDate: new Date(leaveRequest.from_date).toLocaleDateString('en-IN'),
-            toDate: new Date(leaveRequest.to_date).toLocaleDateString('en-IN'),
-            days: Number(leaveRequest.total_days),
+            fromDate: new Date(updated.from_date).toLocaleDateString('en-IN'),
+            toDate: new Date(updated.to_date).toLocaleDateString('en-IN'),
+            days: Number(updated.total_days),
             reason: rejection_reason,
             company: org?.name ?? 'Your Company',
           })
