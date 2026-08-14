@@ -28,6 +28,7 @@ const UpdateEmployeeSchema = z.object({
   ctc_annual: z.number().optional(),
   monthly_incentive: z.number().nullable().optional(),
   exclude_from_payroll: z.boolean().optional(),
+  is_field_agent: z.boolean().optional(),
 })
 
 // GET — single employee
@@ -111,7 +112,7 @@ export async function PATCH(
 
     // Employees cannot change HR-controlled fields
     if (isEmployee) {
-      const forbidden = ['department_id','designation_id','manager_id','employment_type','status','salary_structure_id','ctc_annual','essl_device_id','date_of_joining','emp_code','exclude_from_payroll']
+      const forbidden = ['department_id','designation_id','manager_id','employment_type','status','salary_structure_id','ctc_annual','essl_device_id','date_of_joining','emp_code','exclude_from_payroll','is_field_agent']
       for (const f of forbidden) {
         if (f in rest) return NextResponse.json({ success: false, error: `Field '${f}' cannot be changed by employees` }, { status: 403 })
       }

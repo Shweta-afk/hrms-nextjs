@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ChevronLeft, ChevronRight, ArrowLeft, Loader2, Clock } from 'lucide-react'
 import { toast } from 'sonner'
+import FieldPunchWidget from '@/components/FieldPunchWidget'
 
 interface AttendanceRecord {
   id: string
@@ -117,6 +118,8 @@ export default function PortalAttendancePage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-4 py-6 space-y-6">
+
+        <FieldPunchWidget />
 
         {/* Month selector */}
         <div className="flex items-center justify-between">

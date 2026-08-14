@@ -37,6 +37,9 @@ model Organisation {
   devices            Device[]
   punch_logs         PunchLog[]
   device_enrollments DeviceEnrollment[]
+  geofences          Geofence[]
+  employee_geofences EmployeeGeofence[]
+  field_punches      FieldPunch[]
   api_keys           OrgApiKey[]
   shift_groups       ShiftGroup[]
   reimbursements     Reimbursement[]
@@ -140,6 +143,7 @@ model Employee {
   bank_details        String?  // encrypted
   statutory_info      String?  // encrypted
   essl_device_id      String?
+  is_field_agent      Boolean  @default(false)
   monthly_incentive   Decimal? @db.Decimal(10, 2)
   shift_group_id      String?
   shift_group         ShiftGroup? @relation("EmployeeShiftGroup", fields: [shift_group_id], references: [id])
@@ -167,6 +171,8 @@ model Employee {
   reimbursements     Reimbursement[]
   documents          EmployeeDocument[]
   hr_requests        HRRequest[]
+  field_geofences    EmployeeGeofence[]
+  field_punches      FieldPunch[]
 
   @@unique([org_id, emp_code])
   @@unique([org_id, email])
@@ -279,6 +285,76 @@ model DeviceEnrollment {
 
   @@unique([device_id, employee_id])
   @@map("device_enrollments")
+}
+
+// ─── FIELD AGENT ATTENDANCE ─────────────────────────────
+// GPS-based punch-in/out for employees without a fixed biometric device.
+// A punch is only accepted if the reporting location falls within the
+// radius of one of the employee's assigned Geofences (hard-block — rejected
+// punches never touch AttendanceRecord, but are still logged on FieldPunch
+// for audit/fraud visibility).
+
+model Geofence {
+  id         String   @id @default(uuid())
+  org_id     String
+  name       String
+  address    String?
+  latitude   Decimal  @db.Decimal(9, 6)
+  longitude  Decimal  @db.Decimal(9, 6)
+  radius_m   Int      @default(200)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  organisation  Organisation       @relation(fields: [org_id], references: [id])
+  assignments   EmployeeGeofence[]
+  field_punches FieldPunch[]
+
+  @@index([org_id, is_active])
+  @@map("geofences")
+}
+
+model EmployeeGeofence {
+  id          String   @id @default(uuid())
+  org_id      String
+  employee_id String
+  geofence_id String
+  assigned_by String   // user_id of the admin who made the assignment
+  created_at  DateTime @default(now())
+
+  organisation Organisation @relation(fields: [org_id], references: [id])
+  employee     Employee     @relation(fields: [employee_id], references: [id])
+  geofence     Geofence     @relation(fields: [geofence_id], references: [id])
+
+  @@unique([employee_id, geofence_id])
+  @@index([org_id, employee_id])
+  @@map("employee_geofences")
+}
+
+model FieldPunch {
+  id                   String    @id @default(uuid())
+  org_id               String
+  employee_id          String
+  direction            String    // IN or OUT
+  punch_time           DateTime  @default(now())
+  latitude             Decimal   @db.Decimal(9, 6)
+  longitude            Decimal   @db.Decimal(9, 6)
+  accuracy_m           Decimal?  @db.Decimal(7, 2)
+  status               String    // accepted | rejected
+  reject_reason        String?   // outside_geofence | no_geofence_assigned
+  geofence_id          String?   // matched site if accepted, nearest site if rejected
+  distance_m           Decimal?  @db.Decimal(8, 2)
+  selfie_key           String?   // S3 key — optional
+  attendance_record_id String?   // set only when accepted
+  created_at           DateTime  @default(now())
+
+  organisation Organisation @relation(fields: [org_id], references: [id])
+  employee     Employee     @relation(fields: [employee_id], references: [id])
+  geofence     Geofence?    @relation(fields: [geofence_id], references: [id])
+
+  @@index([org_id, employee_id, punch_time])
+  @@index([org_id, status])
+  @@map("field_punches")
 }
 
 // ─── LEAVE ──────────────────────────────────────────────

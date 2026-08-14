@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
     const department_id = searchParams.get('department_id')
     const status = searchParams.get('status')
     const payrollOnly = searchParams.get('payroll_only') === 'true'
+    const fieldAgentsOnly = searchParams.get('field_agents_only') === 'true'
     const page = Math.max(parseInt(searchParams.get('page') || '1'), 1)
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '20'), 1), 200)
     const skip = (page - 1) * limit
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
       ...(department_id && { department_id }),
       // Pass ?payroll_only=true to exclude employees marked "exclude from payroll"
       ...(payrollOnly && { exclude_from_payroll: false }),
+      ...(fieldAgentsOnly && { is_field_agent: true }),
       ...(search && {
         OR: [
           { first_name: { contains: search, mode: 'insensitive' } },

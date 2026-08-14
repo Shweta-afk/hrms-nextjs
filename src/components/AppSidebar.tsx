@@ -17,6 +17,8 @@ import {
   FileBarChart2,
   Receipt,
   Inbox,
+  MapPin,
+  Map,
 } from 'lucide-react'
 import { NavLink } from '@/components/NavLink'
 import { signOut, useSession } from 'next-auth/react'
@@ -156,6 +158,28 @@ const AppSidebar = ({ className = '' }: { className?: string }) => {
               >
                 <FileBarChart2 className="h-3.5 w-3.5 shrink-0 opacity-70" />
                 Reports
+              </NavLink>
+
+              {/* Field Agent Sites */}
+              <NavLink
+                to="/attendance/geofences"
+                end
+                className="flex items-center gap-2 px-2 py-2 rounded-md text-sm font-medium transition-colors text-sidebar-foreground/60 hover:bg-sidebar-hover hover:text-sidebar-foreground"
+                activeClassName="text-sidebar-foreground bg-sidebar-hover"
+              >
+                <MapPin className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                Field Sites
+              </NavLink>
+
+              {/* Field Agent Map */}
+              <NavLink
+                to="/attendance/field-map"
+                end
+                className="flex items-center gap-2 px-2 py-2 rounded-md text-sm font-medium transition-colors text-sidebar-foreground/60 hover:bg-sidebar-hover hover:text-sidebar-foreground"
+                activeClassName="text-sidebar-foreground bg-sidebar-hover"
+              >
+                <Map className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                Field Map
               </NavLink>
             </div>
           )}

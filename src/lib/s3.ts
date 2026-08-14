@@ -29,6 +29,7 @@ export type FileCategory =
   | 'leave'
   | 'documents'
   | 'reimbursements'
+  | 'attendance'
 
 // Build a scoped file path: org_id/category/sub_id/filename
 export function buildS3Key(
