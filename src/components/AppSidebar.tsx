@@ -1,5 +1,5 @@
 'use client'
-
+import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -17,8 +17,6 @@ import {
   FileBarChart2,
   Receipt,
   Inbox,
-  MapPin,
-  Map,
 } from 'lucide-react'
 import { NavLink } from '@/components/NavLink'
 import { signOut, useSession } from 'next-auth/react'
@@ -78,11 +76,11 @@ const AppSidebar = ({ className = '' }: { className?: string }) => {
   return (
     <aside className={cn("flex flex-col w-60 min-h-screen bg-sidebar text-sidebar-foreground shrink-0", className)}>
       {/* Logo */}
-      <div className="flex items-center px-4 h-16 border-b border-sidebar-border">
-        <img src="/lightmodelogo.webp" alt="Axiotta HRMS" className="h-8 w-auto object-contain dark:hidden" />
-        <img src="/darkmodelogo.webp" alt="Axiotta HRMS" className="h-8 w-auto object-contain hidden dark:block" />
-      </div>
-
+      {/* Logo */}
+        <Link href="/dashboard" className="flex items-center px-4 h-16 border-b border-sidebar-border hover:opacity-80 transition-opacity">
+          <img src="/lightmodelogo.webp" alt="Axiotta HRMS" className="h-8 w-auto object-contain dark:hidden" />
+          <img src="/darkmodelogo.webp" alt="Axiotta HRMS" className="h-8 w-auto object-contain hidden dark:block" />
+        </Link>
       {/* Nav */}
       <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
         {/* Top items: Dashboard, Employees */}
@@ -158,28 +156,6 @@ const AppSidebar = ({ className = '' }: { className?: string }) => {
               >
                 <FileBarChart2 className="h-3.5 w-3.5 shrink-0 opacity-70" />
                 Reports
-              </NavLink>
-
-              {/* Field Agent Sites */}
-              <NavLink
-                to="/attendance/geofences"
-                end
-                className="flex items-center gap-2 px-2 py-2 rounded-md text-sm font-medium transition-colors text-sidebar-foreground/60 hover:bg-sidebar-hover hover:text-sidebar-foreground"
-                activeClassName="text-sidebar-foreground bg-sidebar-hover"
-              >
-                <MapPin className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                Field Sites
-              </NavLink>
-
-              {/* Field Agent Map */}
-              <NavLink
-                to="/attendance/field-map"
-                end
-                className="flex items-center gap-2 px-2 py-2 rounded-md text-sm font-medium transition-colors text-sidebar-foreground/60 hover:bg-sidebar-hover hover:text-sidebar-foreground"
-                activeClassName="text-sidebar-foreground bg-sidebar-hover"
-              >
-                <Map className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                Field Map
               </NavLink>
             </div>
           )}
