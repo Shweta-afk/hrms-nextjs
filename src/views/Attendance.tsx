@@ -1348,35 +1348,49 @@ const Attendance = () => {
         {/* Heatmap */}
         <Card>
           <CardHeader className="pb-3">
-            <button
-              type="button"
-              onClick={() => setHeatmapOpen(o => !o)}
-              aria-expanded={heatmapOpen}
-              className="flex items-center gap-2 text-left"
-            >
-              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${heatmapOpen ? '' : '-rotate-90'}`} />
-              <CardTitle className="text-base">Monthly Attendance Heatmap</CardTitle>
-            </button>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setHeatmapOpen(o => !o)}
+                aria-expanded={heatmapOpen}
+                className="flex items-center gap-2 text-left"
+              >
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${heatmapOpen ? '' : '-rotate-90'}`} />
+                <CardTitle className="text-base">Monthly Attendance Heatmap</CardTitle>
+              </button>
+              {heatmapOpen && (
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setMonthOffset(p => p - 1)}>
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </Button>
+                  <span className="text-sm font-medium min-w-[110px] text-center">{monthLabel}</span>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setMonthOffset(p => p + 1)}>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+            </div>
           </CardHeader>
           {heatmapOpen && (
           <CardContent>
-            <div className="flex gap-1 text-[10px] text-muted-foreground mb-2">
+            <div className="flex gap-1.5 text-[10px] font-medium text-muted-foreground mb-2">
               {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => (
-                <span key={d} className="w-8 text-center">{d}</span>
+                <span key={d} className="w-9 text-center">{d}</span>
               ))}
             </div>
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 gap-1.5 p-3 rounded-lg border border-border bg-muted/20">
               {Array.from({ length: firstDayOfWeek }).map((_, i) => (
-                <div key={`e-${i}`} className="w-8 h-8" />
+                <div key={`e-${i}`} className="w-9 h-9" />
               ))}
               {Array.from({ length: daysInMonth }, (_, i) => {
                 const day = i + 1
                 const status = heatmap[day] || 'absent'
                 const color = heatmapColors[status] || 'bg-muted'
+                const isToday = day === now.getDate() && month === now.getMonth() + 1 && year === now.getFullYear()
                 return (
                   <div
                     key={day}
-                    className={`w-8 h-8 rounded-sm ${color} flex items-center justify-center text-[10px] font-medium text-primary-foreground`}
+                    className={`w-9 h-9 rounded-md border ${isToday ? 'border-primary ring-2 ring-primary/40' : 'border-border/40'} ${color} flex items-center justify-center text-[11px] font-semibold text-primary-foreground shadow-sm transition-transform hover:scale-105`}
                     title={`${day} ${monthLabel} — ${status}`}
                   >
                     {day}
