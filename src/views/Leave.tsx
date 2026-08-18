@@ -299,7 +299,9 @@ const Leave = () => {
               </Button>
             )}
           </CardHeader>
-          <CardContent className="space-y-3 pt-0">
+          {/* Scrollable list: capped height so a long pending queue scrolls
+              inside this card instead of stretching the whole page. */}
+          <CardContent className="space-y-3 pt-0 max-h-[500px] overflow-y-auto">
             {loading ? (
               <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
             ) : pending.length === 0 ? (
