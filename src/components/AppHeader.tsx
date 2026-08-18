@@ -1,6 +1,7 @@
 'use client'
 
-import { Bell, Search, ChevronDown, Menu, X, Check, Moon, Sun, LogOut } from "lucide-react";
+import { Bell, Search, ChevronDown, Menu, X, Check, Moon, Sun, LogOut, LayoutDashboard } from "lucide-react";
+import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -152,6 +153,14 @@ const AppHeader = ({ title, onMenuToggle }: AppHeaderProps) => {
         <button className="p-2 rounded-lg hover:bg-muted transition-colors">
           <Search className="h-5 w-5 text-muted-foreground" />
         </button>
+        
+        <Link
+          href="/dashboard"
+          className="p-2 rounded-lg hover:bg-muted transition-colors"
+          aria-label="Go to dashboard"
+        >
+          <LayoutDashboard className="h-5 w-5 text-muted-foreground" />
+        </Link>
 
         <button
           type="button"
