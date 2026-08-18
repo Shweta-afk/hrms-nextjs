@@ -402,11 +402,9 @@ const AttendanceLive = () => {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                {/* Removed the 380px max-height cap — HR explicitly wants the
-                    full day visible. On busy days the feed still scrolls
-                    naturally with the page rather than inside a small
-                    window-within-a-window. */}
-                <div className="overflow-auto">
+                {/* Scrollable feed: capped height so a busy day scrolls inside
+                    this card instead of stretching the whole page. */}
+                <div className="max-h-[420px] overflow-y-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
