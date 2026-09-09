@@ -11,6 +11,7 @@ declare module 'next-auth' {
       org_name: string
       employee_id?: string
       trial_ends_at?: string | null
+      login_id: string
     }
   }
   interface User {
@@ -30,5 +31,6 @@ declare module 'next-auth/jwt' {
     org_name: string
     employee_id?: string
     trial_ends_at?: string | null
+    login_id: string
   }
 }

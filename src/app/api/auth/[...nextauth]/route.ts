@@ -3,6 +3,7 @@ import Credentials from 'next-auth/providers/credentials'
 import { getServerSession } from 'next-auth/next'
 import { prisma, orgContext } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
+import { randomUUID } from 'crypto'
 import {
   peekRateLimit,
   incrementRateLimit,
@@ -116,6 +117,13 @@ export const authOptions: NextAuthOptions = {
         token.org_name = (user as any).org_name
         token.employee_id = (user as any).employee_id
         token.trial_ends_at = (user as any).trial_ends_at
+        // Stable per-sign-in id — only assigned here, at the initial `user`
+        // present call, so it survives next-auth's routine JWT re-encoding
+        // (which refreshes iat/exp on every /api/auth/session check) but
+        // changes on every fresh login. Used to invalidate the payroll
+        // step-up unlock the moment someone logs out and back in, even on
+        // the same shared account — see src/lib/payroll-lock.ts.
+        token.login_id = randomUUID()
       }
       return token
     },
@@ -126,6 +134,7 @@ export const authOptions: NextAuthOptions = {
       session.user.org_name = token.org_name as string
       session.user.employee_id = token.employee_id as string | undefined
       session.user.trial_ends_at = token.trial_ends_at as string | null | undefined
+      session.user.login_id = token.login_id as string
       return session
     },
   },

@@ -92,7 +92,7 @@ export async function GET(
     // The shared hr_admin login must not see salary/payslip figures until the
     // payroll password unlocks it. An employee viewing their own record here
     // (via /portal/profile) is exempt — this isn't about self-service access.
-    const payrollLocked = session.user.role !== 'employee' && !isPayrollUnlocked(req, session.user.org_id)
+    const payrollLocked = session.user.role !== 'employee' && !isPayrollUnlocked(req, session.user.org_id, session.user.login_id)
     if (payrollLocked) {
       for (const field of SALARY_FIELDS) delete data[field]
       data.payslips = []
@@ -132,7 +132,7 @@ export async function PATCH(
       for (const f of forbidden) {
         if (f in rest) return NextResponse.json({ success: false, error: `Field '${f}' cannot be changed by employees` }, { status: 403 })
       }
-    } else if (!isPayrollUnlocked(req, session.user.org_id)) {
+    } else if (!isPayrollUnlocked(req, session.user.org_id, session.user.login_id)) {
       // Shared hr_admin login, payroll still locked — no editing salary blind
       for (const f of ['ctc_annual', 'monthly_incentive', 'salary_structure_id']) {
         if (f in rest) return NextResponse.json({ success: false, error: 'Unlock payroll access to change salary', code: 'PAYROLL_LOCKED' }, { status: 403 })

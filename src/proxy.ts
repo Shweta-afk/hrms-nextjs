@@ -80,7 +80,8 @@ export default async function proxy(req: NextRequest) {
   // this gate only concerns the shared admin view of payroll data.
   if ((pathname === '/api/payroll' || pathname.startsWith('/api/payroll/')) && token.role !== 'employee') {
     const orgId = token.org_id as string | undefined
-    if (!orgId || !isPayrollUnlocked(req, orgId)) {
+    const loginId = token.login_id as string | undefined
+    if (!orgId || !loginId || !isPayrollUnlocked(req, orgId, loginId)) {
       return NextResponse.json({ success: false, error: 'Payroll access is locked', code: 'PAYROLL_LOCKED' }, { status: 403 })
     }
   }

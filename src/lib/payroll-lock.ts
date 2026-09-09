@@ -30,20 +30,25 @@ function sign(payload: string): string {
   return crypto.createHmac('sha256', getSecret()).update(payload).digest('hex')
 }
 
-export function createUnlockToken(orgId: string): { token: string; maxAgeSec: number } {
+// `loginId` is the session's stable per-sign-in id (session.user.login_id /
+// token.login_id) — NOT the JWT's iat, which next-auth rotates on routine
+// session refreshes. Binding to it means logging out and back in (even on
+// the same shared account) invalidates any previous unlock immediately,
+// regardless of how much of the 30-min window was left.
+export function createUnlockToken(orgId: string, loginId: string): { token: string; maxAgeSec: number } {
   const expiresAt = Date.now() + PAYROLL_UNLOCK_TTL_MS
-  const payload = `${orgId}.${expiresAt}`
+  const payload = `${orgId}.${loginId}.${expiresAt}`
   return { token: `${payload}.${sign(payload)}`, maxAgeSec: Math.floor(PAYROLL_UNLOCK_TTL_MS / 1000) }
 }
 
-export function isUnlockTokenValid(token: string | undefined | null, orgId: string): boolean {
+export function isUnlockTokenValid(token: string | undefined | null, orgId: string, loginId: string): boolean {
   if (!token) return false
   const parts = token.split('.')
-  if (parts.length !== 3) return false
-  const [tokenOrgId, expiresAtStr, sig] = parts
-  if (tokenOrgId !== orgId) return false
+  if (parts.length !== 4) return false
+  const [tokenOrgId, tokenLoginId, expiresAtStr, sig] = parts
+  if (tokenOrgId !== orgId || tokenLoginId !== loginId) return false
   // timing-safe compare — this token gates real salary data
-  const expectedSig = sign(`${tokenOrgId}.${expiresAtStr}`)
+  const expectedSig = sign(`${tokenOrgId}.${tokenLoginId}.${expiresAtStr}`)
   if (expectedSig.length !== sig.length) return false
   if (!crypto.timingSafeEqual(Buffer.from(expectedSig), Buffer.from(sig))) return false
   const expiresAt = Number(expiresAtStr)
@@ -51,8 +56,8 @@ export function isUnlockTokenValid(token: string | undefined | null, orgId: stri
 }
 
 /** Node-runtime only (uses Node's `crypto`) — safe in proxy.ts and route handlers on this app. */
-export function isPayrollUnlocked(req: NextRequest, orgId: string): boolean {
-  return isUnlockTokenValid(req.cookies.get(PAYROLL_UNLOCK_COOKIE)?.value, orgId)
+export function isPayrollUnlocked(req: NextRequest, orgId: string, loginId: string): boolean {
+  return isUnlockTokenValid(req.cookies.get(PAYROLL_UNLOCK_COOKIE)?.value, orgId, loginId)
 }
 
 type JsonRecord = Record<string, unknown>

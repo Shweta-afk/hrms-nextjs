@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const data = CreateEmployeeSchema.parse(body)
 
-    if (data.ctc_annual !== undefined && !isPayrollUnlocked(req, session.user.org_id)) {
+    if (data.ctc_annual !== undefined && !isPayrollUnlocked(req, session.user.org_id, session.user.login_id)) {
       return NextResponse.json({ success: false, error: 'Unlock payroll access to set salary', code: 'PAYROLL_LOCKED' }, { status: 403 })
     }
 

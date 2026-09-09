@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const hash = await getPayrollPasswordHash(session.user.org_id)
   return NextResponse.json({
     success: true,
-    data: { isSet: !!hash, unlocked: isPayrollUnlocked(req, session.user.org_id) },
+    data: { isSet: !!hash, unlocked: isPayrollUnlocked(req, session.user.org_id, session.user.login_id) },
   })
 }
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Incorrect payroll password' }, { status: 401 })
   }
 
-  const { token, maxAgeSec } = createUnlockToken(session.user.org_id)
+  const { token, maxAgeSec } = createUnlockToken(session.user.org_id, session.user.login_id)
   const res = NextResponse.json({ success: true })
   res.cookies.set(PAYROLL_UNLOCK_COOKIE, token, {
     httpOnly: true,
