@@ -3,7 +3,13 @@ import { auth } from '@/app/api/auth/[...nextauth]/route'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { safeDecrypt, safeEncrypt } from '@/lib/encryption'
+import { isPayrollUnlocked } from '@/lib/payroll-lock'
 import { z } from 'zod'
+
+// Fields only whoever holds the payroll password should see/change on someone
+// ELSE's record. An employee viewing their own record via /portal/profile is
+// unaffected — this only gates the shared hr_admin view of other people's salary.
+const SALARY_FIELDS = ['ctc_annual', 'monthly_incentive', 'salary_structure_id', 'salary_structure'] as const
 const UpdateEmployeeSchema = z.object({
   // Self-service fields (employees can edit)
   first_name: z.string().min(1).optional(),
@@ -77,11 +83,21 @@ export async function GET(
     }
 
     // Decrypt sensitive fields before returning
-    const data = {
+    const data: Record<string, unknown> = {
       ...employee,
       bank_details: safeDecrypt(employee.bank_details),
       statutory_info: safeDecrypt(employee.statutory_info),
     }
+
+    // The shared hr_admin login must not see salary/payslip figures until the
+    // payroll password unlocks it. An employee viewing their own record here
+    // (via /portal/profile) is exempt — this isn't about self-service access.
+    const payrollLocked = session.user.role !== 'employee' && !isPayrollUnlocked(req, session.user.org_id)
+    if (payrollLocked) {
+      for (const field of SALARY_FIELDS) delete data[field]
+      data.payslips = []
+    }
+    data.payroll_locked = payrollLocked
 
     return NextResponse.json({ success: true, data })
   } catch (error) {
@@ -115,6 +131,11 @@ export async function PATCH(
       const forbidden = ['department_id','designation_id','manager_id','employment_type','status','salary_structure_id','ctc_annual','essl_device_id','date_of_joining','emp_code','exclude_from_payroll','is_field_agent']
       for (const f of forbidden) {
         if (f in rest) return NextResponse.json({ success: false, error: `Field '${f}' cannot be changed by employees` }, { status: 403 })
+      }
+    } else if (!isPayrollUnlocked(req, session.user.org_id)) {
+      // Shared hr_admin login, payroll still locked — no editing salary blind
+      for (const f of ['ctc_annual', 'monthly_incentive', 'salary_structure_id']) {
+        if (f in rest) return NextResponse.json({ success: false, error: 'Unlock payroll access to change salary', code: 'PAYROLL_LOCKED' }, { status: 403 })
       }
     }
 

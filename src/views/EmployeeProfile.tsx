@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PayrollLockedInline } from "@/components/PayrollGate";
+import { usePayrollUnlock } from "@/contexts/PayrollUnlockContext";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -133,6 +135,7 @@ const fmt = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN')
 interface Props { employeeId: string }
 
 const EmployeeProfile = ({ employeeId }: Props) => {
+  const { unlocked: payrollUnlocked } = usePayrollUnlock()
   const [employee, setEmployee] = useState<Employee | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -834,41 +837,50 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>Monthly Salary (₹)</Label>
-                    <Input
-                      type="number"
-                      value={empDraft.ctc_annual}
-                      onChange={e => setEmpDraft(p => ({ ...p, ctc_annual: e.target.value }))}
-                      placeholder="e.g. 22000"
-                    />
-                    {empDraft.ctc_annual && Number(empDraft.ctc_annual) > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        Annual CTC: ₹{(Number(empDraft.ctc_annual) * 12).toLocaleString('en-IN')}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Monthly Incentive (₹)</Label>
-                    <Input
-                      type="number"
-                      value={empDraft.monthly_incentive}
-                      onChange={e => setEmpDraft(p => ({ ...p, monthly_incentive: e.target.value }))}
-                      placeholder="e.g. 2000 (optional)"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Added to gross every month automatically during payroll run.
-                    </p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Salary Structure</Label>
-                    <Select value={empDraft.salary_structure_id} onValueChange={v => setEmpDraft(p => ({ ...p, salary_structure_id: v }))}>
-                      <SelectTrigger><SelectValue placeholder="Select structure" /></SelectTrigger>
-                      <SelectContent>
-                        {salaryStructures.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {payrollUnlocked ? (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label>Monthly Salary (₹)</Label>
+                        <Input
+                          type="number"
+                          value={empDraft.ctc_annual}
+                          onChange={e => setEmpDraft(p => ({ ...p, ctc_annual: e.target.value }))}
+                          placeholder="e.g. 22000"
+                        />
+                        {empDraft.ctc_annual && Number(empDraft.ctc_annual) > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Annual CTC: ₹{(Number(empDraft.ctc_annual) * 12).toLocaleString('en-IN')}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Monthly Incentive (₹)</Label>
+                        <Input
+                          type="number"
+                          value={empDraft.monthly_incentive}
+                          onChange={e => setEmpDraft(p => ({ ...p, monthly_incentive: e.target.value }))}
+                          placeholder="e.g. 2000 (optional)"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Added to gross every month automatically during payroll run.
+                        </p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Salary Structure</Label>
+                        <Select value={empDraft.salary_structure_id} onValueChange={v => setEmpDraft(p => ({ ...p, salary_structure_id: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Select structure" /></SelectTrigger>
+                          <SelectContent>
+                            {salaryStructures.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground">Compensation</Label>
+                      <PayrollLockedInline label="Unlock payroll access to view or edit salary" />
+                    </div>
+                  )}
                   <div className="space-y-1.5">
                     <Label>Date of Joining</Label>
                     <Input
@@ -890,9 +902,18 @@ const EmployeeProfile = ({ employeeId }: Props) => {
                   <InfoRow label="Designation" value={employee.designation?.name || '—'} />
                   <InfoRow label="Employment Type" value={employee.employment_type.replace('_', ' ')} />
                   <InfoRow label="Date of Joining" value={format(new Date(employee.date_of_joining), 'd MMM yyyy')} />
-                  <InfoRow label="Monthly Salary" value={employee.ctc_annual ? fmt(Math.round(Number(employee.ctc_annual) / 12)) : '—'} />
-                  <InfoRow label="Monthly Incentive" value={employee.monthly_incentive && Number(employee.monthly_incentive) > 0 ? fmt(Math.round(Number(employee.monthly_incentive))) : '—'} />
-                  <InfoRow label="Salary Structure" value={salaryStructures.find(s => s.id === employee.salary_structure_id)?.name || '—'} />
+                  {payrollUnlocked ? (
+                    <>
+                      <InfoRow label="Monthly Salary" value={employee.ctc_annual ? fmt(Math.round(Number(employee.ctc_annual) / 12)) : '—'} />
+                      <InfoRow label="Monthly Incentive" value={employee.monthly_incentive && Number(employee.monthly_incentive) > 0 ? fmt(Math.round(Number(employee.monthly_incentive))) : '—'} />
+                      <InfoRow label="Salary Structure" value={salaryStructures.find(s => s.id === employee.salary_structure_id)?.name || '—'} />
+                    </>
+                  ) : (
+                    <div className="flex flex-col gap-1 py-2.5">
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Compensation</span>
+                      <PayrollLockedInline />
+                    </div>
+                  )}
                   <InfoRow label="Status" value={employee.status.replace('_', ' ')} />
                 </div>
               )}
@@ -1004,7 +1025,11 @@ const EmployeeProfile = ({ employeeId }: Props) => {
           <Card>
             <CardHeader className="pb-3"><CardTitle className="text-base font-semibold">Payslip History</CardTitle></CardHeader>
             <CardContent className="pt-0">
-              {employee.payslips.length === 0 ? (
+              {!payrollUnlocked ? (
+                <div className="flex flex-col items-center gap-2 py-8">
+                  <PayrollLockedInline label="Unlock payroll access to view payslips" className="w-auto" />
+                </div>
+              ) : employee.payslips.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">No payslips available yet.</p>
               ) : (
                 <div className="overflow-x-auto">

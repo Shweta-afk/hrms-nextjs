@@ -23,10 +23,11 @@ import {
 import {
   Building2, FileText, DollarSign, Clock, LayoutGrid, CalendarDays,
   Users, Plug, Save, CheckCircle2, Circle, Plus, Trash2,
-  Loader2, Star, Cpu, Wifi, WifiOff, Copy, AlertCircle, Pencil,
+  Loader2, Star, Cpu, Wifi, WifiOff, Copy, AlertCircle, Pencil, Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { usePayrollUnlock } from "@/contexts/PayrollUnlockContext";
 
 const sidebarItems = [
   { key: "profile", label: "Organisation Profile", icon: Building2 },
@@ -90,6 +91,13 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState("profile")
   const [dirtySection, setDirtySection] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // Payroll access password (gates salary/CTC views elsewhere in the app)
+  const { isSet: payrollPasswordSet, requestUnlock: requestPayrollUnlock, refresh: refreshPayrollUnlock } = usePayrollUnlock()
+  const [payrollCurrentPassword, setPayrollCurrentPassword] = useState("")
+  const [payrollNewPassword, setPayrollNewPassword] = useState("")
+  const [payrollConfirmPassword, setPayrollConfirmPassword] = useState("")
+  const [payrollPasswordSaving, setPayrollPasswordSaving] = useState(false)
 
   // Org profile
   const [orgName, setOrgName] = useState("")
@@ -631,6 +639,28 @@ const Settings = () => {
       if (json.success) setHolidays(json.data)
     } catch { toast.error('Failed to load holidays') }
     finally { setHolidayLoading(false) }
+  }
+
+  async function savePayrollPassword() {
+    if (payrollNewPassword.length < 8) { toast.error('New password must be at least 8 characters'); return }
+    if (payrollNewPassword !== payrollConfirmPassword) { toast.error("Passwords don't match"); return }
+    setPayrollPasswordSaving(true)
+    try {
+      const res = await fetch('/api/payroll-access/set-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: payrollCurrentPassword, newPassword: payrollNewPassword }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('Payroll password updated')
+        setPayrollCurrentPassword(''); setPayrollNewPassword(''); setPayrollConfirmPassword('')
+        refreshPayrollUnlock()
+      } else {
+        toast.error(json.error || 'Could not update payroll password')
+      }
+    } catch { toast.error('Could not update payroll password') }
+    finally { setPayrollPasswordSaving(false) }
   }
 
   function openNewStructureModal() {
@@ -1422,6 +1452,48 @@ const Settings = () => {
             <Plus className="h-4 w-4" /> New Structure
           </Button>
         </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Lock className="h-4 w-4" /> Payroll Access Password
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              This login may be shared by more than one person. Set a separate password here —
+              only whoever knows it can unlock salary, CTC, and payslip views elsewhere in the app.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4 max-w-md">
+            {!payrollPasswordSet && (
+              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                No payroll password is set yet — anyone on this account can currently see salary data.
+              </div>
+            )}
+            {payrollPasswordSet && (
+              <div className="space-y-1.5">
+                <Label>Current Payroll Password</Label>
+                <Input type="password" value={payrollCurrentPassword} onChange={e => setPayrollCurrentPassword(e.target.value)} />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>{payrollPasswordSet ? 'New Payroll Password' : 'Set Payroll Password'}</Label>
+              <Input type="password" value={payrollNewPassword} onChange={e => setPayrollNewPassword(e.target.value)} placeholder="Minimum 8 characters" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Confirm Password</Label>
+              <Input type="password" value={payrollConfirmPassword} onChange={e => setPayrollConfirmPassword(e.target.value)} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button onClick={savePayrollPassword} disabled={payrollPasswordSaving || !payrollNewPassword}>
+                {payrollPasswordSaving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                {payrollPasswordSet ? 'Update Password' : 'Set Password'}
+              </Button>
+              {payrollPasswordSet && (
+                <Button variant="outline" onClick={requestPayrollUnlock}>Unlock now</Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {structuresLoading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>

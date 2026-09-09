@@ -7,6 +7,7 @@ import { Toaster as Sonner } from '@/components/ui/sonner'
 import { SessionProvider } from 'next-auth/react'
 import { ThemeProvider } from 'next-themes'
 import { useState } from 'react'
+import { PayrollUnlockProvider } from '@/contexts/PayrollUnlockContext'
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
@@ -42,7 +43,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
           <TooltipProvider>
             <Toaster />
             <Sonner />
-            {children}
+            <PayrollUnlockProvider>
+              {children}
+            </PayrollUnlockProvider>
           </TooltipProvider>
         </QueryClientProvider>
       </SessionProvider>

@@ -13,6 +13,8 @@ import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PayrollLockedInline } from "@/components/PayrollGate";
+import { usePayrollUnlock } from "@/contexts/PayrollUnlockContext";
 import {
   Check, ChevronLeft, ChevronRight, Loader2, AlertCircle,
   User, ClipboardList, Mail,
@@ -55,6 +57,7 @@ function Field({
 }
 
 const AddEmployee = () => {
+  const { unlocked: payrollUnlocked } = usePayrollUnlock()
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState(0)
   const [submitting, setSubmitting]   = useState(false)
@@ -319,18 +322,26 @@ const AddEmployee = () => {
                   <p className="text-xs text-muted-foreground">Employee's ID on the ZKTeco / AiFace device</p>
                 </Field>
 
-                <div className="space-y-2">
-                  <Label htmlFor="ctcAnnual">Monthly Salary (₹)</Label>
-                  <Input id="ctcAnnual" type="number" placeholder="e.g. 22000" value={ctcAnnual}
-                    onChange={e => setCtcAnnual(e.target.value)} />
-                  {ctcAnnual && Number(ctcAnnual) > 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      Annual CTC: ₹{(Number(ctcAnnual) * 12).toLocaleString('en-IN')}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Enter take-home / gross monthly salary</p>
-                  )}
-                </div>
+                {payrollUnlocked ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="ctcAnnual">Monthly Salary (₹)</Label>
+                    <Input id="ctcAnnual" type="number" placeholder="e.g. 22000" value={ctcAnnual}
+                      onChange={e => setCtcAnnual(e.target.value)} />
+                    {ctcAnnual && Number(ctcAnnual) > 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Annual CTC: ₹{(Number(ctcAnnual) * 12).toLocaleString('en-IN')}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Enter take-home / gross monthly salary</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Monthly Salary (₹)</Label>
+                    <PayrollLockedInline label="Unlock payroll access to set salary" />
+                    <p className="text-xs text-muted-foreground">Salary can be added later once unlocked</p>
+                  </div>
+                )}
 
               </div>
             </CardContent>
@@ -365,7 +376,9 @@ const AddEmployee = () => {
                   ['Employment Type',  emp_type_label[employmentType] ?? employmentType],
                   ['Manager',          managerLabel],
                   ['Device ID',        esslDeviceId || '—'],
-                  ['Monthly Salary',   ctcAnnual ? `₹ ${Number(ctcAnnual).toLocaleString('en-IN')} / month  (₹${(Number(ctcAnnual)*12).toLocaleString('en-IN')} annual)` : '—'],
+                  ['Monthly Salary',   payrollUnlocked
+                    ? (ctcAnnual ? `₹ ${Number(ctcAnnual).toLocaleString('en-IN')} / month  (₹${(Number(ctcAnnual)*12).toLocaleString('en-IN')} annual)` : '—')
+                    : '🔒 Locked'],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-center justify-between px-4 py-3 text-sm">
                     <span className="text-muted-foreground w-36 flex-shrink-0">{label}</span>

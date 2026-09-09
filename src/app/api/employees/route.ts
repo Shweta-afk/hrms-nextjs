@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { isPayrollUnlocked } from '@/lib/payroll-lock'
 import { z } from 'zod'
 
 const CreateEmployeeSchema = z.object({
@@ -109,6 +110,11 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json()
     const data = CreateEmployeeSchema.parse(body)
+
+    if (data.ctc_annual !== undefined && !isPayrollUnlocked(req, session.user.org_id)) {
+      return NextResponse.json({ success: false, error: 'Unlock payroll access to set salary', code: 'PAYROLL_LOCKED' }, { status: 403 })
+    }
+
     const email = data.email.trim().toLowerCase()
 
     // Pre-check: is this email already in use by another user?

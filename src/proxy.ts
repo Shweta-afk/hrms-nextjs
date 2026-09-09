@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
+import { isPayrollUnlocked } from '@/lib/payroll-lock'
 
 // Pages that don't require auth.
 // IMPORTANT: '/' must be exact-match (not prefix) — startsWith('/') would match every URL.
@@ -72,6 +73,17 @@ export default async function proxy(req: NextRequest) {
   // Trial-expiry hard-lock removed along with the in-app billing page: plans are
   // now handled by contacting sales directly. The trial banner (AppLayout) still
   // shows remaining days when trial_ends_at is set.
+
+  // Payroll step-up lock: the HR login here is shared by more than one person,
+  // and only some of them should see salary/CTC data. Employees fetching their
+  // OWN approved payslip go through this same API and must stay unaffected —
+  // this gate only concerns the shared admin view of payroll data.
+  if (pathname.startsWith('/api/payroll') && token.role !== 'employee') {
+    const orgId = token.org_id as string | undefined
+    if (!orgId || !isPayrollUnlocked(req, orgId)) {
+      return NextResponse.json({ success: false, error: 'Payroll access is locked', code: 'PAYROLL_LOCKED' }, { status: 403 })
+    }
+  }
 
   return NextResponse.next()
 }
