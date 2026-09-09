@@ -364,6 +364,14 @@ const EmployeeProfile = ({ employeeId }: Props) => {
 
   useEffect(() => { fetchEmployee(); fetchEnrollments(); fetchDocuments() }, [fetchEmployee, fetchEnrollments, fetchDocuments])
 
+  // The initial fetch above may have happened while payroll was locked, which
+  // redacts ctc_annual/monthly_incentive/salary_structure_id/payslips server
+  // side. Unlocking flips the display branch (see payrollUnlocked below) but
+  // doesn't by itself put the real values back — refetch so they do.
+  useEffect(() => {
+    if (payrollUnlocked) fetchEmployee()
+  }, [payrollUnlocked, fetchEmployee])
+
   // ── end fetch ──
 
   const patch = async (payload: Record<string, unknown>) => {
