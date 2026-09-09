@@ -111,16 +111,18 @@ export function lateCalc(firstIn: Date, s: ShiftSettings): { isLate: boolean; la
  *
  * Rules (in priority order):
  * 1. No punch at all → 'absent'
- * 2. first_in >= half_day_cutoff (default 14:00 IST) → 'half_day'
- *    (came very late — only afternoon session present)
- * 3. first_in >= afternoon_half_day_start (default 12:00 IST) AND last_out is set
- *    → 'half_day'  (afternoon-only employees: in at 12/13, out at 17/18)
- * 4. total_hours is known and < min_full_day_hours (default 5h) → 'half_day'
- *    (left too early)
- * 5. is_late → 'late'
- * 6. Otherwise → 'present'
+ * 2. total_hours is known (day is closed out, i.e. there's a checkout):
+ *    decide half_day purely on total_hours < min_full_day_hours (default 5h).
+ *    A late arrival that still completes a full shift is NOT half_day.
+ * 3. total_hours is unknown (still clocked in, no checkout yet) and
+ *    first_in >= half_day_cutoff (default 14:00 IST) → 'half_day'
+ *    (came very late — flag as half_day for real-time display while the
+ *    day is still in progress; re-evaluated against actual hours once
+ *    they check out, via rule 2 above)
+ * 4. is_late → 'late'
+ * 5. Otherwise → 'present'
  *
- * Note: rules 2–4 are checked regardless of the late flag; half_day takes
+ * Note: rules 2–3 are checked regardless of the late flag; half_day takes
  * precedence over late so the monthly summary half-day count is accurate.
  */
 export function statusCalc(
@@ -135,18 +137,16 @@ export function statusCalc(
   const firstInIST  = new Date(firstIn.getTime() + istOffsetMs)
   const firstInMins = firstInIST.getUTCHours() * 60 + firstInIST.getUTCMinutes()
 
-  const halfCutoffMins   = s.halfDayCutoffHour   * 60 + s.halfDayCutoffMin
-  const afternoonMins    = s.afternoonHalfDayHour * 60 + s.afternoonHalfDayMin
+  const halfCutoffMins = s.halfDayCutoffHour * 60 + s.halfDayCutoffMin
 
-  // Arrived at or after the hard half-day cutoff → always half_day
-  if (firstInMins >= halfCutoffMins) return 'half_day'
-
-  // Arrived in the afternoon window (and has a checkout) → half_day
-  // Without a checkout we can't confirm they worked the session, so skip.
-  if (firstInMins >= afternoonMins && lastOut) return 'half_day'
-
-  // Checked out too early: less than min_full_day_hours of work → half_day
-  if (totalHours !== null && totalHours < s.minFullDayHours) return 'half_day'
+  if (totalHours !== null) {
+    // Day is closed out — actual hours worked are the source of truth.
+    if (totalHours < s.minFullDayHours) return 'half_day'
+  } else if (!lastOut && firstInMins >= halfCutoffMins) {
+    // Still clocked in and arrived very late — flag now, hours will
+    // confirm/override this once they check out.
+    return 'half_day'
+  }
 
   const { isLate } = lateCalc(firstIn, s)
   return isLate ? 'late' : 'present'
