@@ -70,6 +70,16 @@ export async function getSignedDownloadUrl(
   )
 }
 
+// Normalise a stored file reference to its S3 key. Older rows saved the full
+// presigned URL (which expires after an hour) instead of the key — recover the
+// key from the URL path so those files can still be re-signed.
+export function toS3Key(ref: string): string {
+  if (!/^https?:\/\//i.test(ref)) return ref
+  const path = decodeURIComponent(new URL(ref).pathname.replace(/^\//, ''))
+  // Path-style URLs (s3.region.amazonaws.com/bucket/key) include the bucket
+  return BUCKET && path.startsWith(`${BUCKET}/`) ? path.slice(BUCKET.length + 1) : path
+}
+
 // Get a presigned URL for direct browser upload (expires in 15 min)
 export async function getPresignedUploadUrl(
   key: string,

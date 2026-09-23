@@ -258,7 +258,8 @@ const EmployeePortal = () => {
           setReimbSubmitting(false)
           return
         }
-        billUrl = uploadJson.data.url
+        // Store the S3 key, not the signed URL — signed URLs expire after an hour
+        billUrl = uploadJson.data.key
       }
       const res = await fetch('/api/reimbursements', {
         method: 'POST',

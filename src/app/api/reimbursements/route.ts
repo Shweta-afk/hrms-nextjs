@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
 import { requireAuth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getSignedDownloadUrl, toS3Key } from '@/lib/s3'
 
 export async function GET(req: NextRequest) {
   try {
@@ -37,7 +38,16 @@ export async function GET(req: NextRequest) {
       orderBy: { created_at: 'desc' },
     })
 
-    return NextResponse.json({ success: true, data: reimbursements })
+    // bill_url stores the S3 key — sign it fresh on every read so the "View"
+    // link never expires, however old the claim is.
+    const withBills = await Promise.all(
+      reimbursements.map(async (r) => ({
+        ...r,
+        bill_signed_url: r.bill_url ? await getSignedDownloadUrl(toS3Key(r.bill_url)) : null,
+      }))
+    )
+
+    return NextResponse.json({ success: true, data: withBills })
   } catch (error) {
     return NextResponse.json({ success: false, error: 'Failed to fetch reimbursements' }, { status: 500 })
   }
@@ -67,6 +77,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'amount must be a positive number' }, { status: 400 })
     }
 
+    // bill_url must be an S3 key inside this org's prefix — it gets signed on
+    // read, so accepting any key would let a user expose another org's file.
+    const billKey = bill_url ? toS3Key(String(bill_url)) : null
+    if (billKey && !billKey.startsWith(`${session.user.org_id}/`)) {
+      return NextResponse.json({ success: false, error: 'Invalid bill reference' }, { status: 400 })
+    }
+
     // For employees, always use their own employee_id
     // For HR admins, use the provided employee_id or fall back to their own if they have one
     const targetEmployeeId = isEmployee
@@ -84,7 +101,7 @@ export async function POST(req: NextRequest) {
         title,
         description: description ?? null,
         amount: parsedAmount,
-        bill_url: bill_url ?? null,
+        bill_url: billKey,
         status: 'pending',
       },
       include: {

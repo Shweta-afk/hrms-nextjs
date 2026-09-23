@@ -19,6 +19,7 @@ interface Reimbursement {
   description: string | null
   amount: number
   bill_url: string | null
+  bill_signed_url: string | null
   status: 'pending' | 'approved' | 'rejected'
   approved_by: string | null
   approved_at: string | null
@@ -223,9 +224,9 @@ const Reimbursements = () => {
                     <StatusBadge status={r.status} />
                   </TableCell>
                   <TableCell>
-                    {r.bill_url ? (
+                    {r.bill_signed_url ? (
                       <a
-                        href={r.bill_url}
+                        href={r.bill_signed_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs text-primary hover:underline"
