@@ -209,21 +209,19 @@ export async function POST(
         Math.round(Object.values(obj).reduce((a, b) => a + b, 0))
 
       // Build earnings: use Actual Salary from file as the gross if provided,
-      // otherwise keep the payslip's existing earnings (scaled if stale).
-      // Preserve component structure (Basic/HRA/Special) from the payslip.
+      // otherwise keep the payslip's existing earnings. Basic/HRA/Special
+      // Allowance are derived from CTC by the payroll engine and must stay
+      // exactly as calculated — any gap between the file's Actual Salary and
+      // the payslip's existing gross (e.g. HR typing in an incentive, or a
+      // one-off correction) becomes its own named line item instead of
+      // proportionally rescaling every component. Previously this scaled
+      // Basic/HRA along with gross, so adding an incentive silently inflated
+      // HRA too.
       const existingGross = sum(payslip.earnings as Record<string, number>)
       const fileGross     = actualSalary > 0 ? actualSalary : existingGross
-      const newEarnings: Record<string, number> = {}
-
-      if (fileGross !== existingGross && existingGross > 0) {
-        // Scale existing components proportionally to the file's gross
-        const scale = fileGross / existingGross
-        for (const [k, v] of Object.entries(payslip.earnings as Record<string, number>)) {
-          newEarnings[k] = Math.round((v as number) * scale)
-        }
-      } else {
-        Object.assign(newEarnings, payslip.earnings as Record<string, number>)
-      }
+      const newEarnings: Record<string, number> = { ...(payslip.earnings as Record<string, number>) }
+      const grossDiff = fileGross - existingGross
+      if (grossDiff > 0) newEarnings['Incentive'] = (newEarnings['Incentive'] || 0) + grossDiff
 
       // Previous Salary addition
       if (prevSal > 0) newEarnings['Previous Salary'] = prevSal
@@ -234,6 +232,10 @@ export async function POST(
       //   Deduction    = "Deductions if any" column (one-off HR deduction)
       //   Salary Advance = self-explanatory
       const newDeductions: Record<string, number> = {}
+      // Mirror of the positive-grossDiff case above: if the file's Actual
+      // Salary is lower than the payslip's existing gross, record the gap as
+      // its own deduction line rather than shrinking Basic/HRA proportionally.
+      if (grossDiff < 0) newDeductions['Salary Adjustment'] = (newDeductions['Salary Adjustment'] || 0) - grossDiff
       const lop = actualSalary > 0 && netSalary > 0 ? Math.max(0, actualSalary - netSalary) : 0
       if (lop > 0)      newDeductions['Loss of Pay']    = lop
       if (dedIfAny > 0) newDeductions['Deduction']      = dedIfAny
