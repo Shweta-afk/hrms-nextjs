@@ -566,16 +566,26 @@ model SalaryStructure {
 }
 
 // ─── SHIFT GROUPS ───────────────────────────────────────────────────────
-// Each group defines a set of weekly day-off numbers (0=Sun … 6=Sat).
-// Employees assigned to a group use its weekly_offs in payroll instead of the
-// org-level default, enabling different schedules (e.g. 6-day vs 5-day).
+// weekly_offs (0=Sun … 6=Sat) is the legacy "this weekday is off every
+// single week" list — still the fallback when a weekday has no rule below.
+// off_day_rules generalizes this to occurrence-in-month patterns (e.g. only
+// the 2nd Saturday, or the 1st and 3rd Sunday), which weekly_offs alone
+// cannot express. Shape: Array<{ weekday: 0-6, occurrences: 'all' | number[] }>
+// — occurrences is 'all' for every week, or a list of 1-5 (5 = 5th if the
+// month has one) / -1 meaning "last occurrence of that weekday in the month".
+// A weekday not present in off_day_rules (when off_day_rules is set) is a
+// working day even if it's in the legacy weekly_offs list.
+// Employees assigned to a group use its schedule in payroll instead of the
+// org-level default, enabling different schedules (e.g. 6-day vs 5-day, or
+// alternate-Saturday patterns).
 
 model ShiftGroup {
-  id          String   @id @default(uuid())
-  org_id      String
-  name        String
-  weekly_offs Int[]
-  created_at  DateTime @default(now())
+  id             String   @id @default(uuid())
+  org_id         String
+  name           String
+  weekly_offs    Int[]
+  off_day_rules  Json?
+  created_at     DateTime @default(now())
 
   organisation Organisation @relation(fields: [org_id], references: [id])
   employees    Employee[]   @relation("EmployeeShiftGroup")

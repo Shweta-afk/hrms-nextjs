@@ -1,27 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getWorkingDaysInPeriod, isScheduledOffDay, type OffDayRule } from '@/lib/payroll/shift-schedule'
 // XLSX loaded lazily inside handler — keeps cold-start lean
-
-// ─── Helper: count working days in a range ──────────────────────────────────
-function getWorkingDays(
-  from: Date, to: Date,
-  weeklyOffs: number[],
-  holidayDates: Set<string>,
-  workingDayOverrides: Set<string>,
-): number {
-  let count = 0
-  const cur = new Date(from)
-  while (cur <= to) {
-    const ds = cur.toISOString().slice(0, 10)
-    const isWeekend  = weeklyOffs.includes(cur.getUTCDay())
-    const isHoliday  = holidayDates.has(ds)
-    const isOverride = workingDayOverrides.has(ds)
-    if (!isWeekend && !isHoliday || isOverride) count++
-    cur.setUTCDate(cur.getUTCDate() + 1)
-  }
-  return count
-}
 
 export async function GET(
   req: NextRequest,
@@ -79,7 +60,7 @@ export async function GET(
             ctc_annual: true, date_of_joining: true,
             department: { select: { name: true } },
             designation: { select: { name: true } },
-            shift_group: { select: { weekly_offs: true } },
+            shift_group: { select: { weekly_offs: true, off_day_rules: true } },
           },
         },
       },
@@ -119,6 +100,7 @@ export async function GET(
     for (const ps of payslips) {
       const emp = ps.employee
       const empWeeklyOffs = (emp.shift_group?.weekly_offs as number[] | null) ?? weeklyOffs
+      const empOffDayRules = (emp.shift_group?.off_day_rules as OffDayRule[] | null) ?? null
 
       // Use pre-loaded attendance map (no extra DB call per employee)
       const empAttendance = attByEmp.get(emp.id) ?? []
@@ -126,7 +108,7 @@ export async function GET(
         empAttendance.map(a => [new Date(a.date).toISOString().slice(0, 10), a])
       )
 
-      const empWorkingDays = getWorkingDays(periodStart, periodEnd, empWeeklyOffs, holidayDates, workingDayOverrides)
+      const empWorkingDays = getWorkingDaysInPeriod(periodStart, periodEnd, empOffDayRules, empWeeklyOffs, holidays, workingDayOverrides)
       let presentDays = 0, absentDays = 0, lateDays = 0, halfDays = 0
       let holidayCount = 0, weeklyOffCount = 0, leaveDays = 0
 
@@ -141,7 +123,7 @@ export async function GET(
 
       for (const ds of dateStrings) {
         const date = new Date(ds + 'T00:00:00Z')
-        const isWeekOff  = empWeeklyOffs.includes(date.getUTCDay())
+        const isWeekOff  = isScheduledOffDay(date, empOffDayRules, empWeeklyOffs)
         const isHoliday  = holidayDates.has(ds)
         const isWorkDay  = workingDayOverrides.has(ds)
         const rec = attMap.get(ds)

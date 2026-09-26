@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { calculatePF, calculateESI, calculatePT, calculateTDS } from '@/lib/payroll/compliance'
+import { getWorkingDaysInPeriod, type OffDayRule } from '@/lib/payroll/shift-schedule'
 import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
       .map(h => new Date(h.date).toISOString().slice(0, 10))
 
     // org-level working days (used as fallback for employees without a shift group)
-    const orgWorkingDays = getWorkingDaysInPeriod(monthStart, monthEnd, weeklyOffs, holidays, workingDayOverrides)
+    const orgWorkingDays = getWorkingDaysInPeriod(monthStart, monthEnd, null, weeklyOffs, holidays, workingDayOverrides)
 
     // Calendar days in the actual payroll period (e.g. 21 Apr–20 May = 30)
     const periodCalendarDays = Math.round((monthEnd.getTime() - monthStart.getTime()) / 86_400_000)
@@ -127,7 +128,7 @@ export async function POST(req: NextRequest) {
         salary_structure_id: true,
         salary_structure: { select: { id: true, name: true, components: true, is_default: true } },
         shift_group_id: true,
-        shift_group: { select: { weekly_offs: true } },
+        shift_group: { select: { weekly_offs: true, off_day_rules: true } },
         date_of_joining: true,
         bank_details: true,
       },
@@ -179,9 +180,9 @@ export async function POST(req: NextRequest) {
       }
 
       // ── Working days in the period for this employee (LOP calculation only) ──
-      const empWeeklyOffs = (employee.shift_group as any)?.weekly_offs as number[] | null
-      const workingDays = empWeeklyOffs
-        ? getWorkingDaysInPeriod(monthStart, monthEnd, empWeeklyOffs, holidays, workingDayOverrides)
+      const empShiftGroup = employee.shift_group as { weekly_offs: number[]; off_day_rules: OffDayRule[] | null } | null
+      const workingDays = empShiftGroup
+        ? getWorkingDaysInPeriod(monthStart, monthEnd, empShiftGroup.off_day_rules, empShiftGroup.weekly_offs, holidays, workingDayOverrides)
         : orgWorkingDays
 
       // ── Attendance counts ──
@@ -364,44 +365,4 @@ export async function POST(req: NextRequest) {
     logger.error('payroll_run_failed', error)
     return NextResponse.json({ success: false, error: 'Payroll processing failed' }, { status: 500 })
   }
-}
-
-/**
- * Compute working days for a month.
- * - weeklyOffs:          day-of-week numbers to treat as off (0=Sun…6=Sat)
- * - holidays:            all holiday records for the month
- * - workingDayOverrides: ISO date strings (YYYY-MM-DD) that HR marked as
- *                        working days — these count even if they fall on a
- *                        weekly off (e.g. a working Sunday)
- */
-/** Working days within an arbitrary date range (inclusive both ends). */
-function getWorkingDaysInPeriod(
-  from: Date,
-  to: Date,
-  weeklyOffs: number[],
-  holidays: { date: Date; type: string }[],
-  workingDayOverrides: string[],
-): number {
-  const overrideSet = new Set(workingDayOverrides)
-  const holidaySet = new Set(
-    holidays
-      .filter(h => h.type !== 'working_day')
-      .map(h => new Date(h.date).toISOString().slice(0, 10))
-  )
-
-  let count = 0
-  const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()))
-  const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()))
-
-  while (cur <= end) {
-    const iso = cur.toISOString().slice(0, 10)
-    const dow = cur.getUTCDay()
-    if (weeklyOffs.includes(dow)) {
-      if (overrideSet.has(iso)) count++ // HR marked this weekly-off as a working day
-    } else if (!holidaySet.has(iso)) {
-      count++
-    }
-    cur.setUTCDate(cur.getUTCDate() + 1)
-  }
-  return count
 }

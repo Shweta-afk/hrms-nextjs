@@ -63,6 +63,10 @@ export async function POST(req: NextRequest) {
       sql: `ALTER TABLE "employees" ADD COLUMN IF NOT EXISTS "shift_group_id" TEXT`,
     },
     {
+      label: 'shift_groups.off_day_rules',
+      sql: `ALTER TABLE "shift_groups" ADD COLUMN IF NOT EXISTS "off_day_rules" JSONB`,
+    },
+    {
       label: 'employees_shift_group_id_fkey',
       sql: `DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'employees_shift_group_id_fkey') THEN

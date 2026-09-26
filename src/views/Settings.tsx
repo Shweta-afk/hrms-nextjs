@@ -26,6 +26,7 @@ import {
   Loader2, Star, Cpu, Wifi, WifiOff, Copy, AlertCircle, Pencil, Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { describeOffDaySchedule } from "@/lib/payroll/shift-schedule";
 import { toast } from "sonner";
 import { usePayrollUnlock } from "@/contexts/PayrollUnlockContext";
 
@@ -260,13 +261,29 @@ const Settings = () => {
   const [savingPolicy, setSavingPolicy] = useState(false)
 
   // Shift Groups
-  interface ShiftGroup { id: string; name: string; weekly_offs: number[]; _count: { employees: number } }
+  interface ShiftGroupRule { weekday: number; occurrences: 'all' | number[] }
+  interface ShiftGroup {
+    id: string; name: string; weekly_offs: number[]
+    off_day_rules: ShiftGroupRule[] | null
+    _count: { employees: number }
+  }
+  interface ShiftGroupEmployee {
+    id: string; emp_code: string; first_name: string; last_name: string
+    shift_group_id: string | null
+    department: { name: string } | null
+  }
   const [shiftGroups, setShiftGroups] = useState<ShiftGroup[]>([])
   const [shiftGroupsLoading, setShiftGroupsLoading] = useState(false)
   const [shiftGroupModal, setShiftGroupModal] = useState(false)
   const [editingShiftGroup, setEditingShiftGroup] = useState<ShiftGroup | null>(null)
   const [newGroupName, setNewGroupName] = useState('')
-  const [newGroupWeeklyOffs, setNewGroupWeeklyOffs] = useState<number[]>([0])
+  const [newGroupRules, setNewGroupRules] = useState<ShiftGroupRule[]>([{ weekday: 0, occurrences: 'all' }])
+  // Employee assignment — only surfaced here, on the shift group's own edit
+  // modal, never on the employee create/edit forms.
+  const [groupEmployees, setGroupEmployees] = useState<ShiftGroupEmployee[]>([])
+  const [groupEmployeesLoading, setGroupEmployeesLoading] = useState(false)
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set())
+  const [employeeSearch, setEmployeeSearch] = useState('')
   const [savingGroup, setSavingGroup] = useState(false)
 
   useEffect(() => {
@@ -503,6 +520,52 @@ const Settings = () => {
     finally { setShiftGroupsLoading(false) }
   }
 
+  // Toggle a weekday between "working" and "off (every week)".
+  function toggleGroupDay(weekday: number) {
+    setNewGroupRules(prev => {
+      const exists = prev.some(r => r.weekday === weekday)
+      return exists ? prev.filter(r => r.weekday !== weekday) : [...prev, { weekday, occurrences: 'all' }]
+    })
+  }
+  // Toggle a specific occurrence (1st..5th, or Last) for a weekday that's
+  // already off. Selecting any specific occurrence switches that weekday out
+  // of "every week"; clearing all of them falls back to "every week" so the
+  // day never silently becomes a working day.
+  function toggleGroupOccurrence(weekday: number, occ: number) {
+    setNewGroupRules(prev => prev.map(r => {
+      if (r.weekday !== weekday) return r
+      const current = r.occurrences === 'all' ? [] : r.occurrences
+      const next = current.includes(occ) ? current.filter(o => o !== occ) : [...current, occ]
+      return { ...r, occurrences: next.length > 0 ? next : 'all' }
+    }))
+  }
+  function setGroupDayEveryWeek(weekday: number) {
+    setNewGroupRules(prev => prev.map(r => r.weekday === weekday ? { ...r, occurrences: 'all' } : r))
+  }
+
+  async function fetchGroupEmployees(groupId: string) {
+    setGroupEmployeesLoading(true)
+    try {
+      const res = await fetch(`/api/payroll/shift-groups/${groupId}/employees`)
+      const json = await res.json()
+      if (json.success) {
+        setGroupEmployees(json.data)
+        setSelectedEmployeeIds(new Set(
+          json.data.filter((e: ShiftGroupEmployee) => e.shift_group_id === groupId).map((e: ShiftGroupEmployee) => e.id)
+        ))
+      }
+    } catch { toast.error('Failed to load employees') }
+    finally { setGroupEmployeesLoading(false) }
+  }
+
+  function toggleEmployeeSelection(id: string) {
+    setSelectedEmployeeIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
   async function handleSaveShiftGroup() {
     if (!newGroupName.trim()) { toast.error('Group name is required'); return }
     setSavingGroup(true)
@@ -511,20 +574,34 @@ const Settings = () => {
         const res = await fetch(`/api/payroll/shift-groups/${editingShiftGroup.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newGroupName.trim(), weekly_offs: newGroupWeeklyOffs }),
+          body: JSON.stringify({ name: newGroupName.trim(), off_day_rules: newGroupRules }),
         })
         const json = await res.json()
-        if (json.success) { toast.success('Shift group updated'); setShiftGroupModal(false); fetchShiftGroups() }
-        else toast.error(json.error ?? 'Failed to update')
+        if (!json.success) { toast.error(json.error ?? 'Failed to update'); return }
+
+        const empRes = await fetch(`/api/payroll/shift-groups/${editingShiftGroup.id}/employees`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ employee_ids: Array.from(selectedEmployeeIds) }),
+        })
+        const empJson = await empRes.json()
+        if (!empJson.success) { toast.error(empJson.error ?? 'Group saved, but assigning employees failed'); return }
+
+        toast.success('Shift group updated — applies to this month and every future payroll run')
+        setShiftGroupModal(false)
+        fetchShiftGroups()
       } else {
         const res = await fetch('/api/payroll/shift-groups', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newGroupName.trim(), weekly_offs: newGroupWeeklyOffs }),
+          body: JSON.stringify({ name: newGroupName.trim(), off_day_rules: newGroupRules }),
         })
         const json = await res.json()
-        if (json.success) { toast.success('Shift group created'); setShiftGroupModal(false); fetchShiftGroups() }
-        else toast.error(json.error ?? 'Failed to create')
+        if (json.success) {
+          toast.success('Shift group created — now assign employees to it below')
+          fetchShiftGroups()
+          openShiftGroupModal(json.data) // stay open, switch into edit mode to assign employees
+        } else toast.error(json.error ?? 'Failed to create')
       }
     } catch { toast.error('Failed to save shift group') }
     finally { setSavingGroup(false) }
@@ -541,14 +618,22 @@ const Settings = () => {
   }
 
   function openShiftGroupModal(group?: ShiftGroup) {
+    setEmployeeSearch('')
     if (group) {
       setEditingShiftGroup(group)
       setNewGroupName(group.name)
-      setNewGroupWeeklyOffs([...group.weekly_offs])
+      setNewGroupRules(
+        group.off_day_rules && group.off_day_rules.length > 0
+          ? group.off_day_rules
+          : group.weekly_offs.map(d => ({ weekday: d, occurrences: 'all' as const }))
+      )
+      fetchGroupEmployees(group.id)
     } else {
       setEditingShiftGroup(null)
       setNewGroupName('')
-      setNewGroupWeeklyOffs([0])
+      setNewGroupRules([{ weekday: 0, occurrences: 'all' }])
+      setGroupEmployees([])
+      setSelectedEmployeeIds(new Set())
     }
     setShiftGroupModal(true)
   }
@@ -2379,7 +2464,7 @@ const Settings = () => {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Assign different weekly-off schedules to groups of employees. Payroll uses each employee's group to count working days.
+              Define off-day schedules — every week, or only specific occurrences (e.g. 2nd Saturday) — and assign employees to them here. Applies to this month and every future payroll run.
             </p>
           </CardHeader>
           <CardContent>
@@ -2394,19 +2479,18 @@ const Settings = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Group Name</TableHead>
-                    <TableHead>Weekly Offs</TableHead>
+                    <TableHead>Off Days</TableHead>
                     <TableHead>Employees</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {shiftGroups.map(g => {
-                    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
                     return (
                       <TableRow key={g.id}>
                         <TableCell className="font-medium">{g.name}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {g.weekly_offs.map(d => dayNames[d]).join(', ') || '—'}
+                          {describeOffDaySchedule(g.off_day_rules, g.weekly_offs)}
                         </TableCell>
                         <TableCell className="text-sm">{g._count.employees}</TableCell>
                         <TableCell className="text-right">
@@ -3005,11 +3089,11 @@ const Settings = () => {
 
       {/* Shift Group Create/Edit Modal */}
       <Dialog open={shiftGroupModal} onOpenChange={open => { if (!open) setShiftGroupModal(false) }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingShiftGroup ? 'Edit Shift Group' : 'Create Shift Group'}</DialogTitle>
             <DialogDescription>
-              Employees assigned to this group will use its weekly-off days for payroll calculations.
+              Employees assigned to this group use its off-day schedule for payroll — for this month and every future run.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -3022,37 +3106,121 @@ const Settings = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label>Weekly Off Days</Label>
-              <p className="text-xs text-muted-foreground">Select which days are off for this group</p>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, idx) => (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => {
-                      setNewGroupWeeklyOffs(prev =>
-                        prev.includes(idx) ? prev.filter(d => d !== idx) : [...prev, idx]
-                      )
-                    }}
-                    className={cn(
-                      "px-3 py-1.5 rounded-md text-sm font-medium border transition-colors",
-                      newGroupWeeklyOffs.includes(idx)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-muted-foreground border-border hover:border-primary/50"
-                    )}
-                  >
-                    {day}
-                  </button>
-                ))}
+              <Label>Off Days</Label>
+              <p className="text-xs text-muted-foreground">
+                Toggle a day off, then optionally restrict it to specific occurrences in the month
+                — e.g. Saturday, only the 2nd — instead of every week.
+              </p>
+              <div className="space-y-2 mt-1">
+                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, idx) => {
+                  const rule = newGroupRules.find(r => r.weekday === idx)
+                  return (
+                    <div key={day} className="flex items-start gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleGroupDay(idx)}
+                        className={cn(
+                          "px-3 py-1.5 rounded-md text-sm font-medium border transition-colors shrink-0 w-14",
+                          rule
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                        )}
+                      >
+                        {day}
+                      </button>
+                      {rule && (
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setGroupDayEveryWeek(idx)}
+                            className={cn(
+                              "px-2 py-1 rounded text-xs font-medium border",
+                              rule.occurrences === 'all'
+                                ? "bg-secondary text-secondary-foreground border-secondary"
+                                : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                            )}
+                          >
+                            Every week
+                          </button>
+                          {[1, 2, 3, 4, 5, -1].map(occ => {
+                            const active = rule.occurrences !== 'all' && rule.occurrences.includes(occ)
+                            const label = occ === -1 ? 'Last' : ['', '1st', '2nd', '3rd', '4th', '5th'][occ]
+                            return (
+                              <button
+                                key={occ}
+                                type="button"
+                                onClick={() => toggleGroupOccurrence(idx, occ)}
+                                className={cn(
+                                  "px-2 py-1 rounded text-xs font-medium border",
+                                  active
+                                    ? "bg-secondary text-secondary-foreground border-secondary"
+                                    : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                                )}
+                              >
+                                {label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
-              {newGroupWeeklyOffs.length === 0 && (
+              {newGroupRules.length === 0 && (
                 <p className="text-xs text-amber-600">⚠ No days off — all 7 days will be counted as working days.</p>
               )}
             </div>
+
+            {editingShiftGroup && (
+              <div className="space-y-2 border-t border-border pt-4">
+                <Label>Assigned Employees</Label>
+                <p className="text-xs text-muted-foreground">
+                  Assign employees to this group here — this is the only place assignment happens.
+                  Checking an employee moves them out of any other shift group.
+                </p>
+                <Input
+                  placeholder="Search by name or code…"
+                  value={employeeSearch}
+                  onChange={e => setEmployeeSearch(e.target.value)}
+                  className="h-8"
+                />
+                {groupEmployeesLoading ? (
+                  <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto border border-border rounded-md divide-y divide-border">
+                    {groupEmployees
+                      .filter(e => {
+                        const q = employeeSearch.trim().toLowerCase()
+                        if (!q) return true
+                        return `${e.first_name} ${e.last_name} ${e.emp_code}`.toLowerCase().includes(q)
+                      })
+                      .map(e => (
+                        <label key={e.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-muted/50">
+                          <Checkbox
+                            checked={selectedEmployeeIds.has(e.id)}
+                            onCheckedChange={() => toggleEmployeeSelection(e.id)}
+                          />
+                          <span className="flex-1">
+                            {e.first_name} {e.last_name} <span className="text-muted-foreground">({e.emp_code})</span>
+                          </span>
+                          {e.shift_group_id && e.shift_group_id !== editingShiftGroup.id && !selectedEmployeeIds.has(e.id) && (
+                            <span className="text-xs text-amber-600 shrink-0">in another group</span>
+                          )}
+                        </label>
+                      ))}
+                    {groupEmployees.length === 0 && (
+                      <p className="text-xs text-muted-foreground italic px-3 py-2">No employees found.</p>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">{selectedEmployeeIds.size} employee(s) selected</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShiftGroupModal(false)}>Cancel</Button>
-            <Button onClick={handleSaveShiftGroup} disabled={savingGroup} className="gap-2">
+            <Button onClick={handleSaveShiftGroup} disabled={savingGroup || newGroupRules.length === 0} className="gap-2">
               {savingGroup && <Loader2 className="h-4 w-4 animate-spin" />}
               {editingShiftGroup ? 'Save Changes' : 'Create Group'}
             </Button>
