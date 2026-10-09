@@ -144,6 +144,16 @@ export default function PortalProfilePage() {
 
   async function handleUploadDoc(type: string, file: File) {
     if (!employee) return
+    // Check up front — oversized bodies are rejected by Vercel (4.5MB cap) with a
+    // non-JSON 413, which would otherwise surface as a bare "Upload failed".
+    if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
+      toast.error('Only PDF, JPG and PNG files are allowed')
+      return
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      toast.error(`File is ${(file.size / 1024 / 1024).toFixed(1)}MB — please upload a file under 4MB`)
+      return
+    }
     setUploadingType(type)
     try {
       const form = new FormData()
@@ -152,8 +162,9 @@ export default function PortalProfilePage() {
       form.append('sub_id', employee.id)
       form.append('doc_type', type)
       const uploadRes = await fetch('/api/upload', { method: 'POST', body: form })
-      const uploadJson = await uploadRes.json()
-      if (!uploadJson.success) { toast.error('Upload failed — ' + (uploadJson.error ?? '')); return }
+      if (uploadRes.status === 413) { toast.error('File is too large — please upload a file under 4MB'); return }
+      const uploadJson = await uploadRes.json().catch(() => null)
+      if (!uploadJson?.success) { toast.error('Upload failed — ' + (uploadJson?.error ?? `server error ${uploadRes.status}`)); return }
       const { key } = uploadJson.data
       const saveRes = await fetch(`/api/employees/${employee.id}/documents`, {
         method: 'POST',

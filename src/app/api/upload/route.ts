@@ -3,8 +3,9 @@ import { auth } from '@/app/api/auth/[...nextauth]/route'
 import { buildS3Key, uploadFile, getSignedDownloadUrl } from '@/lib/s3'
 import { prisma } from '@/lib/prisma'
 
-// Max 5MB
-const MAX_SIZE = 5 * 1024 * 1024
+// Max 4MB — Vercel rejects request bodies over 4.5MB with a plain-text 413
+// before this handler ever runs, so the limit must sit below that.
+const MAX_SIZE = 4 * 1024 * 1024
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf']
 
 export async function POST(req: NextRequest) {
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     if (file.size > MAX_SIZE) {
       return NextResponse.json(
-        { success: false, error: 'File size must be under 5MB' },
+        { success: false, error: 'File size must be under 4MB' },
         { status: 400 }
       )
     }

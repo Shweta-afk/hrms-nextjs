@@ -322,7 +322,7 @@ const ApplyLeave = () => {
                     ) : (
                       <label className="flex items-center justify-center gap-2 rounded-md border border-dashed px-3 py-2.5 text-sm text-muted-foreground cursor-pointer hover:bg-secondary/50 transition-colors">
                         <Paperclip className="h-4 w-4" />
-                        Attach a medical certificate or other document (PDF, JPG, PNG — max 5MB)
+                        Attach a medical certificate or other document (PDF, JPG, PNG — max 4MB)
                         <input
                           type="file"
                           accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
@@ -330,7 +330,7 @@ const ApplyLeave = () => {
                           onChange={e => {
                             const f = e.target.files?.[0]
                             if (!f) return
-                            if (f.size > 5 * 1024 * 1024) { toast.error('File must be under 5MB'); return }
+                            if (f.size > 4 * 1024 * 1024) { toast.error('File must be under 4MB'); return }
                             setDocument(f)
                           }}
                         />

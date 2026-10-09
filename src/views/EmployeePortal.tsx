@@ -779,7 +779,7 @@ const EmployeePortal = () => {
                       ) : (
                         <div className="text-sm text-muted-foreground">
                           <Receipt className="h-5 w-5 mx-auto mb-1 opacity-40" />
-                          <p>Click to upload (PDF, JPG, PNG — max 5MB)</p>
+                          <p>Click to upload (PDF, JPG, PNG — max 4MB)</p>
                         </div>
                       )}
                     </div>

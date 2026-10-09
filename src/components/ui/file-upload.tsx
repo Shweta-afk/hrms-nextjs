@@ -93,7 +93,7 @@ export function FileUpload({
       ) : uploaded ? (
         <span className="text-xs text-kpi-green truncate max-w-full">{uploaded}</span>
       ) : (
-        <span className="text-xs text-muted-foreground">PDF, JPG, PNG up to 5MB</span>
+        <span className="text-xs text-muted-foreground">PDF, JPG, PNG up to 4MB</span>
       )}
     </label>
   )
